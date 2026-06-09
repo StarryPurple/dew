@@ -1,0 +1,7 @@
+# D001: affine resource passed to function, used again
+def read = fn (x: Box(Int)) { unbox(x) };
+def main = fn () {
+    def b = box(42);
+    def _ = read(b);
+    read(b)
+}

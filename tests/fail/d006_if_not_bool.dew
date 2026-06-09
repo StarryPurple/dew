@@ -1,0 +1,4 @@
+# D006: type mismatch — if condition must be Bool
+def main = fn () {
+    if 42 { 1 } else { 0 }
+}

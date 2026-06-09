@@ -1,0 +1,4 @@
+# D006: type mismatch — expected Int for +, found Bool
+def main = fn () {
+    true + 1
+}

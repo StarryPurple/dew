@@ -1,0 +1,4 @@
+# D006: type mismatch — expected function, found Int
+def main = fn () {
+    42(0)
+}

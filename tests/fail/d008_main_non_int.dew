@@ -1,0 +1,4 @@
+# D008: main must return Int, found Bool
+def main = fn () {
+    true
+}

@@ -172,11 +172,12 @@ impl Lexer {
                     match s.as_str() {
                         "fn" => Token::Fn, "def" => Token::Let, "if" => Token::If,
                         "else" => Token::Else, "fix" => Token::Fix, "dup" => Token::Dup,
-                        "box" => Token::Box, "unbox" => Token::Unbox,
-                        "nil" => Token::Nil, "cons" => Token::Cons,
-                        "head" => Token::Head, "tail" => Token::Tail,
-                        "isnil" => Token::IsNil,
-                        "true" => Token::True, "false" => Token::False,
+                        "box" | "Box" => Token::Box, "unbox" | "Unbox" => Token::Unbox,
+                        "nil" | "Nil" => Token::Nil, "cons" | "Cons" => Token::Cons,
+                        "head" | "Head" => Token::Head, "tail" | "Tail" => Token::Tail,
+                        "isnil" | "IsNil" | "isNil" => Token::IsNil,
+                        "true" | "True" => Token::True, "false" | "False" => Token::False,
+                        "Int" | "Bool" | "List" => Token::Ident(s),
                         _ => Token::Ident(s),
                     }
                 }

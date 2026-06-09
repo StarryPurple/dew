@@ -1,0 +1,5 @@
+# D005: dup on affine Box value
+def main = fn () {
+    def b = box(42);
+    dup(b)
+}

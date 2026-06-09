@@ -1,0 +1,4 @@
+# D001: affine resource used after consumption — double unbox
+def b = box(42);
+def _ = unbox(b);
+unbox(b)

@@ -1,0 +1,4 @@
+# D007: unbound variable — x never defined
+def main = fn () {
+    x
+}

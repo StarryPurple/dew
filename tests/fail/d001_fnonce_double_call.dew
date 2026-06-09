@@ -1,0 +1,4 @@
+# D001: FnOnce closure called twice — captures affine Box
+def b = box(99);
+def reader = fn (x: Int) { unbox(b) };
+reader(0) + reader(0)
