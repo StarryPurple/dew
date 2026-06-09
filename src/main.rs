@@ -50,6 +50,8 @@ enum Command {
         #[arg(long)]
         prefix: String,
     },
+    /// Start LSP server (for editor integration)
+    Lsp,
 }
 
 const KEYWORDS: &[&str] = &[
@@ -64,6 +66,10 @@ fn main() {
     match args.command {
         Some(Command::Lint { file }) => cmd_lint(&file),
         Some(Command::Complete { file, prefix }) => cmd_complete(&file, &prefix),
+        Some(Command::Lsp) => {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(dew::lsp::run_lsp());
+        }
         None => {
             let file = args.file.as_ref().expect("FILE required");
             cmd_run(file, &args.emit, args.trace);
