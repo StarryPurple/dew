@@ -1,0 +1,6 @@
+# dup on unrestricted types — evaluates to 6
+def main = fn () {
+  def x = 3;
+  def y = dup(x);
+  x + y
+}

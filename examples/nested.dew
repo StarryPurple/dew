@@ -1,0 +1,7 @@
+# Nested def bindings — evaluates to 30
+def main = fn () {
+  def a = 10;
+  def b = a + 5;
+  def c = b * 2;
+  c
+}

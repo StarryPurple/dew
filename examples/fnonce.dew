@@ -1,0 +1,7 @@
+# FnOnce via Box capture — evaluates to 99
+# The closure captures 'b: Box(Int)' → becomes affine (FnOnce)
+def main = fn () {
+  def b = box(99);
+  def reader = fn (x: Int) { unbox(b) };
+  reader(0)
+}

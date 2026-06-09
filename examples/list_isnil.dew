@@ -1,0 +1,5 @@
+# Test empty list — evaluates to 1 (true)
+def main = fn () {
+  def empty = [];
+  if isnil(empty) { 1 } else { 0 }
+}

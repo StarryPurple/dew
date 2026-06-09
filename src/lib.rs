@@ -1,0 +1,12 @@
+pub mod ast;
+pub mod diagnostics;
+pub mod eval;
+pub mod flat_ir;
+pub mod ir;
+pub mod ir_gen;
+pub mod lower;
+pub mod parser;
+pub mod strictness;
+pub mod typeck;
+pub mod types;
+pub mod value;

@@ -1,0 +1,9 @@
+# Infinite lazy list — evaluates to 0
+# cons tail is lazy: f(n+1) is suspended, only forced by tail()
+def main = fn () {
+  def from = fix f: Int -> [Int] {
+    fn (n: Int) { cons(n, f(n + 1)) }
+  };
+  def nums = from(0);
+  head(nums)
+}

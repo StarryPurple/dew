@@ -1,0 +1,7 @@
+# Box/Unbox: correct linear resource usage — evaluates to 43
+# box(42) creates a Box(Int) — affine, must be unboxed
+def main = fn () {
+  def b = box(42);
+  def n = unbox(b);
+  n + 1
+}

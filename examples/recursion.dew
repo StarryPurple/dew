@@ -1,0 +1,9 @@
+# Recursion via fix — factorial 5 = 120
+def main = fn () {
+  def fact = fix f: Int -> Int {
+    fn (n: Int) {
+      if (n < 2) { 1 } else { n * f(n - 1) }
+    }
+  };
+  fact(5)
+}

@@ -1,0 +1,6 @@
+# Pure functions are unrestricted — evaluates to 5
+# No affine captures → Fn, freely reusable
+def main = fn () {
+  def add_one = fn (x: Int) { x + 1 };
+  add_one(1) + add_one(2)
+}

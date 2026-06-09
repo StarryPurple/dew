@@ -1,0 +1,5 @@
+# Basic list literal — evaluates to 10
+def main = fn () {
+  def xs = [10];
+  head(xs)
+}
