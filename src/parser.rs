@@ -1,12 +1,12 @@
 /// Hand-written recursive descent parser for Dew.
 
-use crate::ast::{BinOp, Expr};
+use crate::ast::{BinOp, Expr, Span};
 use crate::types::Type;
 
 pub fn parse(source: &str) -> Result<Expr, Vec<String>> {
     let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize().map_err(|errs| errs)?;
-    let mut parser = Parser::new(tokens);
+    let (tokens, spans) = lexer.tokenize().map_err(|errs| errs)?;
+    let mut parser = Parser::new(tokens, spans);
     let expr = parse_expr_from_parser(&mut parser).map_err(|e| vec![e])?;
     match parser.peek() {
         Some(tok) if !matches!(tok, Token::Eof) => {
@@ -111,10 +111,13 @@ impl Lexer {
         }
     }
 
-    fn tokenize(&mut self) -> Result<Vec<Token>, Vec<String>> {
+    fn tokenize(&mut self) -> Result<(Vec<Token>, Vec<Span>), Vec<String>> {
         let mut tokens = Vec::new();
+        let mut spans = Vec::new();
         loop {
             self.skip_whitespace();
+            let start_line = self.line;
+            let start_col = self.col;
             let ch = match self.peek_char() { Some(c) => c, None => break, };
             let tok = match ch {
                 '0'..='9' => {
@@ -170,10 +173,14 @@ impl Lexer {
                 }
                 c => return Err(vec![format!("unexpected character '{c}' at {}", self.span())]),
             };
+            let end_line = self.line;
+            let end_col = self.col;
             tokens.push(tok);
+            spans.push((start_line, start_col, end_line, end_col));
         }
         tokens.push(Token::Eof);
-        Ok(tokens)
+        spans.push((self.line, self.col, self.line, self.col));
+        Ok((tokens, spans))
     }
 }
 
@@ -181,12 +188,14 @@ impl Lexer {
 
 struct Parser {
     tokens: Vec<Token>,
+    spans: Vec<Span>,
     pos: usize,
 }
 
 impl Parser {
-    fn new(tokens: Vec<Token>) -> Self { Parser { tokens, pos: 0 } }
+    fn new(tokens: Vec<Token>, spans: Vec<Span>) -> Self { Parser { tokens, spans, pos: 0 } }
     fn peek(&self) -> Option<&Token> { self.tokens.get(self.pos) }
+    fn span(&self) -> Span { self.spans.get(self.pos).copied().unwrap_or((0, 0, 0, 0)) }
     fn advance(&mut self) -> &Token {
         let tok = &self.tokens[self.pos];
         if self.pos < self.tokens.len() - 1 { self.pos += 1; }
@@ -213,7 +222,8 @@ fn parse_comp(parser: &mut Parser) -> Result<Expr, String> {
     while parser.check(&Token::EqEq) || parser.check(&Token::Lt) || parser.check(&Token::Gt) {
         let op = match parser.advance() { Token::EqEq => BinOp::Eq, Token::Lt => BinOp::Lt, Token::Gt => BinOp::Gt, _ => unreachable!() };
         let right = parse_term(parser)?;
-        left = Expr::BinOp(op, Box::new(left), Box::new(right));
+        let span = parser.span();
+        left = Expr::BinOp(op, Box::new(left), Box::new(right), span);
     }
     Ok(left)
 }
@@ -223,7 +233,8 @@ fn parse_term(parser: &mut Parser) -> Result<Expr, String> {
     while parser.check(&Token::Plus) || parser.check(&Token::Minus) {
         let op = match parser.advance() { Token::Plus => BinOp::Add, Token::Minus => BinOp::Sub, _ => unreachable!() };
         let right = parse_factor(parser)?;
-        left = Expr::BinOp(op, Box::new(left), Box::new(right));
+        let span = parser.span();
+        left = Expr::BinOp(op, Box::new(left), Box::new(right), span);
     }
     Ok(left)
 }
@@ -233,7 +244,8 @@ fn parse_factor(parser: &mut Parser) -> Result<Expr, String> {
     while parser.check(&Token::Star) || parser.check(&Token::Slash) {
         let op = match parser.advance() { Token::Star => BinOp::Mul, Token::Slash => BinOp::Div, _ => unreachable!() };
         let right = parse_app(parser)?;
-        left = Expr::BinOp(op, Box::new(left), Box::new(right));
+        let span = parser.span();
+        left = Expr::BinOp(op, Box::new(left), Box::new(right), span);
     }
     Ok(left)
 }
@@ -251,17 +263,19 @@ fn parse_app(parser: &mut Parser) -> Result<Expr, String> {
         && !parser.check(&Token::RBracket) && !parser.check(&Token::LBracket)
     {
         let arg = parse_primary(parser)?;
-        expr = Expr::App(Box::new(expr), Box::new(arg));
+        let span = parser.span();
+        expr = Expr::App(Box::new(expr), Box::new(arg), span);
     }
     Ok(expr)
 }
 
 fn parse_primary(parser: &mut Parser) -> Result<Expr, String> {
+    let span = parser.span();
     match parser.peek() {
-        Some(Token::Int(n)) => { let n = *n; parser.advance(); Ok(Expr::LitInt(n)) }
-        Some(Token::True) => { parser.advance(); Ok(Expr::LitBool(true)) }
-        Some(Token::False) => { parser.advance(); Ok(Expr::LitBool(false)) }
-        Some(Token::Ident(name)) => { let name = name.clone(); parser.advance(); Ok(Expr::Var(name)) }
+        Some(Token::Int(n)) => { let n = *n; parser.advance(); Ok(Expr::LitInt(n, span)) }
+        Some(Token::True) => { parser.advance(); Ok(Expr::LitBool(true, span)) }
+        Some(Token::False) => { parser.advance(); Ok(Expr::LitBool(false, span)) }
+        Some(Token::Ident(name)) => { let name = name.clone(); parser.advance(); Ok(Expr::Var(name, span)) }
         Some(Token::If) => {
             parser.advance();
             let cond = parse_expr_from_parser(parser)?;
@@ -272,12 +286,11 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, String> {
             expect_brace(parser, Token::LBrace, "{")?;
             let else_body = parse_expr_from_parser(parser)?;
             expect_brace(parser, Token::RBrace, "}")?;
-            Ok(Expr::If(Box::new(cond), Box::new(then_body), Box::new(else_body)))
+            Ok(Expr::If(Box::new(cond), Box::new(then_body), Box::new(else_body), span))
         }
         Some(Token::Fn) => {
             parser.advance();
             parser.expect(&Token::LParen)?;
-            // Two cases: fn () { body } (unit param) or fn (x: Type) { body }
             let (param_name, param_ty) = if parser.check(&Token::RParen) {
                 parser.advance(); // )
                 ("_".to_string(), Type::Unit)
@@ -289,22 +302,19 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, String> {
             expect_brace(parser, Token::LBrace, "{")?;
             let body = parse_expr_from_parser(parser)?;
             expect_brace(parser, Token::RBrace, "}")?;
-            Ok(Expr::Lam(param_name, param_ty, Box::new(body)))
+            Ok(Expr::Lam(param_name, param_ty, Box::new(body), span))
         }
         Some(Token::Let) => {
             parser.advance();
             let name = expect_ident(parser)?;
             parser.expect(&Token::Eq)?;
             let bind = parse_expr_from_parser(parser)?;
-            // `def x = expr ; body` — semicolon + continuation, or
-            // `def x = expr` — binding as standalone expression.
             if parser.check(&Token::Semicolon) {
                 parser.advance(); // ;
                 let body = parse_expr_from_parser(parser)?;
-                Ok(Expr::Let(name, Box::new(bind), Box::new(body)))
+                Ok(Expr::Let(name, Box::new(bind), Box::new(body), span))
             } else {
-                // No continuation — bind returns the value.
-                Ok(Expr::Let(name.clone(), Box::new(bind), Box::new(Expr::Var(name))))
+                Ok(Expr::Let(name.clone(), Box::new(bind), Box::new(Expr::Var(name, span)), span))
             }
         }
         Some(Token::Dup) => {
@@ -312,7 +322,7 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, String> {
             parser.expect(&Token::LParen)?;
             let inner = parse_expr_from_parser(parser)?;
             parser.expect(&Token::RParen)?;
-            Ok(Expr::Dup(Box::new(inner)))
+            Ok(Expr::Dup(Box::new(inner), span))
         }
         Some(Token::Fix) => {
             parser.advance();
@@ -322,25 +332,25 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, String> {
             expect_brace(parser, Token::LBrace, "{")?;
             let body = parse_expr_from_parser(parser)?;
             expect_brace(parser, Token::RBrace, "}")?;
-            Ok(Expr::Fix(name, ty, Box::new(body)))
+            Ok(Expr::Fix(name, ty, Box::new(body), span))
         }
         Some(Token::Box) => {
             parser.advance();
             parser.expect(&Token::LParen)?;
             let inner = parse_expr_from_parser(parser)?;
             parser.expect(&Token::RParen)?;
-            Ok(Expr::Box(Box::new(inner)))
+            Ok(Expr::Box(Box::new(inner), span))
         }
         Some(Token::Unbox) => {
             parser.advance();
             parser.expect(&Token::LParen)?;
             let inner = parse_expr_from_parser(parser)?;
             parser.expect(&Token::RParen)?;
-            Ok(Expr::Unbox(Box::new(inner)))
+            Ok(Expr::Unbox(Box::new(inner), span))
         }
         Some(Token::Nil) => {
             parser.advance();
-            Ok(Expr::Nil)
+            Ok(Expr::Nil(span))
         }
         Some(Token::Cons) => {
             parser.advance();
@@ -349,42 +359,40 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, String> {
             parser.expect(&Token::Comma)?;
             let tail = parse_expr_from_parser(parser)?;
             parser.expect(&Token::RParen)?;
-            Ok(Expr::Cons(Box::new(head), Box::new(tail)))
+            Ok(Expr::Cons(Box::new(head), Box::new(tail), span))
         }
         Some(Token::Head) => {
             parser.advance();
             parser.expect(&Token::LParen)?;
             let inner = parse_expr_from_parser(parser)?;
             parser.expect(&Token::RParen)?;
-            Ok(Expr::Head(Box::new(inner)))
+            Ok(Expr::Head(Box::new(inner), span))
         }
         Some(Token::Tail) => {
             parser.advance();
             parser.expect(&Token::LParen)?;
             let inner = parse_expr_from_parser(parser)?;
             parser.expect(&Token::RParen)?;
-            Ok(Expr::Tail(Box::new(inner)))
+            Ok(Expr::Tail(Box::new(inner), span))
         }
         Some(Token::IsNil) => {
             parser.advance();
             parser.expect(&Token::LParen)?;
             let inner = parse_expr_from_parser(parser)?;
             parser.expect(&Token::RParen)?;
-            Ok(Expr::IsNil(Box::new(inner)))
+            Ok(Expr::IsNil(Box::new(inner), span))
         }
         Some(Token::LBracket) => {
             parser.advance(); // [
             match parser.peek() {
                 Some(Token::RBracket) => {
-                    // [] — empty list
                     parser.advance(); // ]
-                    Ok(Expr::Nil)
+                    Ok(Expr::Nil(span))
                 }
                 _ => {
-                    // [e1, e2, ..., en] — list literal
                     let head = parse_expr_from_parser(parser)?;
                     let tail = parse_list_tail(parser)?;
-                    Ok(Expr::Cons(Box::new(head), Box::new(tail)))
+                    Ok(Expr::Cons(Box::new(head), Box::new(tail), span))
                 }
             }
         }
@@ -392,7 +400,7 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, String> {
             parser.advance(); // (
             if parser.check(&Token::RParen) {
                 parser.advance(); // )
-                Ok(Expr::LitUnit)
+                Ok(Expr::LitUnit(span))
             } else {
                 let expr = parse_expr_from_parser(parser)?;
                 parser.expect(&Token::RParen)?;
@@ -429,7 +437,7 @@ fn parse_type(parser: &mut Parser) -> Result<Type, String> {
     if parser.check(&Token::Arrow) {
         parser.advance();
         let ret = parse_type(parser)?;
-        Ok(Type::Fun(Box::new(ty), Box::new(ret), crate::types::Affinity::Unrestricted))
+        Ok(Type::Fun(Box::new(ty), Box::new(ret), crate::types::Affinity::Normal))
     } else {
         Ok(ty)
     }
@@ -438,16 +446,17 @@ fn parse_type(parser: &mut Parser) -> Result<Type, String> {
 /// Parse the tail of a list literal: `, e2, ..., en]` or just `]`.
 /// Returns the nested Cons chain.
 fn parse_list_tail(parser: &mut Parser) -> Result<Expr, String> {
+    let span = parser.span();
     match parser.peek() {
         Some(Token::Comma) => {
             parser.advance(); // ,
             let head = parse_expr_from_parser(parser)?;
             let tail = parse_list_tail(parser)?;
-            Ok(Expr::Cons(Box::new(head), Box::new(tail)))
+            Ok(Expr::Cons(Box::new(head), Box::new(tail), span))
         }
         Some(Token::RBracket) => {
             parser.advance(); // ]
-            Ok(Expr::Nil)
+            Ok(Expr::Nil(span))
         }
         Some(tok) => Err(format!("expected ',' or ']' in list literal, found {tok}")),
         None => Err("unexpected end of input in list literal".to_string()),

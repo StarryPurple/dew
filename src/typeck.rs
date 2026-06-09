@@ -1,11 +1,11 @@
 /// Affine type checker for Dew.
 ///
 /// Rules:
-///   - Int, Bool, Unit are unrestricted — never consumed on use.
-///   - Box(T) is affine — consumed on use, must be unboxed.
-///   - Pure closures (no affine captures) are unrestricted.
-///   - Closures capturing affine variables are affine (FnOnce).
-///   - fix bindings are unrestricted (recursion needs reuse).
+///   - Int, Bool, Unit are Normal — never consumed on use.
+///   - Box(T) is Affine — consumed on use, must be unboxed.
+///   - Pure closures (no affine captures) are Normal.
+///   - Closures capturing affine variables are Affine (FnOnce).
+///   - fix bindings are Normal (recursion needs reuse).
 
 use crate::ast::{BinOp, Expr};
 use crate::diagnostics::DiagnosticCollector;
@@ -32,46 +32,66 @@ pub enum TypeError {
 
 impl std::fmt::Display for TypeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {}", self.code(), self.detailed())
+    }
+}
+
+impl TypeError {
+    pub fn code(&self) -> &'static str {
         match self {
-            TypeError::UnboundVariable(x) => write!(f, "unbound variable '{x}'"),
+            TypeError::AffineViolation(_) => "D001",
+            TypeError::UnusedAffine(_) | TypeError::BoxInnerNotConsumed(_) => "D002",
+            TypeError::BranchMismatch(_) => "D004",
+            TypeError::DupOnAffine(_) => "D005",
+            TypeError::TypeMismatch { .. } | TypeError::InvalidBinOp(..)
+                | TypeError::IfConditionNotBool(_) | TypeError::FixTypeNotFunction(_) => "D006",
+            TypeError::UnboundVariable(_) => "D007",
+            TypeError::MissingMain | TypeError::MultipleMains
+                | TypeError::MainMustBeUnit(_) | TypeError::MainMustReturnInt(_) => "D008",
+        }
+    }
+
+    pub fn detailed(&self) -> String {
+        match self {
+            TypeError::UnboundVariable(x) => format!("unbound variable '{x}'"),
             TypeError::TypeMismatch { expected, found } => {
-                write!(f, "type mismatch: expected {expected}, found {found}")
+                format!("type mismatch: expected {expected}, found {found}")
             }
             TypeError::AffineViolation(x) => {
-                write!(f, "affine violation: variable '{x}' used more than once")
+                format!("affine violation: variable '{x}' used more than once")
             }
             TypeError::DupOnAffine(ty) => {
-                write!(f, "cannot dup value of type {ty} — only unrestricted types are copyable")
+                format!("cannot dup value of type {ty} — only normal types are copyable")
             }
             TypeError::InvalidBinOp(op, l, r) => {
-                write!(f, "invalid binary operation {op:?} on types {l} and {r}")
+                format!("invalid binary operation {op:?} on types {l} and {r}")
             }
             TypeError::IfConditionNotBool(ty) => {
-                write!(f, "if condition must be Bool, found {ty}")
+                format!("if condition must be Bool, found {ty}")
             }
             TypeError::FixTypeNotFunction(ty) => {
-                write!(f, "fix requires a function type, found {ty}")
+                format!("fix requires a function type, found {ty}")
             }
             TypeError::BranchMismatch(msg) => {
-                write!(f, "branch mismatch: {msg}")
+                format!("branch mismatch: {msg}")
             }
             TypeError::UnusedAffine(x) => {
-                write!(f, "resource leak: affine variable '{x}' is never consumed")
+                format!("resource leak: affine variable '{x}' is never consumed")
             }
             TypeError::BoxInnerNotConsumed(x) => {
-                write!(f, "resource leak: Box '{}' captured by closure but never unboxed", x)
+                format!("resource leak: Box '{x}' captured by closure but never unboxed")
             }
             TypeError::MissingMain => {
-                write!(f, "missing entry point: define 'def main = fn () {{ ... }}' returning Int")
+                "missing entry point: define 'def main = fn () {{ ... }}' returning Int".into()
             }
             TypeError::MultipleMains => {
-                write!(f, "multiple 'main' definitions found — only one allowed")
+                "multiple 'main' definitions found — only one allowed".into()
             }
             TypeError::MainMustBeUnit(ty) => {
-                write!(f, "main must take no parameters (fn ()), found parameter type {ty}")
+                format!("main must take no parameters (fn ()), found parameter type {ty}")
             }
             TypeError::MainMustReturnInt(ty) => {
-                write!(f, "main must return Int as exit code, found return type {ty}")
+                format!("main must return Int as exit code, found return type {ty}")
             }
         }
     }
@@ -92,13 +112,13 @@ impl Ctx {
         self.vars.insert(name, (ty, false));
     }
 
-    /// Look up a variable. Unrestricted types are never consumed.
+    /// Look up a variable. Normal types are never consumed.
     /// Affine types are consumed on first use; error on second.
     fn use_var(&mut self, name: &str) -> Result<Type, TypeError> {
         match self.vars.get_mut(name) {
             Some((ty, consumed)) => {
                 if ty.is_copyable() {
-                    // Unrestricted — don't consume.
+                    // Normal — don't consume.
                     Ok(ty.clone())
                 } else if *consumed {
                     Err(TypeError::AffineViolation(name.to_string()))
@@ -182,12 +202,12 @@ impl<'a> TypeChecker<'a> {
 
     fn infer(&mut self, expr: &Expr) -> Result<Type, TypeError> {
         match expr {
-            Expr::LitInt(_) => Ok(Type::Int),
-            Expr::LitBool(_) => Ok(Type::Bool),
-            Expr::LitUnit => Ok(Type::Unit),
-            Expr::Var(name) => self.ctx.use_var(name),
+            Expr::LitInt(_, _) => Ok(Type::Int),
+            Expr::LitBool(_, _) => Ok(Type::Bool),
+            Expr::LitUnit(_) => Ok(Type::Unit),
+            Expr::Var(name, _) => self.ctx.use_var(name),
 
-            Expr::BinOp(op, left, right) => {
+            Expr::BinOp(op, left, right, _) => {
                 let lty = self.infer(left)?;
                 let rty = self.infer(right)?;
                 match op {
@@ -206,7 +226,7 @@ impl<'a> TypeChecker<'a> {
                 }
             }
 
-            Expr::If(cond, then_, else_) => {
+            Expr::If(cond, then_, else_, _) => {
                 let cty = self.infer(cond)?;
                 if cty != Type::Bool {
                     return Err(TypeError::IfConditionNotBool(cty));
@@ -243,7 +263,7 @@ impl<'a> TypeChecker<'a> {
                 Ok(tty)
             }
 
-            Expr::Lam(param, param_ty, body) => {
+            Expr::Lam(param, param_ty, body, _) => {
                 let saved = self.ctx.clone();
                 self.ctx.insert(param.clone(), param_ty.clone());
 
@@ -279,7 +299,7 @@ impl<'a> TypeChecker<'a> {
                     self.diag.record_closure_classification(param, &affine_captures);
                     Affinity::Affine
                 } else {
-                    Affinity::Unrestricted
+                    Affinity::Normal
                 };
 
                 self.ctx = saved;
@@ -290,7 +310,7 @@ impl<'a> TypeChecker<'a> {
                 ))
             }
 
-            Expr::App(fn_expr, arg) => {
+            Expr::App(fn_expr, arg, _) => {
                 let fn_ty = self.infer(fn_expr)?;
                 let arg_ty = self.infer(arg)?;
                 match fn_ty {
@@ -301,20 +321,20 @@ impl<'a> TypeChecker<'a> {
                         Ok(*ret)
                     }
                     _ => Err(TypeError::TypeMismatch {
-                        expected: Type::Fun(Box::new(arg_ty), Box::new(Type::Int), Affinity::Unrestricted),
+                        expected: Type::Fun(Box::new(arg_ty), Box::new(Type::Int), Affinity::Normal),
                         found: fn_ty,
                     }),
                 }
             }
 
-            Expr::Let(name, bind, body) => {
+            Expr::Let(name, bind, body, _) => {
                 let bind_ty = self.infer(bind)?;
                 self.ctx.insert(name.clone(), bind_ty);
                 let body_ty = self.infer(body)?;
                 Ok(body_ty)
             }
 
-            Expr::Dup(inner) => {
+            Expr::Dup(inner, _) => {
                 let ty = self.infer(inner)?;
                 if ty.is_affine() {
                     return Err(TypeError::DupOnAffine(ty));
@@ -322,11 +342,11 @@ impl<'a> TypeChecker<'a> {
                 Ok(ty)
             }
 
-            Expr::Fix(name, ty, body) => {
+            Expr::Fix(name, ty, body, _) => {
                 match ty {
                     Type::Fun(_, _, _) => {
                         let saved = self.ctx.clone();
-                        // fix binding is unrestricted within the body.
+                        // fix binding is Normal within the body.
                         self.ctx.vars.insert(name.clone(), (ty.clone(), true)); // pre-consumed = no tracking
                         let body_ty = self.infer(body)?;
                         self.ctx = saved;
@@ -339,12 +359,12 @@ impl<'a> TypeChecker<'a> {
                 }
             }
 
-            Expr::Box(inner) => {
+            Expr::Box(inner, _) => {
                 let inner_ty = self.infer(inner)?;
                 Ok(Type::Box(Box::new(inner_ty)))
             }
 
-            Expr::Unbox(inner) => {
+            Expr::Unbox(inner, _) => {
                 let inner_ty = self.infer(inner)?;
                 match inner_ty {
                     Type::Box(contents) => Ok(*contents),
@@ -355,9 +375,9 @@ impl<'a> TypeChecker<'a> {
                 }
             }
 
-            Expr::Nil => Ok(Type::List(Box::new(Type::Int))), // polymorphic placeholder
+            Expr::Nil(_) => Ok(Type::List(Box::new(Type::Int))), // polymorphic placeholder
 
-            Expr::Cons(head, tail) => {
+            Expr::Cons(head, tail, _) => {
                 let head_ty = self.infer(head)?;
                 let tail_ty = self.infer(tail)?;
                 match tail_ty {
@@ -377,7 +397,7 @@ impl<'a> TypeChecker<'a> {
                 }
             }
 
-            Expr::Head(list) => {
+            Expr::Head(list, _) => {
                 let list_ty = self.infer(list)?;
                 match list_ty {
                     Type::List(elem_ty) => Ok(*elem_ty),
@@ -388,7 +408,7 @@ impl<'a> TypeChecker<'a> {
                 }
             }
 
-            Expr::Tail(list) => {
+            Expr::Tail(list, _) => {
                 let list_ty = self.infer(list)?;
                 match list_ty {
                     Type::List(_) => Ok(list_ty),
@@ -399,7 +419,7 @@ impl<'a> TypeChecker<'a> {
                 }
             }
 
-            Expr::IsNil(list) => {
+            Expr::IsNil(list, _) => {
                 let list_ty = self.infer(list)?;
                 match list_ty {
                     Type::List(_) => Ok(Type::Bool),
@@ -422,54 +442,54 @@ pub fn free_vars_of_expr(expr: &Expr) -> HashSet<String> {
 
 fn collect_free(expr: &Expr, fv: &mut HashSet<String>) {
     match expr {
-        Expr::Var(name) => {
+        Expr::Var(name, _) => {
             fv.insert(name.clone());
         }
-        Expr::LitInt(_) | Expr::LitBool(_) | Expr::LitUnit => {}
-        Expr::BinOp(_, left, right) => {
+        Expr::LitInt(_, _) | Expr::LitBool(_, _) | Expr::LitUnit(_) => {}
+        Expr::BinOp(_, left, right, _) => {
             collect_free(left, fv);
             collect_free(right, fv);
         }
-        Expr::If(cond, then_, else_) => {
+        Expr::If(cond, then_, else_, _) => {
             collect_free(cond, fv);
             collect_free(then_, fv);
             collect_free(else_, fv);
         }
-        Expr::Lam(param, _, body) => {
+        Expr::Lam(param, _, body, _) => {
             let mut body_fv = HashSet::new();
             collect_free(body, &mut body_fv);
             body_fv.remove(param);
             fv.extend(body_fv);
         }
-        Expr::App(fn_expr, arg) => {
+        Expr::App(fn_expr, arg, _) => {
             collect_free(fn_expr, fv);
             collect_free(arg, fv);
         }
-        Expr::Let(name, bind, body) => {
+        Expr::Let(name, bind, body, _) => {
             collect_free(bind, fv);
             let mut body_fv = HashSet::new();
             collect_free(body, &mut body_fv);
             body_fv.remove(name);
             fv.extend(body_fv);
         }
-        Expr::Dup(inner) => {
+        Expr::Dup(inner, _) => {
             collect_free(inner, fv);
         }
-        Expr::Fix(name, _, body) => {
+        Expr::Fix(name, _, body, _) => {
             let mut body_fv = HashSet::new();
             collect_free(body, &mut body_fv);
             body_fv.remove(name);
             fv.extend(body_fv);
         }
-        Expr::Box(inner) => {
+        Expr::Box(inner, _) => {
             collect_free(inner, fv);
         }
-        Expr::Unbox(inner) => { collect_free(inner, fv); }
-        Expr::Nil => {}
-        Expr::Cons(head, tail) => { collect_free(head, fv); collect_free(tail, fv); }
-        Expr::Head(inner) => { collect_free(inner, fv); }
-        Expr::Tail(inner) => { collect_free(inner, fv); }
-        Expr::IsNil(inner) => { collect_free(inner, fv); }
+        Expr::Unbox(inner, _) => { collect_free(inner, fv); }
+        Expr::Nil(_) => {}
+        Expr::Cons(head, tail, _) => { collect_free(head, fv); collect_free(tail, fv); }
+        Expr::Head(inner, _) => { collect_free(inner, fv); }
+        Expr::Tail(inner, _) => { collect_free(inner, fv); }
+        Expr::IsNil(inner, _) => { collect_free(inner, fv); }
     }
 }
 
@@ -483,9 +503,9 @@ pub fn find_main_bindings(expr: &Expr) -> Vec<(Type, Type)> {
 
 fn find_main_in(expr: &Expr, results: &mut Vec<(Type, Type)>) {
     match expr {
-        Expr::Let(name, bind, body) => {
+        Expr::Let(name, bind, body, _) => {
             if name == "main" {
-                if let Expr::Lam(_param, param_ty, body_expr) = bind.as_ref() {
+                if let Expr::Lam(_param, param_ty, body_expr, _) = bind.as_ref() {
                     let body_ty = infer_body_type(body_expr);
                     results.push((param_ty.clone(), body_ty));
                 }
@@ -493,30 +513,30 @@ fn find_main_in(expr: &Expr, results: &mut Vec<(Type, Type)>) {
             find_main_in(bind, results);
             find_main_in(body, results);
         }
-        Expr::If(_, then_, else_) => {
+        Expr::If(_, then_, else_, _) => {
             find_main_in(then_, results);
             find_main_in(else_, results);
         }
-        Expr::BinOp(_, left, right) => {
+        Expr::BinOp(_, left, right, _) => {
             find_main_in(left, results);
             find_main_in(right, results);
         }
-        Expr::App(fn_expr, arg) => {
+        Expr::App(fn_expr, arg, _) => {
             find_main_in(fn_expr, results);
             find_main_in(arg, results);
         }
-        Expr::Dup(inner) => find_main_in(inner, results),
-        Expr::Fix(_, _, body) => find_main_in(body, results),
-        Expr::Box(inner) => find_main_in(inner, results),
-        Expr::Unbox(inner) => find_main_in(inner, results),
-        Expr::Cons(head, tail) => {
+        Expr::Dup(inner, _) => find_main_in(inner, results),
+        Expr::Fix(_, _, body, _) => find_main_in(body, results),
+        Expr::Box(inner, _) => find_main_in(inner, results),
+        Expr::Unbox(inner, _) => find_main_in(inner, results),
+        Expr::Cons(head, tail, _) => {
             find_main_in(head, results);
             find_main_in(tail, results);
         }
-        Expr::Head(inner) => find_main_in(inner, results),
-        Expr::Tail(inner) => find_main_in(inner, results),
-        Expr::IsNil(inner) => find_main_in(inner, results),
-        Expr::Lam(_, _, body) => find_main_in(body, results),
+        Expr::Head(inner, _) => find_main_in(inner, results),
+        Expr::Tail(inner, _) => find_main_in(inner, results),
+        Expr::IsNil(inner, _) => find_main_in(inner, results),
+        Expr::Lam(_, _, body, _) => find_main_in(body, results),
         _ => {}
     }
 }
@@ -524,29 +544,29 @@ fn find_main_in(expr: &Expr, results: &mut Vec<(Type, Type)>) {
 /// Quick body-type inference for the main check.
 fn infer_body_type(expr: &Expr) -> Type {
     match expr {
-        Expr::LitInt(_) => Type::Int,
-        Expr::LitBool(_) => Type::Bool,
-        Expr::LitUnit => Type::Unit,
-        Expr::BinOp(op, _, _) => match op {
+        Expr::LitInt(_, _) => Type::Int,
+        Expr::LitBool(_, _) => Type::Bool,
+        Expr::LitUnit(_) => Type::Unit,
+        Expr::BinOp(op, _, _, _) => match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => Type::Int,
             BinOp::Eq | BinOp::Lt | BinOp::Gt => Type::Bool,
         },
-        Expr::If(_, then_, _) => infer_body_type(then_),
-        Expr::App(_, _) => Type::Int,
-        Expr::Let(_, _, body) => infer_body_type(body),
-        Expr::Var(_) => Type::Int,
-        Expr::Dup(_) => Type::Int,
-        Expr::Fix(_, _, _) => Type::Int,
-        Expr::Head(_) => Type::Int,
-        Expr::Tail(_) => Type::Int,
-        Expr::IsNil(_) => Type::Bool,
-        Expr::Box(_) => Type::Box(Box::new(Type::Int)),
-        Expr::Unbox(inner) => match infer_body_type(inner) {
+        Expr::If(_, then_, _, _) => infer_body_type(then_),
+        Expr::App(_, _, _) => Type::Int,
+        Expr::Let(_, _, body, _) => infer_body_type(body),
+        Expr::Var(_, _) => Type::Int,
+        Expr::Dup(_, _) => Type::Int,
+        Expr::Fix(_, _, _, _) => Type::Int,
+        Expr::Head(_, _) => Type::Int,
+        Expr::Tail(_, _) => Type::Int,
+        Expr::IsNil(_, _) => Type::Bool,
+        Expr::Box(_, _) => Type::Box(Box::new(Type::Int)),
+        Expr::Unbox(inner, _) => match infer_body_type(inner) {
             Type::Box(t) => *t,
             _ => Type::Int,
         },
-        Expr::Cons(_, _) => Type::Int,
-        Expr::Lam(_, _, _) => Type::Int,
-        Expr::Nil => Type::Int,
+        Expr::Cons(_, _, _) => Type::Int,
+        Expr::Lam(_, _, _, _) => Type::Int,
+        Expr::Nil(_) => Type::Int,
     }
 }

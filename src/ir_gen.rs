@@ -40,57 +40,57 @@ impl IrCompiler {
 
     fn compile_expr_inner(&self, expr: &Expr, outer_ctx: Context) -> Ir {
         match expr {
-            Expr::LitInt(n) => Ir::Lit(*n),
-            Expr::LitBool(b) => Ir::Bool(*b),
-            Expr::LitUnit => Ir::Unit,
-            Expr::Var(name) => Ir::Var(name.clone()),
-            Expr::BinOp(op, left, right) => {
+            Expr::LitInt(n, _) => Ir::Lit(*n),
+            Expr::LitBool(b, _) => Ir::Bool(*b),
+            Expr::LitUnit(_) => Ir::Unit,
+            Expr::Var(name, _) => Ir::Var(name.clone()),
+            Expr::BinOp(op, left, right, _) => {
                 let op_ir = self.convert_op(*op);
                 let l = self.compile_expr(left, Context::Strict);
                 let r = self.compile_expr(right, Context::Strict);
                 Ir::BinOp(op_ir, Box::new(l), Box::new(r))
             }
-            Expr::If(cond, then_, else_) => {
+            Expr::If(cond, then_, else_, _) => {
                 let c = self.compile_expr(cond, Context::Strict);
                 let t = self.compile_expr(then_, outer_ctx);
                 let e = self.compile_expr(else_, outer_ctx);
                 Ir::If(Box::new(c), Box::new(t), Box::new(e))
             }
-            Expr::Lam(param, param_ty, body) => {
+            Expr::Lam(param, param_ty, body, _) => {
                 let b = self.compile_expr(body, Context::Lazy);
                 let ret_ty = b.ty();
-                // Affinity is inferred later; default to Unrestricted here.
-                Ir::Lam(param.clone(), Box::new(b), param_ty.clone(), ret_ty, crate::types::Affinity::Unrestricted)
+                // Affinity is inferred later; default to Normal here.
+                Ir::Lam(param.clone(), Box::new(b), param_ty.clone(), ret_ty, crate::types::Affinity::Normal)
             }
-            Expr::App(fn_expr, arg) => {
+            Expr::App(fn_expr, arg, _) => {
                 let f = self.compile_expr(fn_expr, Context::Strict);
                 let a = self.compile_expr(arg, Context::Lazy);
                 Ir::App(Box::new(f), Box::new(a))
             }
-            Expr::Let(name, bind, body) => {
+            Expr::Let(name, bind, body, _) => {
                 let b = self.compile_expr(bind, Context::Lazy);
                 let body_ir = self.compile_expr(body, outer_ctx);
                 let body_ty = body_ir.ty();
                 Ir::Let(name.clone(), Box::new(b), Box::new(body_ir), body_ty)
             }
-            Expr::Dup(inner) => {
+            Expr::Dup(inner, _) => {
                 let i = self.compile_expr(inner, Context::Strict);
                 Ir::Dup(Box::new(i))
             }
-            Expr::Fix(name, ty, body) => {
+            Expr::Fix(name, ty, body, _) => {
                 let b = self.compile_expr(body, Context::Lazy);
                 Ir::Fix(name.clone(), Box::new(b), ty.clone())
             }
-            Expr::Box(inner) => {
+            Expr::Box(inner, _) => {
                 let i = self.compile_expr(inner, Context::Strict);
                 Ir::Alloc(Box::new(i))
             }
-            Expr::Unbox(inner) => {
+            Expr::Unbox(inner, _) => {
                 let i = self.compile_expr(inner, Context::Strict);
                 Ir::Dealloc(Box::new(i))
             }
-            Expr::Nil => Ir::Nil,
-            Expr::Cons(head, tail) => {
+            Expr::Nil(_) => Ir::Nil,
+            Expr::Cons(head, tail, _) => {
                 // Head is strict, tail is LAZY — this is what enables infinite lists.
                 let h = self.compile_expr(head, Context::Strict);
                 let t_raw = self.compile_expr(tail, Context::Lazy);
@@ -106,15 +106,15 @@ impl IrCompiler {
                 };
                 Ir::Cons(Box::new(h), Box::new(t))
             }
-            Expr::Head(list) => {
+            Expr::Head(list, _) => {
                 let l = self.compile_expr(list, Context::Strict);
                 Ir::Head(Box::new(l))
             }
-            Expr::Tail(list) => {
+            Expr::Tail(list, _) => {
                 let l = self.compile_expr(list, Context::Strict);
                 Ir::Tail(Box::new(l))
             }
-            Expr::IsNil(list) => {
+            Expr::IsNil(list, _) => {
                 let l = self.compile_expr(list, Context::Strict);
                 Ir::IsNil(Box::new(l))
             }

@@ -29,7 +29,7 @@ lib.rs (re-exports all modules)
 |------|------|-------------|
 | `Expr` | `ast.rs` | 18-variant source AST |
 | `Type` | `types.rs` | Int, Bool, Unit, Box(T), Fun, List(T) |
-| `Affinity` | `types.rs` | Unrestricted vs Affine |
+| `Affinity` | `types.rs` | Normal vs Affine |
 | `Context` | `strictness.rs` | Strict vs Lazy evaluation context |
 | `Ir` | `ir.rs` | 19-variant tree IR (includes Suspend/Force) |
 | `Module` | `flat_ir.rs` | Flat IR container (Vec of Functions) |

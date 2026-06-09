@@ -14,26 +14,29 @@
 
 use crate::types::Type;
 
+/// Source location: (start_line, start_col, end_line, end_col), 1-indexed.
+pub type Span = (usize, usize, usize, usize);
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    LitInt(i64),
-    LitBool(bool),
-    LitUnit,
-    Var(String),
-    BinOp(BinOp, Box<Expr>, Box<Expr>),
-    If(Box<Expr>, Box<Expr>, Box<Expr>),
-    Lam(String, Type, Box<Expr>),       // fn (param: ty) { body }
-    App(Box<Expr>, Box<Expr>),
-    Let(String, Box<Expr>, Box<Expr>),  // let x = bind; body
-    Dup(Box<Expr>),                     // duplicate a copyable value
-    Fix(String, Type, Box<Expr>),       // fix f: ty { body }
-    Box(Box<Expr>),                     // box(e) — allocate linear box
-    Unbox(Box<Expr>),                   // unbox(e) — deallocate, extract value
-    Nil,                                // nil — empty list
-    Cons(Box<Expr>, Box<Expr>),         // cons(h, t) — construct list
-    Head(Box<Expr>),                    // head(l) — get list head
-    Tail(Box<Expr>),                    // tail(l) — get list tail
-    IsNil(Box<Expr>),                   // isnil(l) — test if empty
+    LitInt(i64, Span),
+    LitBool(bool, Span),
+    LitUnit(Span),
+    Var(String, Span),
+    BinOp(BinOp, Box<Expr>, Box<Expr>, Span),
+    If(Box<Expr>, Box<Expr>, Box<Expr>, Span),
+    Lam(String, Type, Box<Expr>, Span),
+    App(Box<Expr>, Box<Expr>, Span),
+    Let(String, Box<Expr>, Box<Expr>, Span),
+    Dup(Box<Expr>, Span),
+    Fix(String, Type, Box<Expr>, Span),
+    Box(Box<Expr>, Span),
+    Unbox(Box<Expr>, Span),
+    Nil(Span),
+    Cons(Box<Expr>, Box<Expr>, Span),
+    Head(Box<Expr>, Span),
+    Tail(Box<Expr>, Span),
+    IsNil(Box<Expr>, Span),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

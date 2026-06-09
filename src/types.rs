@@ -1,19 +1,19 @@
 /// Types in the Dew language.
 ///
 /// Affinity rules:
-///   - Int, Bool, Unit are unrestricted (freely copyable)
-///   - Box(T) is affine (must be unboxed exactly once — linear resource)
-///   - fn(T) -> U is unrestricted unless any captured variable is affine
+///   - Int, Bool, Unit are Normal (freely copyable)
+///   - Box(T) is Affine (must be unboxed exactly once — linear resource)
+///   - fn(T) -> U is Normal unless any captured variable is affine
 ///     (closure affinity is inferred during type checking)
 
 use serde::Serialize;
 use std::fmt;
 
-/// Whether a type (or closure) is affine or unrestricted.
+/// Whether a type (or closure) is normal or affine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Affinity {
-    /// Unrestricted — can be used any number of times.
-    Unrestricted,
+    /// Normal — can be used any number of times.
+    Normal,
     /// Affine — must be used at most once.
     Affine,
 }
@@ -27,7 +27,7 @@ impl Affinity {
 impl fmt::Display for Affinity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Affinity::Unrestricted => write!(f, "ω"),
+            Affinity::Normal => write!(f, "ω"),
             Affinity::Affine => write!(f, "1"),
         }
     }
@@ -35,20 +35,20 @@ impl fmt::Display for Affinity {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum Type {
-    /// 64-bit signed integer. Unrestricted.
+    /// 64-bit signed integer. Normal.
     Int,
-    /// Boolean. Unrestricted.
+    /// Boolean. Normal.
     Bool,
-    /// Unit / void. Unrestricted, trivial.
+    /// Unit / void. Normal, trivial.
     Unit,
     /// Linear box containing a value of type T. Affine — must be unboxed.
     Box(Box<Type>),
     /// Function type: parameter → return, with affinity inferred from captures.
-    /// Affinity=Unrestricted means the closure is pure (no affine captures) and
+    /// Affinity=Normal means the closure is pure (no affine captures) and
     /// can be called freely. Affinity=Affine means the closure captures a
     /// resource and is FnOnce.
     Fun(Box<Type>, Box<Type>, Affinity),
-    /// Lazy linked list. Unrestricted (copyable) regardless of element type.
+    /// Lazy linked list. Normal (copyable) regardless of element type.
     List(Box<Type>),
 }
 
@@ -75,12 +75,12 @@ impl Type {
         }
     }
 
-    /// Get the affinity of this type (Unrestricted for non-functions).
+    /// Get the affinity of this type (Normal for non-functions).
     pub fn affinity(&self) -> Affinity {
         match self {
             Type::Fun(_, _, a) => *a,
             Type::Box(_) => Affinity::Affine,
-            _ => Affinity::Unrestricted,
+            _ => Affinity::Normal,
         }
     }
 }

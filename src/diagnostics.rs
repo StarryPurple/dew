@@ -3,10 +3,9 @@
 /// Tracks affine violations, resource leaks, thunk metrics, closure
 /// classifications, and emits a structured JSON report.
 
+use crate::ast::Span;
 use serde::Serialize;
 use std::collections::HashMap;
-
-pub type Span = (usize, usize, usize, usize);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AffineViolation {
