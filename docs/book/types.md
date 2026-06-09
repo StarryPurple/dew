@@ -12,16 +12,16 @@
 
 ## Affinity
 
-**Affine** values must be used **at most once**. Using an affine value consumes it; using it again is a compile-time error.
+**Normal** values can be used freely any number of times (the default).
 
-**Unrestricted** values can be used freely any number of times.
+**Affine** values must be used **at most once**. Using an affine value consumes it; using it again is a compile-time error.
 
 ### Which Types Are Affine?
 
 - `Box(T)` is always affine — it represents a linear allocation
 - `T -> U` is affine **if and only if** the closure captures at least one affine variable
-- Pure closures (no affine captures) are unrestricted
-- `Int`, `Bool`, `()` are always unrestricted
+- Pure closures (no affine captures) are Normal
+- `Int`, `Bool`, `()` are always Normal
 
 ### Closure Affinity Inference
 
@@ -42,11 +42,11 @@ This is Rust's `Fn`/`FnOnce` rule: a closure is `FnOnce` if it moves any affine 
 
 ## `dup`
 
-`dup(e)` duplicates an **unrestricted** value. It is a compile-time error to `dup` an affine value.
+`dup(e)` duplicates a **Normal** value. It is a compile-time error to `dup` an affine value.
 
 ```dew
 def x = 3;
-def y = dup(x);    # ok — Int is unrestricted
+def y = dup(x);    # ok — Int is Normal
 x + y              # → 6
 
 # def b = box(42);
@@ -55,7 +55,7 @@ x + y              # → 6
 
 ## `fix`
 
-`fix f: T { e }` defines a recursive binding. `f` is **always unrestricted** within `e` — this is necessary for recursion to be useful.
+`fix f: T { e }` defines a recursive binding. `f` is **always Normal** within `e` — this is necessary for recursion to be useful.
 
 ```dew
 def fact = fix f: Int -> Int {

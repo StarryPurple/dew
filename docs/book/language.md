@@ -11,6 +11,8 @@ expr ::= INT | true | false | ()
        | fn ( IDENT : type ) { expr }
        | fn () { expr }
        | expr expr              -- application (juxtaposition)
+       | expr |> expr           -- pipe-forward (desugars to right(left))
+       | !expr                  -- explicit strict evaluation
        | def IDENT = expr ; expr
        | def IDENT = expr       -- standalone binding (no continuation)
        | dup ( expr )
@@ -34,8 +36,10 @@ type ::= Int | Bool | () | Box ( type ) | type -> type
 | `if e1 { e2 } else { e3 }` | `Bool -> t -> t -> t` | Conditional |
 | `fn (x: T) { e }` | `T -> U` | Lambda, affinity inferred from captures |
 | `e1 e2` | `(T -> U) -> T -> U` | Function application |
+| `e1 \|> e2` | `T -> (T -> U) -> U` | Pipe-forward: `e1 \|> e2` = `e2(e1)` |
+| `!e` | `T -> T` | Force strict evaluation — overrides implicit laziness |
 | `def x = e1; e2` | `T -> U -> U` | Let binding |
-| `dup(e)` | `T -> T` (T unrestricted) | Duplicate an unrestricted value |
+| `dup(e)` | `T -> T` (T Normal) | Duplicate a normal value |
 | `fix f: T { e }` | `T -> T` (T is function) | Recursion — `f` is unrestricted within `e` |
 | `box(e)` | `T -> Box(T)` | Allocate linear box — returns affine resource |
 | `unbox(e)` | `Box(T) -> T` | Deallocate linear box — consumes the box |
@@ -77,9 +81,10 @@ x + 1
 
 From tightest to loosest:
 
-1. `*`, `/`
+1. `!` (strictness override), `*`, `/`
 2. `+`, `-`
 3. `<`, `>`, `==`
 4. Function application (juxtaposition)
+5. `|>` (pipe-forward)
 
 Parentheses override precedence.
