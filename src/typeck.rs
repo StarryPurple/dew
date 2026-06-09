@@ -425,6 +425,10 @@ impl<'a> TypeChecker<'a> {
                     }),
                 }
             }
+
+            Expr::ForceStrict(inner, _) => {
+                self.infer(inner)
+            }
         }
     }
 }
@@ -481,6 +485,7 @@ fn collect_free(expr: &Expr, fv: &mut HashSet<String>) {
             collect_free(inner, fv);
         }
         Expr::Unbox(inner, _) => { collect_free(inner, fv); }
+        Expr::ForceStrict(inner, _) => { collect_free(inner, fv); }
         Expr::Nil(_) => {}
         Expr::Cons(head, tail, _) => { collect_free(head, fv); collect_free(tail, fv); }
         Expr::Head(inner, _) => { collect_free(inner, fv); }
@@ -532,6 +537,7 @@ fn find_main_in(expr: &Expr, results: &mut Vec<(Type, Type)>) {
         Expr::Head(inner, _) => find_main_in(inner, results),
         Expr::Tail(inner, _) => find_main_in(inner, results),
         Expr::IsNil(inner, _) => find_main_in(inner, results),
+        Expr::ForceStrict(inner, _) => find_main_in(inner, results),
         Expr::Lam(_, _, body, _) => find_main_in(body, results),
         _ => {}
     }
@@ -562,6 +568,7 @@ fn infer_body_type(expr: &Expr) -> Type {
             _ => Type::Int,
         },
         Expr::Cons(_, _, _) => Type::Int,
+        Expr::ForceStrict(inner, _) => infer_body_type(inner),
         Expr::Lam(_, _, _, _) => Type::Int,
         Expr::Nil(_) => Type::Int,
     }

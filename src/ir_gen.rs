@@ -117,6 +117,9 @@ impl IrCompiler {
                 let l = self.compile_expr(list, Context::Strict);
                 Ir::IsNil(Box::new(l))
             }
+            Expr::ForceStrict(inner, _) => {
+                self.compile_expr(inner, Context::Strict)
+            }
         }
     }
 

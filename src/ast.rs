@@ -37,6 +37,8 @@ pub enum Expr {
     Head(Box<Expr>, Span),
     Tail(Box<Expr>, Span),
     IsNil(Box<Expr>, Span),
+    /// Explicit strict evaluation: !e — force strict context
+    ForceStrict(Box<Expr>, Span),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

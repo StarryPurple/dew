@@ -22,6 +22,7 @@ pub fn parse(source: &str) -> Result<Expr, Vec<String>> {
 enum Token {
     Int(i64), True, False, Ident(String),
     Fn, Let, If, Else, Fix, Dup, Box, Unbox, Nil, Cons, Head, Tail, IsNil,
+    Pipe, Bang,
     LBracket, RBracket,
     LParen, RParen, LBrace, RBrace, Semicolon, Colon, Comma, Arrow, Eq,
     Plus, Minus, Star, Slash, EqEq, Lt, Gt,
@@ -48,6 +49,8 @@ impl std::fmt::Display for Token {
             Token::Head => write!(f, "head"),
             Token::Tail => write!(f, "tail"),
             Token::IsNil => write!(f, "isnil"),
+            Token::Pipe => write!(f, "|>"),
+            Token::Bang => write!(f, "!"),
             Token::LBracket => write!(f, "["),
             Token::RBracket => write!(f, "]"),
             Token::LParen => write!(f, "("),
@@ -147,9 +150,15 @@ impl Lexer {
                     if self.peek_char() == Some('>') { self.advance(); Token::Arrow }
                     else { Token::Minus }
                 }
+                '|' => {
+                    self.advance();
+                    if self.peek_char() == Some('>') { self.advance(); Token::Pipe }
+                    else { return Err(vec![format!("expected '>' after '|' for pipe operator at {}", self.span())]); }
+                }
                 '+' => { self.advance(); Token::Plus }
                 '*' => { self.advance(); Token::Star }
                 '/' => { self.advance(); Token::Slash }
+                '!' => { self.advance(); Token::Bang }
                 '[' => { self.advance(); Token::LBracket }
                 ']' => { self.advance(); Token::RBracket }
                 '<' => { self.advance(); Token::Lt }
@@ -214,7 +223,19 @@ impl Parser {
 // ── Recursive descent ──────────────────────────────────────────────────
 
 fn parse_expr_from_parser(parser: &mut Parser) -> Result<Expr, String> {
-    parse_comp(parser)
+    parse_pipe(parser)
+}
+
+fn parse_pipe(parser: &mut Parser) -> Result<Expr, String> {
+    let mut left = parse_comp(parser)?;
+    while parser.check(&Token::Pipe) {
+        parser.advance();
+        let right = parse_comp(parser)?;
+        let span = parser.span();
+        // Desugar: left |> right  →  right(left)
+        left = Expr::App(Box::new(right), Box::new(left), span);
+    }
+    Ok(left)
 }
 
 fn parse_comp(parser: &mut Parser) -> Result<Expr, String> {
@@ -240,6 +261,13 @@ fn parse_term(parser: &mut Parser) -> Result<Expr, String> {
 }
 
 fn parse_factor(parser: &mut Parser) -> Result<Expr, String> {
+    // Explicit strict evaluation: !expr
+    if parser.check(&Token::Bang) {
+        let span = parser.span();
+        parser.advance();
+        let inner = parse_factor(parser)?;
+        return Ok(Expr::ForceStrict(Box::new(inner), span));
+    }
     let mut left = parse_app(parser)?;
     while parser.check(&Token::Star) || parser.check(&Token::Slash) {
         let op = match parser.advance() { Token::Star => BinOp::Mul, Token::Slash => BinOp::Div, _ => unreachable!() };
@@ -260,6 +288,7 @@ fn parse_app(parser: &mut Parser) -> Result<Expr, String> {
         && !parser.check(&Token::Gt) && !parser.check(&Token::Plus)
         && !parser.check(&Token::Minus) && !parser.check(&Token::Star)
         && !parser.check(&Token::Slash) && !parser.check(&Token::Else)
+        && !parser.check(&Token::Pipe) && !parser.check(&Token::Bang)
         && !parser.check(&Token::RBracket) && !parser.check(&Token::LBracket)
     {
         let arg = parse_primary(parser)?;
