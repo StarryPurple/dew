@@ -257,7 +257,7 @@ impl LowerCtx {
                 Arg::Temp(t)
             }
 
-            Ir::Suspend(body, captures, _) => {
+            Ir::Suspend(body, captures, _, _) => {
                 let func_name = self.fresh_func();
                 let cap_params: Vec<String> = captures.iter().map(|_| self.fresh_temp()).collect();
 

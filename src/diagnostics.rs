@@ -34,6 +34,7 @@ pub struct ThunkDiagnostics {
     pub never_forced: Vec<String>,
     pub forced_multiple_times: Vec<String>,
     pub force_counts: HashMap<String, usize>,
+    pub sources: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -94,6 +95,7 @@ impl DiagnosticCollector {
                 total_created: 0, total_forced: 0, immediately_forced: 0,
                 never_forced: Vec::new(), forced_multiple_times: Vec::new(),
                 force_counts: HashMap::new(),
+                sources: HashMap::new(),
             },
             captures: ClosureDiagnostics {
                 captures_per_thunk: HashMap::new(),
@@ -104,7 +106,7 @@ impl DiagnosticCollector {
         }
     }
 
-    pub fn record_thunk_create(&mut self, name: &str, capture_count: usize) {
+    pub fn record_thunk_create(&mut self, name: &str, capture_count: usize, source: Option<&str>) {
         self.thunks.total_created += 1;
         self.thunks_created_this_step.push(name.to_string());
         self.captures.captures_per_thunk.insert(name.to_string(), capture_count);
@@ -113,6 +115,9 @@ impl DiagnosticCollector {
             self.captures.max_captures = capture_count;
         }
         self.thunks.force_counts.insert(name.to_string(), 0);
+        if let Some(src) = source {
+            self.thunks.sources.insert(name.to_string(), src.to_string());
+        }
     }
 
     pub fn record_thunk_force(&mut self, name: &str) {

@@ -14,7 +14,6 @@ pub fn compile(expr: &Expr) -> Ir {
 struct IrCompiler;
 
 impl IrCompiler {
-    fn new() -> Self { IrCompiler }
 
     fn compile_expr(&self, expr: &Expr, ctx: Context) -> Ir {
         let ir = self.compile_expr_inner(expr, ctx);
@@ -32,7 +31,7 @@ impl IrCompiler {
                 if StrictnessAnalysis::is_naturally_strict(&ir) {
                     let captures = self.free_vars(&ir);
                     let ty = ir.ty();
-                    Ir::Suspend(Box::new(ir), captures, ty)
+                    Ir::Suspend(Box::new(ir), captures, ty, None)
                 } else { ir }
             }
         }
@@ -97,11 +96,11 @@ impl IrCompiler {
                 // Force Suspend on the tail even if it's naturally lazy.
                 // This prevents the evaluator from eagerly expanding tails.
                 let t = match t_raw {
-                    Ir::Suspend(_, _, _) => t_raw,
+                    Ir::Suspend(_, _, _, _) => t_raw,
                     other => {
                         let captures = self.free_vars(&other);
                         let ty = other.ty();
-                        Ir::Suspend(Box::new(other), captures, ty)
+                        Ir::Suspend(Box::new(other), captures, ty, None)
                     }
                 };
                 Ir::Cons(Box::new(h), Box::new(t))
@@ -165,7 +164,7 @@ impl IrCompiler {
                 body_fv.remove(name);
                 fv.extend(body_fv);
             }
-            Ir::Suspend(_body, captures, _) => { fv.extend(captures.iter().cloned()); }
+            Ir::Suspend(_body, captures, _, _) => { fv.extend(captures.iter().cloned()); }
             Ir::Force(inner) => { self.collect_free(inner, fv); }
             Ir::Alloc(inner) => { self.collect_free(inner, fv); }
             Ir::Dealloc(inner) => { self.collect_free(inner, fv); }

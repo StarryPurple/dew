@@ -121,11 +121,11 @@ impl<'a> Evaluator<'a> {
                 let val = self.eval_ir(inner)?;
                 Ok(val.clone())
             }
-            Ir::Suspend(body, captures, _ty) => {
+            Ir::Suspend(body, captures, _ty, _source) => {
                 let thunk_id = self.next_thunk_id;
                 self.next_thunk_id += 1;
                 let name = format!("%t{thunk_id}");
-                self.diag.record_thunk_create(&name, captures.len());
+                self.diag.record_thunk_create(&name, captures.len(), _source.as_deref());
                 let captured_env = self.env.clone();
                 self.thunks.insert(thunk_id, ThunkState::Unevaluated((**body).clone(), captured_env));
                 Ok(Value::Thunk(thunk_id))
@@ -145,7 +145,7 @@ impl<'a> Evaluator<'a> {
                 let thunk_id = self.next_thunk_id;
                 self.next_thunk_id += 1;
                 let name_thunk = format!("%t{thunk_id}");
-                self.diag.record_thunk_create(&name_thunk, 0);
+                self.diag.record_thunk_create(&name_thunk, 0, Some(&format!("fix {name}")));
                 let mut rec_env = self.env.clone();
                 rec_env.insert(name.clone(), Value::Thunk(thunk_id));
                 self.thunks.insert(thunk_id, ThunkState::Unevaluated((**body).clone(), rec_env));

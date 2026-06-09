@@ -131,15 +131,6 @@ impl Ctx {
         }
     }
 
-    /// Collect affine variables that are defined but never consumed.
-    fn leaked_affine(&self) -> Vec<String> {
-        self.vars
-            .iter()
-            .filter(|(_, (ty, consumed))| ty.is_affine() && !consumed)
-            .map(|(name, _)| name.clone())
-            .collect()
-    }
-
     /// Mark a variable as consumed (for unbox).
     fn consume(&mut self, name: &str) -> Result<(), TypeError> {
         match self.vars.get_mut(name) {
@@ -168,12 +159,6 @@ impl<'a> TypeChecker<'a> {
 
     pub fn check(&mut self, expr: &Expr) -> Result<Type, TypeError> {
         let ty = self.infer(expr)?;
-
-        // Report leaked affine resources.
-        for name in self.ctx.leaked_affine() {
-            self.diag.record_unused_variable(&name);
-            self.diag.record_resource_leak(&name);
-        }
 
         // Validate main function exists and has the right shape.
         self.validate_main(expr)?;
@@ -329,8 +314,19 @@ impl<'a> TypeChecker<'a> {
 
             Expr::Let(name, bind, body, _) => {
                 let bind_ty = self.infer(bind)?;
-                self.ctx.insert(name.clone(), bind_ty);
+                self.ctx.insert(name.clone(), bind_ty.clone());
                 let body_ty = self.infer(body)?;
+
+                // Warn if an affine binding is never consumed in its body.
+                if bind_ty.is_affine() {
+                    if let Some((_, consumed)) = self.ctx.vars.get(name) {
+                        if !consumed {
+                            self.diag.record_unused_variable(name);
+                            self.diag.record_resource_leak(name);
+                        }
+                    }
+                }
+
                 Ok(body_ty)
             }
 

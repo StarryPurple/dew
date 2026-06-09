@@ -58,7 +58,7 @@ pub enum Ir {
     /// Duplicate a copyable value.
     Dup(Box<Ir>),
     /// Create a lazy thunk (suspension).
-    Suspend(Box<Ir>, Vec<Name>, Type),
+    Suspend(Box<Ir>, Vec<Name>, Type, Option<String>),
     /// Force a thunk.
     Force(Box<Ir>),
     /// Fixed-point combinator.
@@ -103,7 +103,7 @@ impl Ir {
                 _ => Type::Int,
             },
             Ir::Dup(inner) => inner.ty(),
-            Ir::Suspend(_, _, ty) => ty.clone(),
+            Ir::Suspend(_, _, ty, _) => ty.clone(),
             Ir::Force(inner) => inner.ty(),
             Ir::Fix(_, _, ty) => ty.clone(),
             Ir::Alloc(inner) => Type::Box(Box::new(inner.ty())),
@@ -172,8 +172,12 @@ impl Ir {
                 writeln!(f, "{pad}dup")?;
                 inner.pretty(f, indent + 1)
             }
-            Ir::Suspend(body, captures, ty) => {
-                writeln!(f, "{pad}suspend [{captures:?}] : {ty}")?;
+            Ir::Suspend(body, captures, ty, source) => {
+                if let Some(src) = source {
+                    writeln!(f, "{pad}suspend [{captures:?}] : {ty} ({src})")?;
+                } else {
+                    writeln!(f, "{pad}suspend [{captures:?}] : {ty}")?;
+                }
                 body.pretty(f, indent + 1)
             }
             Ir::Force(inner) => {
