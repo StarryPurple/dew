@@ -231,12 +231,33 @@ fn parse_pipe(parser: &mut Parser) -> Result<Expr, String> {
     let mut left = parse_comp(parser)?;
     while parser.check(&Token::Pipe) {
         parser.advance();
-        let right = parse_comp(parser)?;
         let span = parser.span();
-        // Desugar: left |> right  →  right(left)
-        left = Expr::App(Box::new(right), Box::new(left), span);
+        // Right side of pipe: treat built-in keywords as function names
+        let right = parse_pipe_target(parser)?;
+        left = Expr::Pipe(Box::new(left), Box::new(right), span);
     }
     Ok(left)
+}
+
+/// Parse the right-hand side of a pipe: an identifier or parenthesized expression.
+/// Built-in keywords (tail, head, etc.) are treated as function variable references.
+fn parse_pipe_target(parser: &mut Parser) -> Result<Expr, String> {
+    let span = parser.span();
+    match parser.peek() {
+        Some(Token::Ident(_)) | Some(Token::Tail) | Some(Token::Head)
+            | Some(Token::IsNil) | Some(Token::Cons) | Some(Token::Dup)
+            | Some(Token::Box) | Some(Token::Unbox) => {
+            let name = format!("{}", parser.advance());
+            Ok(Expr::Var(name, span))
+        }
+        Some(Token::LParen) => {
+            parser.advance();
+            let expr = parse_expr_from_parser(parser)?;
+            parser.expect(&Token::RParen)?;
+            Ok(expr)
+        }
+        _ => parse_comp(parser),
+    }
 }
 
 fn parse_comp(parser: &mut Parser) -> Result<Expr, String> {
@@ -291,6 +312,10 @@ fn parse_app(parser: &mut Parser) -> Result<Expr, String> {
         && !parser.check(&Token::Slash) && !parser.check(&Token::Else)
         && !parser.check(&Token::Pipe) && !parser.check(&Token::Bang)
         && !parser.check(&Token::RBracket) && !parser.check(&Token::LBracket)
+        && !parser.check(&Token::Head) && !parser.check(&Token::Tail)
+        && !parser.check(&Token::IsNil) && !parser.check(&Token::Cons)
+        && !parser.check(&Token::Dup) && !parser.check(&Token::Box)
+        && !parser.check(&Token::Unbox)
     {
         let arg = parse_primary(parser)?;
         let span = parser.span();

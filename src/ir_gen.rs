@@ -120,6 +120,29 @@ impl IrCompiler {
             Expr::ForceStrict(inner, _) => {
                 self.compile_expr(inner, Context::Strict)
             }
+            Expr::Pipe(left, right, _) => {
+                // Desugar: left |> right → right(left), recognizing built-in names
+                if let Expr::Var(name, _) = right.as_ref() {
+                    match name.as_str() {
+                        "tail" => {
+                            let l = self.compile_expr(left, Context::Strict);
+                            return Ir::Tail(Box::new(l));
+                        }
+                        "head" => {
+                            let l = self.compile_expr(left, Context::Strict);
+                            return Ir::Head(Box::new(l));
+                        }
+                        "isnil" => {
+                            let l = self.compile_expr(left, Context::Strict);
+                            return Ir::IsNil(Box::new(l));
+                        }
+                        _ => {}
+                    }
+                }
+                let f = self.compile_expr(right, Context::Strict);
+                let a = self.compile_expr(left, Context::Lazy);
+                Ir::App(Box::new(f), Box::new(a))
+            }
         }
     }
 

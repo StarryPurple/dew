@@ -39,6 +39,8 @@ pub enum Expr {
     IsNil(Box<Expr>, Span),
     /// Explicit strict evaluation: !e — force strict context
     ForceStrict(Box<Expr>, Span),
+    /// Pipe-forward: e1 |> e2 — desugared to e2(e1) in type checker
+    Pipe(Box<Expr>, Box<Expr>, Span),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,0 +1,8 @@
+# Demo: pipe-forward with |> and nested application
+# Equivalent forms produce the same result
+
+def main = fn () {
+    def xs = cons(1, cons(2, cons(3, nil)));
+    # xs |> tail |> head  =  head(tail(xs))  =  2
+    xs |> tail |> head
+}

@@ -1,0 +1,6 @@
+# Demo: strictness override !expr
+# ! forces strict evaluation, overriding implicit laziness
+
+def main = fn () {
+    !(1 + 2)
+}

@@ -1,0 +1,7 @@
+# Demo: strictness override with precedence
+# ! binds tighter than binary ops:  !a + b  =  (!a) + b
+# Use !(a + b) to force the entire expression
+
+def main = fn () {
+    !42 + 1
+}

@@ -429,6 +429,21 @@ impl<'a> TypeChecker<'a> {
             Expr::ForceStrict(inner, _) => {
                 self.infer(inner)
             }
+
+            Expr::Pipe(left, right, _) => {
+                // Desugar: left |> right  →  right(left)
+                // Handle built-in function names: tail, head, isnil
+                let desugared = match right.as_ref() {
+                    Expr::Var(name, span) => match name.as_str() {
+                        "tail" => Expr::Tail(left.clone(), *span),
+                        "head" => Expr::Head(left.clone(), *span),
+                        "isnil" => Expr::IsNil(left.clone(), *span),
+                        _ => Expr::App(right.clone(), left.clone(), *span),
+                    },
+                    _ => Expr::App(right.clone(), left.clone(), (0, 0, 0, 0)),
+                };
+                self.infer(&desugared)
+            }
         }
     }
 }
@@ -491,6 +506,7 @@ fn collect_free(expr: &Expr, fv: &mut HashSet<String>) {
         Expr::Head(inner, _) => { collect_free(inner, fv); }
         Expr::Tail(inner, _) => { collect_free(inner, fv); }
         Expr::IsNil(inner, _) => { collect_free(inner, fv); }
+        Expr::Pipe(left, right, _) => { collect_free(left, fv); collect_free(right, fv); }
     }
 }
 
@@ -538,6 +554,7 @@ fn find_main_in(expr: &Expr, results: &mut Vec<(Type, Type)>) {
         Expr::Tail(inner, _) => find_main_in(inner, results),
         Expr::IsNil(inner, _) => find_main_in(inner, results),
         Expr::ForceStrict(inner, _) => find_main_in(inner, results),
+        Expr::Pipe(left, right, _) => { find_main_in(left, results); find_main_in(right, results); }
         Expr::Lam(_, _, body, _) => find_main_in(body, results),
         _ => {}
     }
@@ -569,6 +586,10 @@ fn infer_body_type(expr: &Expr) -> Type {
         },
         Expr::Cons(_, _, _) => Type::Int,
         Expr::ForceStrict(inner, _) => infer_body_type(inner),
+        Expr::Pipe(left, right, _) => {
+            // Desugar: left |> right → right(left)
+            infer_body_type(&Expr::App(right.clone(), left.clone(), (0, 0, 0, 0)))
+        }
         Expr::Lam(_, _, _, _) => Type::Int,
         Expr::Nil(_) => Type::Int,
     }
