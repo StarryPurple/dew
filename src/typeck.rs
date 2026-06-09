@@ -37,10 +37,12 @@ impl std::fmt::Display for TypeError {
 }
 
 impl TypeError {
+    /// Returns the diagnostic code. D-prefix = hard error, W-prefix = warning.
     pub fn code(&self) -> &'static str {
         match self {
             TypeError::AffineViolation(_) => "D001",
-            TypeError::UnusedAffine(_) | TypeError::BoxInnerNotConsumed(_) => "D002",
+            TypeError::UnusedAffine(_) => "W001",
+            TypeError::BoxInnerNotConsumed(_) => "W001",
             TypeError::BranchMismatch(_) => "D004",
             TypeError::DupOnAffine(_) => "D005",
             TypeError::TypeMismatch { .. } | TypeError::InvalidBinOp(..)

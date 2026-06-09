@@ -15,29 +15,29 @@ echo ""
 
 for f in "$FAIL_DIR"/*.dew; do
     BASENAME=$(basename "$f")
-    EXPECTED_CODE=$(echo "$BASENAME" | cut -c1-4 | tr 'a-z' 'A-Z')
-    EXPECTED="$EXPECTED_CODE"
+    EXPECTED_PREFIX=$(echo "$BASENAME" | cut -c1-4 | tr 'a-z' 'A-Z')
+    # D001 → D001, W001 → W001
+    EXPECTED="$EXPECTED_PREFIX"
 
     RESULT=$(cargo run -q -- "$f" 2>&1) || true
-    ACTUAL=$(echo "$RESULT" | grep -oP '\[D\d+\]' | head -1 || echo "")
 
-    if [ "$EXPECTED_CODE" = "D002" ]; then
-        # D002 is a warning — check JSON diagnostics
+    if [ "${EXPECTED:0:1}" = "W" ]; then
+        # W-prefix = warning — check JSON diagnostics, not type error
         if echo "$RESULT" | grep -q '"leaks"'; then
-            echo "PASS $BASENAME → D002 (warning in diagnostics)"
+            echo "PASS $BASENAME → $EXPECTED (warning in diagnostics)"
             PASSED=$((PASSED + 1))
         else
-            echo "FAIL $BASENAME — expected D002 warning in diagnostics"
+            echo "FAIL $BASENAME — expected $EXPECTED warning in diagnostics"
             FAILED=$((FAILED + 1))
         fi
-    elif [ "$ACTUAL" = "[$EXPECTED]" ]; then
-        echo "PASS $BASENAME → $ACTUAL"
+    elif echo "$RESULT" | grep -q "\[$EXPECTED\]"; then
+        echo "PASS $BASENAME → $EXPECTED"
         PASSED=$((PASSED + 1))
     elif echo "$RESULT" | grep -q "Parse error"; then
         echo "FAIL $BASENAME — PARSE ERROR: $(echo "$RESULT" | grep 'Parse error')"
         FAILED=$((FAILED + 1))
     else
-        echo "FAIL $BASENAME — expected [$EXPECTED], got: $(echo "$RESULT" | grep -E '\[D|Type error' | head -1)"
+        echo "FAIL $BASENAME — expected [$EXPECTED], got: $(echo "$RESULT" | grep -E '\[[DW]' | head -1)"
         FAILED=$((FAILED + 1))
     fi
 done
