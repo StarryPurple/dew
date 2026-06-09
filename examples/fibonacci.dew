@@ -1,0 +1,31 @@
+# Infinite Fibonacci sequence via lazy cons
+# Access elements individually — works around fix-to-fix issue
+
+def fibs = fix f: List(Int) -> List(Int) {
+    fn (prev: List(Int)) {
+        # prev is cons(a, cons(b, nil)) — a pair of (Fn-1, Fn)
+        def a = head(prev);
+        def b = head(tail(prev));
+        def next_pair = cons(b, cons(a + b, nil));
+        cons(a, f(next_pair))
+    }
+};
+
+# Initial pair: (0, 1)
+def start = cons(0, cons(1, nil));
+def fib_stream = fibs(start);
+
+# Access: fib(0)=0, fib(1)=1, fib(2)=1, fib(3)=2, fib(4)=3, fib(5)=5, fib(6)=8
+def f0 = head(fib_stream);
+def t1 = tail(fib_stream);
+def f1 = head(t1);
+def t2 = tail(t1);
+def f2 = head(t2);
+def t3 = tail(t2);
+def f3 = head(t3);
+def t4 = tail(t3);
+def f4 = head(t4);
+
+def main = fn () {
+    f0 + f1 + f2 + f3 + f4  # 0 + 1 + 1 + 2 + 3 = 7
+}
