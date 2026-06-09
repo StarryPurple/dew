@@ -52,6 +52,11 @@ enum Command {
     },
     /// Start LSP server (for editor integration)
     Lsp,
+    /// Start web playground server
+    Serve {
+        #[arg(long, default_value = "8080")]
+        port: u16,
+    },
 }
 
 const KEYWORDS: &[&str] = &[
@@ -69,6 +74,10 @@ fn main() {
         Some(Command::Lsp) => {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(dew::lsp::run_lsp());
+        }
+        Some(Command::Serve { port }) => {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(dew::serve::run_serve(port));
         }
         None => {
             let file = args.file.as_ref().expect("FILE required");

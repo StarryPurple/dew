@@ -7,6 +7,7 @@ pub mod ir_gen;
 pub mod lower;
 pub mod lsp;
 pub mod parser;
+pub mod serve;
 pub mod strictness;
 pub mod typeck;
 pub mod types;

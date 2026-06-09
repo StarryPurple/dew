@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dew Playground</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; background: #1a1a2e; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+header { background: #16213e; padding: 10px 20px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid #0f3460; }
+header h1 { font-size: 18px; color: #e94560; }
+header span { font-size: 12px; color: #8892b0; }
+.toolbar { display: flex; gap: 8px; margin-left: auto; }
+.btn { padding: 6px 16px; border: 1px solid #0f3460; background: #16213e; color: #e0e0e0; border-radius: 4px; cursor: pointer; font: inherit; font-size: 13px; }
+.btn:hover { background: #0f3460; }
+.btn.primary { background: #e94560; border-color: #e94560; color: #fff; font-weight: bold; }
+.btn.primary:hover { background: #c73a50; }
+.main { display: flex; flex: 1; overflow: hidden; }
+.editor-pane { flex: 1; display: flex; flex-direction: column; border-right: 1px solid #0f3460; }
+.editor-pane label { padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #8892b0; background: #16213e; }
+#editor { flex: 1; background: #1a1a2e; color: #e0e0e0; border: none; padding: 15px; font: 14px/1.6 'SF Mono', 'Fira Code', 'Consolas', monospace; resize: none; outline: none; tab-size: 2; }
+#editor:focus { background: #1e1e36; }
+.output-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.tabs { display: flex; background: #16213e; }
+.tab { padding: 8px 16px; border: none; background: none; color: #8892b0; cursor: pointer; font: inherit; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid transparent; }
+.tab.active { color: #e94560; border-bottom-color: #e94560; }
+.tab-content { flex: 1; overflow: auto; padding: 15px; display: none; font-size: 13px; line-height: 1.5; }
+.tab-content.active { display: block; }
+.tab-content pre { white-space: pre-wrap; word-break: break-all; }
+.result-line { font-size: 24px; color: #4ecca3; padding: 10px 0; font-weight: bold; }
+.error-line { color: #e94560; padding: 8px 0; }
+.warn-line { color: #f0a500; }
+.ir-block { color: #8892b0; }
+.key { color: #e94560; }
+.string { color: #4ecca3; }
+.number { color: #f0a500; }
+@media (max-width: 768px) { .main { flex-direction: column; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Dew Playground</h1>
+  <span>Affine Types · Implicit Laziness · FP</span>
+  <div class="toolbar">
+    <button class="btn" onclick="insertSample('fib')">Fibonacci</button>
+    <button class="btn" onclick="insertSample('list')">List Ops</button>
+    <button class="btn" onclick="insertSample('box')">Box Demo</button>
+    <button class="btn" onclick="insertSample('prime')">Lazy Stream</button>
+    <button class="btn primary" onclick="runCode()">▶ Run</button>
+  </div>
+</header>
+<div class="main">
+  <div class="editor-pane">
+    <label>Source (.dew)</label>
+    <textarea id="editor" spellcheck="false" placeholder="Write Dew code here...">def main = fn () {
+  42
+}</textarea>
+  </div>
+  <div class="output-pane">
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('result')">Result</button>
+      <button class="tab" onclick="showTab('ir-text')">IR (text)</button>
+      <button class="tab" onclick="showTab('ir-json')">IR (json)</button>
+      <button class="tab" onclick="showTab('flat-ir')">Flat IR</button>
+      <button class="tab" onclick="showTab('diagnostics')">Diagnostics</button>
+    </div>
+    <div id="tab-result" class="tab-content active"></div>
+    <div id="tab-ir-text" class="tab-content"></div>
+    <div id="tab-ir-json" class="tab-content"></div>
+    <div id="tab-flat-ir" class="tab-content"></div>
+    <div id="tab-diagnostics" class="tab-content"></div>
+  </div>
+</div>
+<script>
+const SAMPLES = {
+  fib: `# Infinite Fibonacci sequence via lazy cons
+def fibs = fix f: List(Int) -> List(Int) {
+    fn (prev: List(Int)) {
+        def a = head(prev);
+        def b = head(tail(prev));
+        def next_pair = cons(b, cons(a + b, nil));
+        cons(a, f(next_pair))
+    }
+};
+def start = cons(0, cons(1, nil));
+def stream = fibs(start);
+def f0 = head(stream);
+def t1 = tail(stream);
+def f1 = head(t1);
+def t2 = tail(t1);
+def f2 = head(t2);
+def t3 = tail(t2);
+def f3 = head(t3);
+def t4 = tail(t3);
+def f4 = head(t4);
+def main = fn () {
+    f0 + f1 + f2 + f3 + f4
+}`,
+  list: `# List operations
+def main = fn () {
+    def xs = cons(10, cons(20, cons(30, nil)));
+    head(xs) + head(tail(tail(xs)))
+}`,
+  box: `# Box (affine resource) demo
+def main = fn () {
+    def b = box(42);
+    def val = unbox(b);
+    val
+}`,
+  prime: `# Lazy infinite stream
+def from = fix f: Int -> List(Int) {
+    fn (n: Int) { cons(n, f(n + 1)) }
+};
+def stream = from(100);
+def main = fn () { head(stream) }`
+};
+
+function insertSample(name) {
+    if (SAMPLES[name]) {
+        document.getElementById('editor').value = SAMPLES[name];
+    }
+}
+
+function showTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelector(`[onclick="showTab('${name}')"]`).classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+}
+
+async function runCode() {
+    const source = document.getElementById('editor').value;
+    const resultEl = document.getElementById('tab-result');
+
+    resultEl.innerHTML = '<span style="color:#8892b0">Running...</span>';
+    showTab('result');
+
+    try {
+        const resp = await fetch('/api/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source })
+        });
+        const data = await resp.json();
+
+        if (data.success) {
+            resultEl.innerHTML = `<div class="result-line">Result: ${data.result ?? '(unit)'}</div>`;
+        } else {
+            resultEl.innerHTML = `<div class="error-line">${data.error_code ? '[' + data.error_code + '] ' : ''}${data.error || 'Unknown error'}</div>`;
+        }
+
+        if (data.ir_text) {
+            document.getElementById('tab-ir-text').innerHTML = '<pre class="ir-block">' + escapeHtml(data.ir_text) + '</pre>';
+        }
+        if (data.ir_json) {
+            document.getElementById('tab-ir-json').innerHTML = '<pre class="ir-block">' + escapeHtml(JSON.stringify(data.ir_json, null, 2)) + '</pre>';
+        }
+        if (data.flat_ir) {
+            document.getElementById('tab-flat-ir').innerHTML = '<pre class="ir-block">' + escapeHtml(data.flat_ir) + '</pre>';
+        }
+        if (data.diagnostics) {
+            const diag = data.diagnostics;
+            let html = '';
+            if (diag.affine) {
+                if (diag.affine.violations && diag.affine.violations.length > 0) {
+                    html += '<div class="error-line">Affine Violations:</div>';
+                    diag.affine.violations.forEach(v => { html += `<div class="error-line">  ${v.var}: ${v.reason}</div>`; });
+                }
+                if (diag.affine.leaks && diag.affine.leaks.length > 0) {
+                    html += '<div class="warn-line">Resource Leaks (W001):</div>';
+                    diag.affine.leaks.forEach(l => { html += `<div class="warn-line">  ${l.var}: ${l.reason}</div>`; });
+                }
+            }
+            if (diag.thunks) {
+                html += '<div class="ir-block">Thunks: ' + diag.thunks.total_created + ' created, ' + diag.thunks.total_forced + ' forced';
+                if (diag.thunks.never_forced && diag.thunks.never_forced.length > 0) {
+                    html += ', <span class="warn-line">' + diag.thunks.never_forced.length + ' never forced</span>';
+                }
+                html += '</div>';
+            }
+            if (diag.closures && diag.closures.classes && diag.closures.classes.length > 0) {
+                html += '<div class="ir-block">Closures:</div>';
+                diag.closures.classes.forEach(c => {
+                    html += `<div class="ir-block">  ${c.param}: ${c.affinity}`;
+                    if (c.affine_captures && c.affine_captures.length > 0) {
+                        html += ' (captures: ' + c.affine_captures.join(', ') + ')';
+                    }
+                    html += '</div>';
+                });
+            }
+            document.getElementById('tab-diagnostics').innerHTML = html;
+        }
+    } catch (e) {
+        resultEl.innerHTML = '<div class="error-line">Network error: ' + escapeHtml(e.message) + '</div>';
+    }
+}
+
+function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Ctrl+Enter to run
+document.getElementById('editor').addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        runCode();
+    }
+});
+</script>
+</body>
+</html>
