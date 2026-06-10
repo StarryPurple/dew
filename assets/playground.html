@@ -34,6 +34,19 @@ header span { font-size: 12px; color: #8892b0; }
 .key { color: #e94560; }
 .string { color: #4ecca3; }
 .number { color: #f0a500; }
+/* Autocomplete dropdown */
+.editor-wrapper { position: relative; flex: 1; display: flex; flex-direction: column; }
+.ac-dropdown { position: absolute; z-index: 1000; background: #16213e; border: 1px solid #0f3460; border-radius: 4px; max-height: 200px; overflow-y: auto; min-width: 200px; box-shadow: 0 4px 16px rgba(0,0,0,0.5); display: none; }
+.ac-dropdown.visible { display: block; }
+.ac-item { padding: 6px 12px; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 13px; }
+.ac-item.selected { background: #0f3460; }
+.ac-item:hover { background: #1a1a3e; }
+.ac-label { color: #e0e0e0; }
+.ac-kind { font-size: 10px; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+.ac-kind.keyword { background: #e94560; color: #fff; }
+.ac-kind.type { background: #4ecca3; color: #111; }
+.ac-kind.variable { background: #f0a500; color: #111; }
+.ac-detail { font-size: 11px; color: #8892b0; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
 @media (max-width: 768px) { .main { flex-direction: column; } }
 </style>
 </head>
@@ -52,9 +65,12 @@ header span { font-size: 12px; color: #8892b0; }
 <div class="main">
   <div class="editor-pane">
     <label>Source (.dew)</label>
-    <textarea id="editor" spellcheck="false" placeholder="Write Dew code here...">def main = fn () {
+    <div class="editor-wrapper">
+      <textarea id="editor" spellcheck="false" placeholder="Write Dew code here...">def main = fn () {
   42
 }</textarea>
+      <div id="ac-dropdown" class="ac-dropdown"></div>
+    </div>
   </div>
   <div class="output-pane">
     <div class="tabs">
@@ -202,7 +218,288 @@ function escapeHtml(s) {
 // Ctrl+Enter to run
 document.getElementById('editor').addEventListener('keydown', function(e) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
         runCode();
+        return;
+    }
+    handleAcKeydown(e);
+});
+
+// ── Autocomplete ──────────────────────────────────────────────────────
+
+const DEW_KEYWORDS = [
+    { label: 'fn', kind: 'keyword', detail: 'Lambda/function', insert: 'fn ($1) { $2 }' },
+    { label: 'def', kind: 'keyword', detail: 'Binding', insert: 'def $1 = $2; $3' },
+    { label: 'if', kind: 'keyword', detail: 'Conditional', insert: 'if $1 { $2 } else { $3 }' },
+    { label: 'else', kind: 'keyword', detail: 'Else branch', insert: 'else' },
+    { label: 'fix', kind: 'keyword', detail: 'Recursion', insert: 'fix $1: $2 { $3 }' },
+    { label: 'dup', kind: 'keyword', detail: 'Duplicate', insert: 'dup($1)' },
+    { label: 'box', kind: 'keyword', detail: 'Allocate Box', insert: 'box($1)' },
+    { label: 'unbox', kind: 'keyword', detail: 'Deallocate Box', insert: 'unbox($1)' },
+    { label: 'nil', kind: 'keyword', detail: 'Empty list', insert: 'nil' },
+    { label: 'cons', kind: 'keyword', detail: 'List constructor', insert: 'cons($1, $2)' },
+    { label: 'head', kind: 'keyword', detail: 'List head', insert: 'head($1)' },
+    { label: 'tail', kind: 'keyword', detail: 'List tail', insert: 'tail($1)' },
+    { label: 'isnil', kind: 'keyword', detail: 'Is list empty?', insert: 'isnil($1)' },
+    { label: 'true', kind: 'keyword', detail: 'Bool true', insert: 'true' },
+    { label: 'false', kind: 'keyword', detail: 'Bool false', insert: 'false' },
+];
+
+const DEW_TYPES = [
+    { label: 'Int', kind: 'type', detail: '64-bit integer', insert: 'Int' },
+    { label: 'Bool', kind: 'type', detail: 'Boolean', insert: 'Bool' },
+    { label: '()', kind: 'type', detail: 'Unit/void', insert: '()' },
+    { label: 'Box(', kind: 'type', detail: 'Linear box', insert: 'Box($1)' },
+    { label: 'List(', kind: 'type', detail: 'List type', insert: 'List($1)' },
+];
+
+const acDropdown = document.getElementById('ac-dropdown');
+const editor = document.getElementById('editor');
+let acItems = [];
+let acSelected = -1;
+let acVisible = false;
+let acPrefix = '';
+let acDebounceTimer = null;
+
+function getCursorWord() {
+    const ta = editor;
+    const pos = ta.selectionStart;
+    const text = ta.value;
+    // Walk backward to find start of current word
+    let start = pos;
+    while (start > 0 && /[a-zA-Z0-9_]/.test(text[start - 1])) start--;
+    return { prefix: text.substring(start, pos), start: start, end: pos };
+}
+
+function getCursorPosition() {
+    const ta = editor;
+    const text = ta.value;
+    const pos = ta.selectionStart;
+    const before = text.substring(0, pos);
+    const lines = before.split('\n');
+    return { line: lines.length, column: lines[lines.length - 1].length };
+}
+
+function collectClientNames(text) {
+    const names = new Set();
+    // Match def/fix/fn param names
+    const defRe = /\bdef\s+(\w+)/g;
+    const fixRe = /\bfix\s+(\w+)/g;
+    const paramRe = /\bfn\s*\(\s*(\w+)\s*:/g;
+    let m;
+    while ((m = defRe.exec(text)) !== null) names.add(m[1]);
+    while ((m = fixRe.exec(text)) !== null) names.add(m[1]);
+    while ((m = paramRe.exec(text)) !== null) names.add(m[1]);
+    return names;
+}
+
+function isInTypePosition(text, pos) {
+    const before = text.substring(0, pos);
+    return before.trimEnd().endsWith(':');
+}
+
+function showAcDropdown(rect, items) {
+    if (!items || items.length === 0) { hideAcDropdown(); return; }
+    acItems = items;
+    acSelected = 0;
+    acVisible = true;
+    acDropdown.classList.add('visible');
+
+    // Position relative to editor-wrapper
+    const wrapper = document.querySelector('.editor-wrapper');
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const lineHeight = 20;
+    const lines = editor.value.substring(0, editor.selectionStart).split('\n');
+    const top = Math.min(lines.length * lineHeight + 8, wrapperRect.height - 220);
+
+    acDropdown.style.left = Math.min(acPrefix ? (acPrefix.length * 8.4 + 16) : 16, 300) + 'px';
+    acDropdown.style.top = top + 'px';
+
+    let html = '';
+    acItems.forEach((item, i) => {
+        html += `<div class="ac-item${i === 0 ? ' selected' : ''}" data-idx="${i}" onmousedown="selectAcItem(${i}, event)">
+            <span class="ac-label">${escapeHtml(item.label)}</span>
+            <span class="ac-kind ${item.kind}">${item.kind}</span>
+            <span class="ac-detail">${escapeHtml(item.detail || '')}</span>
+        </div>`;
+    });
+    acDropdown.innerHTML = html;
+}
+
+function hideAcDropdown() {
+    acVisible = false;
+    acSelected = -1;
+    acItems = [];
+    acDropdown.classList.remove('visible');
+}
+
+function applyCompletion(item) {
+    const { prefix, start, end } = getCursorWord();
+    const ta = editor;
+    let insertText = item.insert;
+
+    // Simple snippet handling: $1, $2 become cursor stops
+    const snippetStops = [];
+    insertText = insertText.replace(/\$(\d+)/g, (_, n) => {
+        snippetStops.push(parseInt(n));
+        return '';
+    });
+
+    // Replace the current word with the completion
+    ta.setRangeText(insertText, start, end, 'end');
+
+    // If there's a $1 stop, move cursor there
+    if (item.insert.includes('$1')) {
+        const idx = item.insert.indexOf('$1');
+        const beforeSnippet = item.insert.substring(0, idx);
+        ta.selectionStart = ta.selectionEnd = start + beforeSnippet.length;
+    }
+
+    ta.focus();
+    hideAcDropdown();
+}
+
+function selectAcItem(idx, event) {
+    if (event) event.preventDefault();
+    if (idx >= 0 && idx < acItems.length) {
+        applyCompletion(acItems[idx]);
+    }
+}
+
+async function triggerAutocomplete() {
+    const { prefix } = getCursorWord();
+
+    // Don't trigger on very short prefixes or after numbers
+    if (prefix.length < 1) { hideAcDropdown(); return; }
+
+    acPrefix = prefix;
+
+    const ta = editor;
+    const pos = ta.selectionStart;
+    const text = ta.value;
+    const inTypePos = isInTypePosition(text, pos);
+
+    // Client-side: fast completion from keywords + regex-collected names
+    let items = [];
+    const source = inTypePos ? DEW_TYPES : DEW_KEYWORDS;
+    const clientNames = inTypePos ? new Set() : collectClientNames(text);
+
+    for (const item of source) {
+        if (item.label.toLowerCase().startsWith(prefix.toLowerCase())) {
+            items.push(item);
+        }
+    }
+    for (const name of clientNames) {
+        if (name.toLowerCase().startsWith(prefix.toLowerCase()) && !source.some(s => s.label === name)) {
+            items.push({ label: name, kind: 'variable', detail: 'user-defined', insert: name });
+        }
+    }
+    // Sort: keywords first, then variables, alphabetically within each
+    items.sort((a, b) => {
+        if (a.kind !== b.kind) return a.kind === 'keyword' ? -1 : 1;
+        return a.label.localeCompare(b.label);
+    });
+
+    if (items.length > 0) {
+        const rect = editor.getBoundingClientRect();
+        showAcDropdown(rect, items);
+    } else {
+        hideAcDropdown();
+    }
+
+    // Server-side: precise completion (async, updates dropdown when ready)
+    const cursor = getCursorPosition();
+    try {
+        const resp = await fetch('/api/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source: text, line: cursor.line, column: cursor.column })
+        });
+        const data = await resp.json();
+        if (data.completions && data.completions.length > 0 && acVisible) {
+            // Merge server results (they may be more precise)
+            const merged = [...items];
+            for (const sc of data.completions) {
+                if (!merged.some(m => m.label === sc.label)) {
+                    merged.push(sc);
+                }
+            }
+            merged.sort((a, b) => {
+                const order = { keyword: 0, type: 0, variable: 1 };
+                const oa = order[a.kind] ?? 2;
+                const ob = order[b.kind] ?? 2;
+                return oa - ob || a.label.localeCompare(b.label);
+            });
+            showAcDropdown(null, merged);
+        }
+    } catch (_) {
+        // Server unavailable — client-side results are already shown
+    }
+}
+
+function handleAcKeydown(e) {
+    if (!acVisible) {
+        // Trigger on typing or Ctrl+Space
+        if (e.key === ' ' && e.ctrlKey) {
+            e.preventDefault();
+            triggerAutocomplete();
+            return;
+        }
+        // Debounced trigger after typing alphanumeric
+        if (e.key.length === 1 && /[a-zA-Z0-9_]/.test(e.key)) {
+            clearTimeout(acDebounceTimer);
+            acDebounceTimer = setTimeout(triggerAutocomplete, 150);
+        } else if (e.key === 'Backspace' || e.key === 'Delete') {
+            clearTimeout(acDebounceTimer);
+            acDebounceTimer = setTimeout(triggerAutocomplete, 150);
+        }
+        return;
+    }
+
+    switch (e.key) {
+        case 'ArrowDown':
+            e.preventDefault();
+            acSelected = Math.min(acSelected + 1, acItems.length - 1);
+            updateAcSelection();
+            break;
+        case 'ArrowUp':
+            e.preventDefault();
+            acSelected = Math.max(acSelected - 1, 0);
+            updateAcSelection();
+            break;
+        case 'Enter':
+        case 'Tab':
+            e.preventDefault();
+            if (acSelected >= 0 && acSelected < acItems.length) {
+                applyCompletion(acItems[acSelected]);
+            }
+            break;
+        case 'Escape':
+            e.preventDefault();
+            hideAcDropdown();
+            break;
+        default:
+            // Keep typing — re-filter
+            if (e.key.length === 1 && /[a-zA-Z0-9_]/.test(e.key)) {
+                setTimeout(triggerAutocomplete, 50);
+            } else if (e.key === 'Backspace') {
+                setTimeout(triggerAutocomplete, 50);
+            }
+    }
+}
+
+function updateAcSelection() {
+    const items = acDropdown.querySelectorAll('.ac-item');
+    items.forEach((el, i) => {
+        el.classList.toggle('selected', i === acSelected);
+        if (i === acSelected) el.scrollIntoView({ block: 'nearest' });
+    });
+}
+
+// Hide dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    if (!acDropdown.contains(e.target) && e.target !== editor) {
+        hideAcDropdown();
     }
 });
 </script>
