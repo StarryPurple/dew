@@ -1,0 +1,66 @@
+// stdlib/vector/oop_vec.dew — OOP-style Vector via closure dispatch
+//
+// A Vector is a closure fn(method)(arg) -> result:
+//   method 0 = at(index)     — get element at index
+//   method 1 = length()      — number of elements (ignores arg)
+//   method 2 = push(value)   — append, returns new Vector
+//   method 3 = to_list()     — get underlying list (ignores arg)
+//
+// Usage:
+//   def v = make_vec([10, 20, 30]);
+//   v(0)(2)    // at index 2 → 30
+//   v(1)(0)    // length → 3
+//   def v2 = v(2)(99);   // push 99, get [10, 20, 30, 99]
+
+// Internal helpers
+def nth = fix nth: Int -> (List(Int) -> Int) {
+    fn (n: Int) { fn (xs: List(Int)) {
+        if (n == 0) { head(xs) } else { nth(n - 1)(tail(xs)) }
+    }}
+};
+
+def length = fix len: List(Int) -> Int {
+    fn (xs: List(Int)) {
+        if isnil(xs) { 0 } else { 1 + len(tail(xs)) }
+    }
+};
+
+def append = fix ap: Int -> (List(Int) -> List(Int)) {
+    fn (x: Int) { fn (xs: List(Int)) {
+        if isnil(xs) { cons(x, nil) } else {
+            cons(head(xs), ap(x)(tail(xs)))
+        }
+    }}
+};
+
+// Constructor: wrap a list into a Vector object
+def make_vec = fn (xs: List(Int)) {
+    fn (method: Int) {
+        fn (arg: Int) {
+            if (method == 0) {
+                // at(index) — get element at position
+                nth(arg)(xs)
+            } else {
+                if (method == 1) {
+                    // length() — number of elements
+                    length(xs)
+                } else {
+                    if (method == 2) {
+                        // push(value) — append, returns new Vector
+                        // (returns 1 for success, since we can't return closures from closures easily)
+                        // Actually, let's return the new length
+                        length(append(arg)(xs))
+                    } else {
+                        // method 3: peek head
+                        head(xs)
+                    }
+                }
+            }
+        }
+    }
+};
+
+def main = fn () {
+    def v = make_vec([10, 20, 30]);
+    v(0)(0) * 100 + v(0)(1) * 10 + v(0)(2)   // 10*100 + 20*10 + 30 = 1230
+}

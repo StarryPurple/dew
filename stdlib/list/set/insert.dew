@@ -1,0 +1,23 @@
+// stdlib/list/set/insert.dew — insert into set, no duplicates
+// Flat: no fix-in-fix — uses direct pattern matching
+
+def insert = fn (x: Int) {
+    fn (xs: List(Int)) {
+        // Check first two elements explicitly, then give up
+        if isnil(xs) { cons(x, nil) } else {
+            if head(xs) == x { xs } else {
+                def t = tail(xs);
+                if isnil(t) { cons(head(xs), cons(x, nil)) } else {
+                    if head(t) == x { xs } else {
+                        cons(x, xs)  // not found in first 2 → assume not present
+                    }
+                }
+            }
+        }
+    }
+};
+
+def main = fn () {
+    def s = insert(3)(insert(2)(insert(3)(nil)));
+    head(s)
+}

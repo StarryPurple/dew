@@ -1,0 +1,17 @@
+// stdlib/list/take.dew — take first n elements
+// take(n, xs): return first n elements of xs
+// Works with lazy/infinite lists
+
+def take = fix tk: Int -> (List(Int) -> List(Int)) {
+    fn (n: Int) { fn (xs: List(Int)) {
+        if (n == 0) { nil } else {
+            if isnil(xs) { nil } else {
+                cons(head(xs), tk(n - 1)(tail(xs)))
+            }
+        }
+    }}
+};
+
+def main = fn () {
+    take(3)([10, 20, 30, 40, 50]) |> head
+}

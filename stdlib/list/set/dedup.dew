@@ -1,0 +1,20 @@
+// stdlib/list/set/dedup.dew — remove duplicates (length 3 demo)
+// Flat: handles small fixed-size lists without recursion
+
+def dedup3 = fn (a: Int) {
+    fn (b: Int) {
+        fn (c: Int) {
+            if a == b { cons(a, cons(c, nil)) } else {
+                if a == c { cons(a, cons(b, nil)) } else {
+                    if b == c { cons(a, cons(b, nil)) } else {
+                        cons(a, cons(b, cons(c, nil)))
+                    }
+                }
+            }
+        }
+    }
+};
+
+def main = fn () {
+    head(dedup3(1)(2)(1))
+}

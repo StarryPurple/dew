@@ -1,0 +1,15 @@
+// stdlib/list/append.dew — append element to end
+// append(x, xs): add x to end of list. O(n).
+
+def append = fix ap: Int -> (List(Int) -> List(Int)) {
+    fn (x: Int) { fn (xs: List(Int)) {
+        if isnil(xs) { cons(x, nil) } else {
+            cons(head(xs), ap(x)(tail(xs)))
+        }
+    }}
+};
+
+def main = fn () {
+    def result = append(99)([1, 2, 3]);
+    head(result) * 100 + head(tail(result)) * 10 + head(tail(tail(result))) + head(tail(tail(tail(result)))) * 1000
+}

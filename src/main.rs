@@ -87,10 +87,19 @@ fn main() {
 }
 
 fn read_source(file: &PathBuf) -> String {
-    match fs::read_to_string(file) {
+    let raw = match fs::read_to_string(file) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("Error reading {}: {e}", file.display());
+            std::process::exit(1);
+        }
+    };
+    // Preprocess: expand include directives
+    let base_dir = file.parent().unwrap_or(std::path::Path::new("."));
+    match dew::include::preprocess(&raw, base_dir) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Include error: {e}");
             std::process::exit(1);
         }
     }

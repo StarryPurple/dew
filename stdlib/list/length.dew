@@ -1,0 +1,13 @@
+// stdlib/list/length.dew — count elements
+// length(xs): number of elements in list
+// Forces entire lazy list — O(n)
+
+def length = fix len: List(Int) -> Int {
+    fn (xs: List(Int)) {
+        if isnil(xs) { 0 } else { 1 + len(tail(xs)) }
+    }
+};
+
+def main = fn () {
+    length([10, 20, 30, 40, 50])
+}

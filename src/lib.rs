@@ -2,6 +2,7 @@ pub mod ast;
 pub mod diagnostics;
 pub mod eval;
 pub mod flat_ir;
+pub mod include;
 pub mod ir;
 pub mod ir_gen;
 pub mod lower;

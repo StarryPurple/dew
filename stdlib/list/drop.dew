@@ -1,0 +1,13 @@
+// stdlib/list/drop.dew — drop first n elements
+// drop(n, xs): skip first n elements, return rest
+// O(n) to skip, returns lazy tail
+
+def drop = fix dp: Int -> (List(Int) -> List(Int)) {
+    fn (n: Int) { fn (xs: List(Int)) {
+        if (n == 0) { xs } else { dp(n - 1)(tail(xs)) }
+    }}
+};
+
+def main = fn () {
+    drop(2)([10, 20, 30, 40]) |> head
+}
