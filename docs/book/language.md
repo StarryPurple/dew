@@ -69,12 +69,14 @@ The evaluator calls `main()` and uses the returned `Int` as the Unix process exi
 
 ## Comments
 
-Line comments start with `#`:
+Line comments start with `#` or `//`. Doc comments use `///`.
 
 ```dew
-# This is a comment
-def x = 42;   # also a comment
-x + 1
+# Shell-style comment
+// C++-style comment
+/// Documentation comment
+
+def x = 42;  // trailing comment
 ```
 
 ## Operator Precedence

@@ -105,12 +105,35 @@ impl Lexer {
     }
 
     fn skip_whitespace(&mut self) {
-        while let Some(ch) = self.peek_char() {
-            if ch.is_whitespace() { self.advance(); }
-            else if ch == '#' {
+        loop {
+            let ch = match self.peek_char() {
+                Some(c) => c,
+                None => break,
+            };
+            if ch.is_whitespace() {
+                self.advance();
+            } else if ch == '#' {
                 self.advance();
                 while let Some(c) = self.peek_char() { if c == '\n' { break; } self.advance(); }
-            } else { break; }
+            } else if ch == '/' {
+                // Check if this is a line comment (// or ///) without advancing
+                let saved_pos = self.pos;
+                let saved_line = self.line;
+                let saved_col = self.col;
+                self.advance();
+                if self.peek_char() == Some('/') {
+                    self.advance();
+                    while let Some(c) = self.peek_char() { if c == '\n' { break; } self.advance(); }
+                } else {
+                    // Not a comment, backtrack fully
+                    self.pos = saved_pos;
+                    self.line = saved_line;
+                    self.col = saved_col;
+                    break;
+                }
+            } else {
+                break;
+            }
         }
     }
 
