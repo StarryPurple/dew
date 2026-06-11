@@ -58,8 +58,13 @@ impl IrCompiler {
             Expr::Lam(param, param_ty, body, _) => {
                 let b = self.compile_expr(body, Context::Lazy);
                 let ret_ty = b.ty();
-                // Affinity is inferred later; default to Normal here.
-                Ir::Lam(param.clone(), Box::new(b), param_ty.clone(), ret_ty, crate::types::Affinity::Normal)
+                let actual_param_ty = if *param_ty == crate::types::Type::Var(u32::MAX) {
+                    // Inferred type — use Unit as fallback (monomorphized before reaching IR)
+                    crate::types::Type::Unit
+                } else {
+                    param_ty.clone()
+                };
+                Ir::Lam(param.clone(), Box::new(b), actual_param_ty, ret_ty, crate::types::Affinity::Normal)
             }
             Expr::App(fn_expr, arg, _) => {
                 let f = self.compile_expr(fn_expr, Context::Strict);

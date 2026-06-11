@@ -511,9 +511,14 @@ fn expect_ident(parser: &mut Parser) -> Result<String, String> {
 
 fn parse_param(parser: &mut Parser) -> Result<(String, Type), String> {
     let name = expect_ident(parser)?;
-    parser.expect(&Token::Colon)?;
-    let ty = parse_type(parser)?;
-    Ok((name, ty))
+    if parser.check(&Token::Colon) {
+        parser.advance();
+        let ty = parse_type(parser)?;
+        Ok((name, ty))
+    } else {
+        // Type omitted — will be inferred by HM
+        Ok((name, Type::Var(u32::MAX)))
+    }
 }
 
 fn parse_type(parser: &mut Parser) -> Result<Type, String> {

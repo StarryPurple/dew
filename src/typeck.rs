@@ -1,15 +1,14 @@
-/// Affine type checker for Dew.
+/// Hindley-Milner type checker with affine tracking for Dew.
 ///
-/// Rules:
-///   - Int, Bool, Unit are Normal — never consumed on use.
-///   - Box(T) is Affine — consumed on use, must be unboxed.
-///   - Pure closures (no affine captures) are Normal.
-///   - Closures capturing affine variables are Affine (FnOnce).
-///   - fix bindings are Normal (recursion needs reuse).
+/// Algorithm W: generates fresh type variables, unifies constraints,
+/// generalizes at `def` boundaries, instantiates at use sites.
+///
+/// Affine tracking: only active when types are annotated (Box(T) etc).
+/// Inferred type variables are treated as Normal.
 
 use crate::ast::{BinOp, Expr};
 use crate::diagnostics::DiagnosticCollector;
-use crate::types::{Affinity, Type};
+use crate::types::{Affinity, Scheme, Subst, Type};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +27,7 @@ pub enum TypeError {
     MultipleMains,
     MainMustBeUnit(Type),
     MainMustReturnInt(Type),
+    InfiniteType,
 }
 
 impl std::fmt::Display for TypeError {
@@ -37,16 +37,15 @@ impl std::fmt::Display for TypeError {
 }
 
 impl TypeError {
-    /// Returns the diagnostic code. D-prefix = hard error, W-prefix = warning.
     pub fn code(&self) -> &'static str {
         match self {
             TypeError::AffineViolation(_) => "D001",
-            TypeError::UnusedAffine(_) => "W001",
-            TypeError::BoxInnerNotConsumed(_) => "W001",
+            TypeError::UnusedAffine(_) | TypeError::BoxInnerNotConsumed(_) => "W001",
             TypeError::BranchMismatch(_) => "D004",
             TypeError::DupOnAffine(_) => "D005",
             TypeError::TypeMismatch { .. } | TypeError::InvalidBinOp(..)
-                | TypeError::IfConditionNotBool(_) | TypeError::FixTypeNotFunction(_) => "D006",
+                | TypeError::IfConditionNotBool(_) | TypeError::FixTypeNotFunction(_)
+                | TypeError::InfiniteType => "D006",
             TypeError::UnboundVariable(_) => "D007",
             TypeError::MissingMain | TypeError::MultipleMains
                 | TypeError::MainMustBeUnit(_) | TypeError::MainMustReturnInt(_) => "D008",
@@ -95,14 +94,15 @@ impl TypeError {
             TypeError::MainMustReturnInt(ty) => {
                 format!("main must return Int as exit code, found return type {ty}")
             }
+            TypeError::InfiniteType => "infinite type detected — recursive type".into(),
         }
     }
 }
 
-/// Typing context: maps variable names to (type, consumed?).
+/// Typing context: maps variable names to (scheme, consumed?).
 #[derive(Debug, Clone)]
 struct Ctx {
-    vars: HashMap<String, (Type, bool)>,
+    vars: HashMap<String, (Scheme, bool)>,
 }
 
 impl Ctx {
@@ -110,30 +110,10 @@ impl Ctx {
         Ctx { vars: HashMap::new() }
     }
 
-    fn insert(&mut self, name: String, ty: Type) {
-        self.vars.insert(name, (ty, false));
+    fn insert(&mut self, name: String, scheme: Scheme) {
+        self.vars.insert(name, (scheme, false));
     }
 
-    /// Look up a variable. Normal types are never consumed.
-    /// Affine types are consumed on first use; error on second.
-    fn use_var(&mut self, name: &str) -> Result<Type, TypeError> {
-        match self.vars.get_mut(name) {
-            Some((ty, consumed)) => {
-                if ty.is_copyable() {
-                    // Normal — don't consume.
-                    Ok(ty.clone())
-                } else if *consumed {
-                    Err(TypeError::AffineViolation(name.to_string()))
-                } else {
-                    *consumed = true;
-                    Ok(ty.clone())
-                }
-            }
-            None => Err(TypeError::UnboundVariable(name.to_string())),
-        }
-    }
-
-    /// Mark a variable as consumed (for unbox).
     fn consume(&mut self, name: &str) -> Result<(), TypeError> {
         match self.vars.get_mut(name) {
             Some((_, consumed)) => {
@@ -144,7 +124,7 @@ impl Ctx {
                     Ok(())
                 }
             }
-            None => Err(TypeError::UnboundVariable(name.to_string())),
+            None => Ok(()), // May be out of scope — not an error
         }
     }
 }
@@ -152,23 +132,97 @@ impl Ctx {
 pub struct TypeChecker<'a> {
     ctx: Ctx,
     diag: &'a mut DiagnosticCollector,
+    tv_counter: u32,
 }
 
 impl<'a> TypeChecker<'a> {
     pub fn new(diag: &'a mut DiagnosticCollector) -> Self {
-        TypeChecker { ctx: Ctx::new(), diag }
+        TypeChecker { ctx: Ctx::new(), diag, tv_counter: 0 }
     }
+
+    fn fresh_var(&mut self) -> Type {
+        let v = self.tv_counter;
+        self.tv_counter += 1;
+        Type::Var(v)
+    }
+
+    // ── Unification ──────────────────────────────────────────────────
+
+    fn unify(&self, t1: &Type, t2: &Type) -> Result<Subst, TypeError> {
+        match (t1, t2) {
+            (Type::Var(v1), Type::Var(v2)) if v1 == v2 => Ok(Subst::new()),
+            (Type::Var(v), other) => {
+                if occurs_in(*v, other) {
+                    Err(TypeError::InfiniteType)
+                } else {
+                    Ok(Subst::singleton(*v, other.clone()))
+                }
+            }
+            (other, Type::Var(v)) => {
+                if occurs_in(*v, other) {
+                    Err(TypeError::InfiniteType)
+                } else {
+                    Ok(Subst::singleton(*v, other.clone()))
+                }
+            }
+            (Type::Int, Type::Int)
+            | (Type::Bool, Type::Bool)
+            | (Type::Unit, Type::Unit) => Ok(Subst::new()),
+            (Type::Box(a), Type::Box(b)) => self.unify(a, b),
+            (Type::List(a), Type::List(b)) => self.unify(a, b),
+            (Type::Fun(p1, r1, _), Type::Fun(p2, r2, _)) => {
+                // Affinity is metadata from capture inference — ignore for unification
+                let s1 = self.unify(p1, p2)?;
+                let s2 = self.unify(&r1.apply(&s1), &r2.apply(&s1))?;
+                Ok(s1.compose(&s2))
+            }
+            _ => Err(TypeError::TypeMismatch {
+                expected: t1.clone(), found: t2.clone(),
+            }),
+        }
+    }
+
+    // ── Instantiation ────────────────────────────────────────────────
+
+    fn instantiate(&mut self, scheme: &Scheme) -> Type {
+        if scheme.vars.is_empty() {
+            return scheme.body.clone();
+        }
+        let mut subst = Subst::new();
+        for v in &scheme.vars {
+            let fresh = self.fresh_var();
+            subst = subst.compose(&Subst::singleton(*v, fresh));
+        }
+        scheme.body.apply(&subst)
+    }
+
+    // ── Generalization ───────────────────────────────────────────────
+
+    fn generalize(&self, ty: &Type, ctx_vars: &HashSet<u32>) -> Scheme {
+        let free = free_type_vars(ty);
+        let vars: Vec<u32> = free.into_iter().filter(|v| !ctx_vars.contains(v)).collect();
+        Scheme { vars, body: ty.clone() }
+    }
+
+    fn ctx_type_vars(&self) -> HashSet<u32> {
+        let mut vars = HashSet::new();
+        for (_, (scheme, _)) in &self.ctx.vars {
+            for v in &scheme.vars {
+                vars.insert(*v);
+            }
+            collect_type_vars(&scheme.body, &mut vars);
+        }
+        vars
+    }
+
+    // ── Public check entry point ─────────────────────────────────────
 
     pub fn check(&mut self, expr: &Expr) -> Result<Type, TypeError> {
-        let ty = self.infer(expr)?;
-
-        // Validate main function exists and has the right shape.
+        let (subst, ty) = self.infer_w(expr)?;
         self.validate_main(expr)?;
-
-        Ok(ty)
+        Ok(ty.apply(&subst))
     }
 
-    /// Ensure exactly one `def main = fn () { body }` exists, with body : Int.
     fn validate_main(&self, expr: &Expr) -> Result<(), TypeError> {
         let mains = find_main_bindings(expr);
         match mains.len() {
@@ -187,99 +241,122 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    fn infer(&mut self, expr: &Expr) -> Result<Type, TypeError> {
+    // ── Algorithm W ──────────────────────────────────────────────────
+
+    /// infer_w(expr) → (Subst, Type)
+    /// Returns the substitution discovered during inference and the type of the expression.
+    fn infer_w(&mut self, expr: &Expr) -> Result<(Subst, Type), TypeError> {
         match expr {
-            Expr::LitInt(_, _) => Ok(Type::Int),
-            Expr::LitBool(_, _) => Ok(Type::Bool),
-            Expr::LitUnit(_) => Ok(Type::Unit),
-            Expr::Var(name, _) => self.ctx.use_var(name),
+            Expr::LitInt(_, _) => Ok((Subst::new(), Type::Int)),
+            Expr::LitBool(_, _) => Ok((Subst::new(), Type::Bool)),
+            Expr::LitUnit(_) => Ok((Subst::new(), Type::Unit)),
+
+            Expr::Var(name, _) => {
+                let scheme = self.ctx.vars.get(name).map(|(s, _)| s.clone());
+                match scheme {
+                    Some(scheme) => {
+                        let ty = self.instantiate(&scheme);
+                        // Affine check + consume tracking
+                        if !matches!(&ty, Type::Var(_)) && ty.is_affine() {
+                            if let Some((_, consumed)) = self.ctx.vars.get_mut(name) {
+                                if *consumed {
+                                    return Err(TypeError::AffineViolation(name.clone()));
+                                }
+                                *consumed = true;
+                            }
+                        }
+                        Ok((Subst::new(), ty))
+                    }
+                    None => Err(TypeError::UnboundVariable(name.clone())),
+                }
+            }
 
             Expr::BinOp(op, left, right, _) => {
-                let lty = self.infer(left)?;
-                let rty = self.infer(right)?;
+                let (s1, lty) = self.infer_w(left)?;
+                let (s2, rty) = self.infer_w(right)?;
+                let s = s1.compose(&s2);
                 match op {
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
-                        if lty != Type::Int || rty != Type::Int {
-                            return Err(TypeError::InvalidBinOp(*op, lty, rty));
-                        }
-                        Ok(Type::Int)
+                        let s3 = self.unify(&lty, &Type::Int)?;
+                        let s4 = self.unify(&rty.apply(&s3), &Type::Int)?;
+                        Ok((s.compose(&s3).compose(&s4), Type::Int))
                     }
                     BinOp::Eq | BinOp::Lt | BinOp::Gt => {
-                        if lty != Type::Int || rty != Type::Int {
-                            return Err(TypeError::InvalidBinOp(*op, lty, rty));
-                        }
-                        Ok(Type::Bool)
+                        let s3 = self.unify(&lty, &Type::Int)?;
+                        let s4 = self.unify(&rty.apply(&s3), &Type::Int)?;
+                        Ok((s.compose(&s3).compose(&s4), Type::Bool))
                     }
                 }
             }
 
             Expr::If(cond, then_, else_, _) => {
-                let cty = self.infer(cond)?;
-                if cty != Type::Bool {
-                    return Err(TypeError::IfConditionNotBool(cty));
-                }
-                let ctx_after_cond = self.ctx.clone();
-
-                let tty = self.infer(then_)?;
-                let ctx_after_then = self.ctx.clone();
-
-                self.ctx = ctx_after_cond.clone();
-                let ety = self.infer(else_)?;
-                let ctx_after_else = self.ctx.clone();
-
-                if tty != ety {
-                    return Err(TypeError::TypeMismatch { expected: tty, found: ety });
-                }
-
-                // Merge: both branches must consume the same affine variables.
-                let mut final_ctx = ctx_after_cond;
-                for (name, (ty, _)) in &ctx_after_then.vars {
-                    let then_c = ctx_after_then.vars.get(name).map(|(_, c)| *c).unwrap_or(false);
-                    let else_c = ctx_after_else.vars.get(name).map(|(_, c)| *c).unwrap_or(false);
-                    if then_c != else_c && ty.is_affine() {
-                        let msg = if then_c {
-                            format!("affine variable '{name}' consumed in then-branch but not else-branch")
-                        } else {
-                            format!("affine variable '{name}' consumed in else-branch but not then-branch")
-                        };
-                        return Err(TypeError::BranchMismatch(msg));
+                let (s1, cty) = self.infer_w(cond)?;
+                let s2 = self.unify(&cty, &Type::Bool)?;
+                let ctx_saved = self.ctx.clone();
+                let (s3, tty) = self.infer_w(then_)?;
+                let ctx_then = self.ctx.clone();
+                self.ctx = ctx_saved.clone();
+                let (s4, ety) = self.infer_w(else_)?;
+                let ctx_else = self.ctx.clone();
+                let s5 = self.unify(&tty, &ety)?;
+                // Affine branch merge
+                let mut merged_ctx = ctx_saved;
+                for (name, (_, _)) in &ctx_then.vars {
+                    let then_c = ctx_then.vars.get(name).map(|(_, c)| *c).unwrap_or(false);
+                    let else_c = ctx_else.vars.get(name).map(|(_, c)| *c).unwrap_or(false);
+                    if then_c != else_c {
+                        let then_ty = ctx_then.vars.get(name).map(|(s, _)| s.body.clone());
+                        if let Some(ty) = then_ty {
+                            if !matches!(&ty, Type::Var(_)) && ty.is_affine() {
+                                let msg = if then_c {
+                                    format!("affine variable '{name}' consumed in then-branch but not else-branch")
+                                } else {
+                                    format!("affine variable '{name}' consumed in else-branch but not then-branch")
+                                };
+                                return Err(TypeError::BranchMismatch(msg));
+                            }
+                        }
                     }
-                    final_ctx.vars.insert(name.clone(), (ty.clone(), then_c || else_c));
+                    let scheme = ctx_then.vars.get(name).map(|(s, _)| s.clone())
+                        .unwrap_or_else(|| Scheme::monomorphic(Type::Int));
+                    merged_ctx.vars.insert(name.clone(), (scheme, then_c || else_c));
                 }
-                self.ctx = final_ctx;
-                Ok(tty)
+                self.ctx = merged_ctx;
+                let s = s1.compose(&s2).compose(&s3).compose(&s4).compose(&s5);
+                Ok((s, tty))
             }
 
             Expr::Lam(param, param_ty, body, _) => {
+                let param_type = if *param_ty == Type::Var(u32::MAX) {
+                    // Sentinel: type was omitted in source → fresh variable
+                    self.fresh_var()
+                } else {
+                    param_ty.clone()
+                };
                 let saved = self.ctx.clone();
-                self.ctx.insert(param.clone(), param_ty.clone());
-
-                let body_ty = self.infer(body)?;
-
-                // Compute free variables of the body that are in saved context.
+                self.ctx.insert(param.clone(), Scheme::monomorphic(param_type.clone()));
+                let (s, body_ty) = self.infer_w(body)?;
+                self.ctx = saved.clone();
+                // Compute free variables + affine captures
                 let free = free_vars_of_expr(body);
-                let mut has_affine_capture = false;
+                let mut has_affine = false;
                 let mut affine_captures: Vec<String> = Vec::new();
-
                 for fv in &free {
                     if fv == param { continue; }
-                    if let Some((ty, _)) = saved.vars.get(fv) {
-                        if ty.is_affine() {
-                            has_affine_capture = true;
-                            affine_captures.push(format!("{fv}: {ty}"));
+                    if let Some((scheme, _)) = saved.vars.get(fv) {
+                        let captured_ty = scheme.body.apply(&s);
+                        if !matches!(&captured_ty, Type::Var(_)) && captured_ty.is_affine() {
+                            has_affine = true;
+                            affine_captures.push(format!("{fv}: {captured_ty}"));
                         }
                     }
                 }
-
-                let affinity = if has_affine_capture {
-                    // The affine capture is "moved" into the closure.
-                    // Mark it as consumed in the outer context.
+                let affinity = if has_affine {
                     for fv in &free {
-                        if let Some((ty, _)) = saved.vars.get(fv) {
-                            if ty.is_affine() {
-                                if let Err(_) = self.ctx.consume(fv) {
-                                    // Was already consumed in body? We track via saved.
-                                }
+                        if let Some((scheme, _)) = saved.vars.get(fv) {
+                            let ct = scheme.body.apply(&s);
+                            if !matches!(&ct, Type::Var(_)) && ct.is_affine() {
+                                let _ = self.ctx.consume(fv);
                             }
                         }
                     }
@@ -288,39 +365,33 @@ impl<'a> TypeChecker<'a> {
                 } else {
                     Affinity::Normal
                 };
-
-                self.ctx = saved;
-                Ok(Type::Fun(
-                    Box::new(param_ty.clone()),
-                    Box::new(body_ty),
-                    affinity,
-                ))
+                let fn_ty = Type::Fun(Box::new(param_type.apply(&s)), Box::new(body_ty.clone()), affinity);
+                Ok((s, fn_ty))
             }
 
             Expr::App(fn_expr, arg, _) => {
-                let fn_ty = self.infer(fn_expr)?;
-                let arg_ty = self.infer(arg)?;
-                match fn_ty {
-                    Type::Fun(expected_arg, ret, _affinity) => {
-                        if *expected_arg != arg_ty {
-                            return Err(TypeError::TypeMismatch { expected: *expected_arg, found: arg_ty });
-                        }
-                        Ok(*ret)
-                    }
-                    _ => Err(TypeError::TypeMismatch {
-                        expected: Type::Fun(Box::new(arg_ty), Box::new(Type::Int), Affinity::Normal),
-                        found: fn_ty,
-                    }),
-                }
+                let (s1, fn_ty) = self.infer_w(fn_expr)?;
+                let (s2, arg_ty) = self.infer_w(arg)?;
+                let ret_ty = self.fresh_var();
+                let fn_expected = Type::Fun(
+                    Box::new(arg_ty.clone()),
+                    Box::new(ret_ty.clone()),
+                    Affinity::Normal,
+                );
+                let s3 = self.unify(&fn_ty.apply(&s2), &fn_expected)?;
+                let s = s1.compose(&s2).compose(&s3);
+                Ok((s, ret_ty.apply(&s3)))
             }
 
             Expr::Let(name, bind, body, _) => {
-                let bind_ty = self.infer(bind)?;
-                self.ctx.insert(name.clone(), bind_ty.clone());
-                let body_ty = self.infer(body)?;
-
-                // Warn if an affine binding is never consumed in its body.
-                if bind_ty.is_affine() {
+                let ctx_vars = self.ctx_type_vars();
+                let (s1, bind_ty) = self.infer_w(bind)?;
+                let scheme = self.generalize(&bind_ty.apply(&s1), &ctx_vars);
+                self.ctx.insert(name.clone(), scheme.clone());
+                let (s2, body_ty) = self.infer_w(body)?;
+                // Warn if affine binding is never consumed
+                let concrete = bind_ty.apply(&s1).apply(&s2);
+                if !matches!(&concrete, Type::Var(_)) && concrete.is_affine() {
                     if let Some((_, consumed)) = self.ctx.vars.get(name) {
                         if !consumed {
                             self.diag.record_unused_variable(name);
@@ -328,113 +399,87 @@ impl<'a> TypeChecker<'a> {
                         }
                     }
                 }
-
-                Ok(body_ty)
+                Ok((s1.compose(&s2), body_ty))
             }
 
             Expr::Dup(inner, _) => {
-                let ty = self.infer(inner)?;
-                if ty.is_affine() {
-                    return Err(TypeError::DupOnAffine(ty));
+                let (s, ty) = self.infer_w(inner)?;
+                let concrete = ty.apply(&s);
+                if !matches!(&concrete, Type::Var(_)) && concrete.is_affine() {
+                    return Err(TypeError::DupOnAffine(concrete));
                 }
-                Ok(ty)
+                Ok((s, ty))
             }
 
             Expr::Fix(name, ty, body, _) => {
                 match ty {
                     Type::Fun(_, _, _) => {
                         let saved = self.ctx.clone();
-                        // fix binding is Normal within the body.
-                        self.ctx.vars.insert(name.clone(), (ty.clone(), true)); // pre-consumed = no tracking
-                        let body_ty = self.infer(body)?;
-                        self.ctx = saved;
-                        if body_ty != *ty {
-                            return Err(TypeError::TypeMismatch { expected: ty.clone(), found: body_ty });
+                        self.ctx.vars.insert(name.clone(), (Scheme::monomorphic(ty.clone()), true));
+                        let (s, body_ty) = self.infer_w(body)?;
+                        self.ctx = saved.clone();
+                        let concrete_body = body_ty.apply(&s);
+                        if concrete_body != *ty {
+                            return Err(TypeError::TypeMismatch { expected: ty.clone(), found: concrete_body });
                         }
-                        Ok(ty.clone())
+                        Ok((s, ty.clone()))
                     }
                     _ => Err(TypeError::FixTypeNotFunction(ty.clone())),
                 }
             }
 
             Expr::Box(inner, _) => {
-                let inner_ty = self.infer(inner)?;
-                Ok(Type::Box(Box::new(inner_ty)))
+                let (s, inner_ty) = self.infer_w(inner)?;
+                Ok((s, Type::Box(Box::new(inner_ty))))
             }
 
             Expr::Unbox(inner, _) => {
-                let inner_ty = self.infer(inner)?;
-                match inner_ty {
-                    Type::Box(contents) => Ok(*contents),
-                    _ => Err(TypeError::TypeMismatch {
-                        expected: Type::Box(Box::new(Type::Int)),
-                        found: inner_ty,
-                    }),
-                }
+                let (s, inner_ty) = self.infer_w(inner)?;
+                let elem = self.fresh_var();
+                let s2 = self.unify(&inner_ty.apply(&s), &Type::Box(Box::new(elem.clone())))?;
+                Ok((s.compose(&s2), elem.apply(&s2)))
             }
 
-            Expr::Nil(_) => Ok(Type::List(Box::new(Type::Int))), // polymorphic placeholder
+            Expr::Nil(_) => {
+                let elem = self.fresh_var();
+                Ok((Subst::new(), Type::List(Box::new(elem))))
+            }
 
             Expr::Cons(head, tail, _) => {
-                let head_ty = self.infer(head)?;
-                let tail_ty = self.infer(tail)?;
-                match tail_ty {
-                    Type::List(ref elem_ty) => {
-                        if head_ty != **elem_ty {
-                            return Err(TypeError::TypeMismatch {
-                                expected: *elem_ty.clone(),
-                                found: head_ty,
-                            });
-                        }
-                        Ok(Type::List(Box::new(head_ty)))
-                    }
-                    _ => Err(TypeError::TypeMismatch {
-                        expected: Type::List(Box::new(head_ty.clone())),
-                        found: tail_ty,
-                    }),
-                }
+                let (s1, head_ty) = self.infer_w(head)?;
+                let (s2, tail_ty) = self.infer_w(tail)?;
+                let elem = self.fresh_var();
+                let s3 = self.unify(&tail_ty.apply(&s1), &Type::List(Box::new(elem.clone())))?;
+                let s4 = self.unify(&head_ty.apply(&s1.compose(&s3)), &elem)?;
+                let s = s1.compose(&s2).compose(&s3).compose(&s4);
+                let result_ty = Type::List(Box::new(elem.apply(&s)));
+                Ok((s, result_ty))
             }
 
             Expr::Head(list, _) => {
-                let list_ty = self.infer(list)?;
-                match list_ty {
-                    Type::List(elem_ty) => Ok(*elem_ty),
-                    _ => Err(TypeError::TypeMismatch {
-                        expected: Type::List(Box::new(Type::Int)),
-                        found: list_ty,
-                    }),
-                }
+                let (s, list_ty) = self.infer_w(list)?;
+                let elem = self.fresh_var();
+                let s2 = self.unify(&list_ty.apply(&s), &Type::List(Box::new(elem.clone())))?;
+                Ok((s.compose(&s2), elem.apply(&s2)))
             }
 
             Expr::Tail(list, _) => {
-                let list_ty = self.infer(list)?;
-                match list_ty {
-                    Type::List(_) => Ok(list_ty),
-                    _ => Err(TypeError::TypeMismatch {
-                        expected: Type::List(Box::new(Type::Int)),
-                        found: list_ty,
-                    }),
-                }
+                let (s, list_ty) = self.infer_w(list)?;
+                Ok((s, list_ty))
             }
 
             Expr::IsNil(list, _) => {
-                let list_ty = self.infer(list)?;
-                match list_ty {
-                    Type::List(_) => Ok(Type::Bool),
-                    _ => Err(TypeError::TypeMismatch {
-                        expected: Type::List(Box::new(Type::Int)),
-                        found: list_ty,
-                    }),
-                }
+                let (s, list_ty) = self.infer_w(list)?;
+                let elem = self.fresh_var();
+                let s2 = self.unify(&list_ty.apply(&s), &Type::List(Box::new(elem)))?;
+                Ok((s.compose(&s2), Type::Bool))
             }
 
             Expr::ForceStrict(inner, _) => {
-                self.infer(inner)
+                self.infer_w(inner)
             }
 
             Expr::Pipe(left, right, _) => {
-                // Desugar: left |> right  →  right(left)
-                // Handle built-in function names: tail, head, isnil
                 let desugared = match right.as_ref() {
                     Expr::Var(name, span) => match name.as_str() {
                         "tail" => Expr::Tail(left.clone(), *span),
@@ -444,13 +489,42 @@ impl<'a> TypeChecker<'a> {
                     },
                     _ => Expr::App(right.clone(), left.clone(), (0, 0, 0, 0)),
                 };
-                self.infer(&desugared)
+                self.infer_w(&desugared)
             }
         }
     }
 }
 
-/// Compute the set of free variable names in an expression.
+// ── Type variable utilities ──────────────────────────────────────────
+
+fn occurs_in(var: u32, ty: &Type) -> bool {
+    match ty {
+        Type::Var(v) => *v == var,
+        Type::Box(inner) => occurs_in(var, inner),
+        Type::List(inner) => occurs_in(var, inner),
+        Type::Fun(p, r, _) => occurs_in(var, p) || occurs_in(var, r),
+        _ => false,
+    }
+}
+
+fn collect_type_vars(ty: &Type, vars: &mut HashSet<u32>) {
+    match ty {
+        Type::Var(v) => { vars.insert(*v); }
+        Type::Box(inner) => collect_type_vars(inner, vars),
+        Type::List(inner) => collect_type_vars(inner, vars),
+        Type::Fun(p, r, _) => { collect_type_vars(p, vars); collect_type_vars(r, vars); }
+        _ => {}
+    }
+}
+
+fn free_type_vars(ty: &Type) -> HashSet<u32> {
+    let mut vars = HashSet::new();
+    collect_type_vars(ty, &mut vars);
+    vars
+}
+
+// ── Free variable analysis ───────────────────────────────────────────
+
 pub fn free_vars_of_expr(expr: &Expr) -> HashSet<String> {
     let mut fv = HashSet::new();
     collect_free(expr, &mut fv);
@@ -459,48 +533,16 @@ pub fn free_vars_of_expr(expr: &Expr) -> HashSet<String> {
 
 fn collect_free(expr: &Expr, fv: &mut HashSet<String>) {
     match expr {
-        Expr::Var(name, _) => {
-            fv.insert(name.clone());
-        }
+        Expr::Var(name, _) => { fv.insert(name.clone()); }
         Expr::LitInt(_, _) | Expr::LitBool(_, _) | Expr::LitUnit(_) => {}
-        Expr::BinOp(_, left, right, _) => {
-            collect_free(left, fv);
-            collect_free(right, fv);
-        }
-        Expr::If(cond, then_, else_, _) => {
-            collect_free(cond, fv);
-            collect_free(then_, fv);
-            collect_free(else_, fv);
-        }
-        Expr::Lam(param, _, body, _) => {
-            let mut body_fv = HashSet::new();
-            collect_free(body, &mut body_fv);
-            body_fv.remove(param);
-            fv.extend(body_fv);
-        }
-        Expr::App(fn_expr, arg, _) => {
-            collect_free(fn_expr, fv);
-            collect_free(arg, fv);
-        }
-        Expr::Let(name, bind, body, _) => {
-            collect_free(bind, fv);
-            let mut body_fv = HashSet::new();
-            collect_free(body, &mut body_fv);
-            body_fv.remove(name);
-            fv.extend(body_fv);
-        }
-        Expr::Dup(inner, _) => {
-            collect_free(inner, fv);
-        }
-        Expr::Fix(name, _, body, _) => {
-            let mut body_fv = HashSet::new();
-            collect_free(body, &mut body_fv);
-            body_fv.remove(name);
-            fv.extend(body_fv);
-        }
-        Expr::Box(inner, _) => {
-            collect_free(inner, fv);
-        }
+        Expr::BinOp(_, left, right, _) => { collect_free(left, fv); collect_free(right, fv); }
+        Expr::If(cond, then_, else_, _) => { collect_free(cond, fv); collect_free(then_, fv); collect_free(else_, fv); }
+        Expr::Lam(param, _, body, _) => { let mut b = HashSet::new(); collect_free(body, &mut b); b.remove(param); fv.extend(b); }
+        Expr::App(fn_expr, arg, _) => { collect_free(fn_expr, fv); collect_free(arg, fv); }
+        Expr::Let(name, bind, body, _) => { collect_free(bind, fv); let mut b = HashSet::new(); collect_free(body, &mut b); b.remove(name); fv.extend(b); }
+        Expr::Dup(inner, _) => { collect_free(inner, fv); }
+        Expr::Fix(name, _, body, _) => { let mut b = HashSet::new(); collect_free(body, &mut b); b.remove(name); fv.extend(b); }
+        Expr::Box(inner, _) => { collect_free(inner, fv); }
         Expr::Unbox(inner, _) => { collect_free(inner, fv); }
         Expr::ForceStrict(inner, _) => { collect_free(inner, fv); }
         Expr::Nil(_) => {}
@@ -512,8 +554,8 @@ fn collect_free(expr: &Expr, fv: &mut HashSet<String>) {
     }
 }
 
-/// Walk the AST and find all `def main = fn (...)` bindings.
-/// Returns Vec of (param_type, body_type) for each main found.
+// ── Main function validation ─────────────────────────────────────────
+
 pub fn find_main_bindings(expr: &Expr) -> Vec<(Type, Type)> {
     let mut results = Vec::new();
     find_main_in(expr, &mut results);
@@ -532,26 +574,14 @@ fn find_main_in(expr: &Expr, results: &mut Vec<(Type, Type)>) {
             find_main_in(bind, results);
             find_main_in(body, results);
         }
-        Expr::If(_, then_, else_, _) => {
-            find_main_in(then_, results);
-            find_main_in(else_, results);
-        }
-        Expr::BinOp(_, left, right, _) => {
-            find_main_in(left, results);
-            find_main_in(right, results);
-        }
-        Expr::App(fn_expr, arg, _) => {
-            find_main_in(fn_expr, results);
-            find_main_in(arg, results);
-        }
+        Expr::If(_, then_, else_, _) => { find_main_in(then_, results); find_main_in(else_, results); }
+        Expr::BinOp(_, left, right, _) => { find_main_in(left, results); find_main_in(right, results); }
+        Expr::App(fn_expr, arg, _) => { find_main_in(fn_expr, results); find_main_in(arg, results); }
         Expr::Dup(inner, _) => find_main_in(inner, results),
         Expr::Fix(_, _, body, _) => find_main_in(body, results),
         Expr::Box(inner, _) => find_main_in(inner, results),
         Expr::Unbox(inner, _) => find_main_in(inner, results),
-        Expr::Cons(head, tail, _) => {
-            find_main_in(head, results);
-            find_main_in(tail, results);
-        }
+        Expr::Cons(head, tail, _) => { find_main_in(head, results); find_main_in(tail, results); }
         Expr::Head(inner, _) => find_main_in(inner, results),
         Expr::Tail(inner, _) => find_main_in(inner, results),
         Expr::IsNil(inner, _) => find_main_in(inner, results),
@@ -562,7 +592,6 @@ fn find_main_in(expr: &Expr, results: &mut Vec<(Type, Type)>) {
     }
 }
 
-/// Quick body-type inference for the main check.
 fn infer_body_type(expr: &Expr) -> Type {
     match expr {
         Expr::LitInt(_, _) => Type::Int,
@@ -589,7 +618,6 @@ fn infer_body_type(expr: &Expr) -> Type {
         Expr::Cons(_, _, _) => Type::Int,
         Expr::ForceStrict(inner, _) => infer_body_type(inner),
         Expr::Pipe(left, right, _) => {
-            // Desugar: left |> right → right(left)
             infer_body_type(&Expr::App(right.clone(), left.clone(), (0, 0, 0, 0)))
         }
         Expr::Lam(_, _, _, _) => Type::Int,

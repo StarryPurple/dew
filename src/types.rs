@@ -7,6 +7,7 @@
 ///     (closure affinity is inferred during type checking)
 
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fmt;
 
 /// Whether a type (or closure) is normal or affine.
@@ -33,6 +34,47 @@ impl fmt::Display for Affinity {
     }
 }
 
+/// Type substitution: maps type variable IDs to concrete types.
+#[derive(Debug, Clone, Default)]
+pub struct Subst {
+    map: HashMap<u32, Type>,
+}
+
+impl Subst {
+    pub fn new() -> Self { Subst { map: HashMap::new() } }
+    pub fn singleton(var: u32, ty: Type) -> Self {
+        let mut s = Subst::new();
+        s.map.insert(var, ty);
+        s
+    }
+    pub fn compose(&self, other: &Subst) -> Self {
+        let mut result = self.clone();
+        for (v, t) in &other.map {
+            result.map.insert(*v, t.apply(other).apply(self));
+        }
+        result
+    }
+    pub fn get(&self, var: &u32) -> Option<&Type> {
+        self.map.get(var)
+    }
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+}
+
+/// Polymorphic type scheme: ∀vars. body
+#[derive(Debug, Clone)]
+pub struct Scheme {
+    pub vars: Vec<u32>,
+    pub body: Type,
+}
+
+impl Scheme {
+    pub fn monomorphic(ty: Type) -> Self {
+        Scheme { vars: vec![], body: ty }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum Type {
     /// 64-bit signed integer. Normal.
@@ -44,19 +86,32 @@ pub enum Type {
     /// Linear box containing a value of type T. Affine — must be unboxed.
     Box(Box<Type>),
     /// Function type: parameter → return, with affinity inferred from captures.
-    /// Affinity=Normal means the closure is pure (no affine captures) and
-    /// can be called freely. Affinity=Affine means the closure captures a
-    /// resource and is FnOnce.
     Fun(Box<Type>, Box<Type>, Affinity),
     /// Lazy linked list. Normal (copyable) regardless of element type.
     List(Box<Type>),
+    /// Type variable — placeholder to be unified. Not serializable.
+    #[serde(skip)]
+    Var(u32),
 }
 
 impl Type {
+    /// Apply a substitution to this type, replacing all Var references.
+    pub fn apply(&self, subst: &Subst) -> Type {
+        match self {
+            Type::Var(v) => subst.get(v).cloned().unwrap_or_else(|| Type::Var(*v)),
+            Type::Box(inner) => Type::Box(Box::new(inner.apply(subst))),
+            Type::Fun(param, ret, aff) => {
+                Type::Fun(Box::new(param.apply(subst)), Box::new(ret.apply(subst)), *aff)
+            }
+            Type::List(inner) => Type::List(Box::new(inner.apply(subst))),
+            other => other.clone(),
+        }
+    }
+
     /// Returns true if values of this type can be freely copied/duplicated.
     pub fn is_copyable(&self) -> bool {
         match self {
-            Type::Int | Type::Bool | Type::Unit | Type::List(_) => true,
+            Type::Int | Type::Bool | Type::Unit | Type::List(_) | Type::Var(_) => true,
             Type::Box(_) => false,
             Type::Fun(_, _, affinity) => !affinity.is_affine(),
         }
@@ -93,6 +148,7 @@ impl fmt::Display for Type {
             Type::Unit => write!(f, "Unit"),
             Type::Box(inner) => write!(f, "Box({inner})"),
             Type::List(inner) => write!(f, "[{inner}]"),
+            Type::Var(v) => write!(f, "?{v}"),
             Type::Fun(param, ret, affinity) => {
                 let param_str = if matches!(param.as_ref(), Type::Fun(_, _, _)) {
                     format!("({param})")
