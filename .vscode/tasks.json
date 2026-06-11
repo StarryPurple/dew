@@ -1,0 +1,26 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "dew run",
+            "type": "shell",
+            "command": "cargo run -q -- ${file}",
+            "problemMatcher": [],
+            "group": { "kind": "build", "isDefault": false }
+        },
+        {
+            "label": "dew lint",
+            "type": "shell",
+            "command": "cargo run -q -- lint ${file}",
+            "problemMatcher": [],
+            "group": "test"
+        },
+        {
+            "label": "cargo build",
+            "type": "shell",
+            "command": "cargo build",
+            "problemMatcher": ["$rustc"],
+            "group": { "kind": "build", "isDefault": true }
+        }
+    ]
+}

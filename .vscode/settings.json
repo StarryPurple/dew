@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "*.dew": "rust"
+    },
+    "[rust]": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true
+    }
+}
