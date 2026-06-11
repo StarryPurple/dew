@@ -88,7 +88,7 @@ Lists are **unrestricted** regardless of element type. A `List(Box(Int))` can be
 ```dew
 # Lists are copyable even with affine elements
 def xs = cons(box(1), nil);
-def ys = dup(xs);    # ok — List is unrestricted
+def ys = xs;           # List is Normal — freely copyable
 head(ys)
 ```
 

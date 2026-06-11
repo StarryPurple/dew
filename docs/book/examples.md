@@ -124,7 +124,7 @@ unbox(inner)
 ```dew
 # → 6
 def x = 3;
-def y = dup(x);
+dup y = x;
 x + y
 ```
 
