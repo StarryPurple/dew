@@ -119,7 +119,14 @@ impl<'a> Evaluator<'a> {
             }
             Ir::Dup(inner) => {
                 let val = self.eval_ir(inner)?;
-                Ok(val.clone())
+                match &val {
+                    // Deep-copy: Box gets cloned with its contents duplicated
+                    Value::Box(boxed) => {
+                        let inner_clone = self.clone_value(boxed);
+                        Ok(Value::Box(Box::new(inner_clone)))
+                    }
+                    _ => Ok(val.clone()),
+                }
             }
             Ir::Suspend(body, captures, _ty, _source) => {
                 let thunk_id = self.next_thunk_id;
@@ -285,6 +292,26 @@ impl<'a> Evaluator<'a> {
                         Err(e)
                     }
                 }
+            }
+        }
+    }
+
+    /// Deep-clone a value — used for dup on Box contents.
+    fn clone_value(&self, val: &Value) -> Value {
+        match val {
+            Value::Int(n) => Value::Int(*n),
+            Value::Bool(b) => Value::Bool(*b),
+            Value::Unit => Value::Unit,
+            Value::Box(inner) => Value::Box(Box::new(self.clone_value(inner))),
+            Value::Nil => Value::Nil,
+            Value::Cons(head, tail) => Value::Cons(
+                Box::new(self.clone_value(head)),
+                Box::new(self.clone_value(tail)),
+            ),
+            Value::Closure(p, b, env) => Value::Closure(p.clone(), b.clone(), env.clone()),
+            Value::Thunk(id) => Value::Thunk(*id),
+            Value::Variant(n, t, fields) => {
+                Value::Variant(n.clone(), *t, fields.iter().map(|f| self.clone_value(f)).collect())
             }
         }
     }

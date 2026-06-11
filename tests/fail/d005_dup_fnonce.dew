@@ -2,5 +2,5 @@
 def main = fn () {
     def b = box(42);
     def reader = fn (x: Int) { unbox(b) };
-    dup(reader)
+    dup c = reader
 }

@@ -514,10 +514,19 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, String> {
         }
         Some(Token::Dup) => {
             parser.advance();
-            parser.expect(&Token::LParen)?;
+            let name = expect_ident(parser)?;
+            parser.expect(&Token::Eq)?;
             let inner = parse_expr_from_parser(parser)?;
-            parser.expect(&Token::RParen)?;
-            Ok(Expr::Dup(Box::new(inner), span))
+            // Desugar: dup y = x; rest  →  def y = dup(x); rest
+            // `dup` as keyword-binding: consumes expr, inserts binding
+            let dup_expr = Expr::Dup(Box::new(inner), span);
+            if parser.check(&Token::Semicolon) {
+                parser.advance();
+                let body = parse_expr_from_parser(parser)?;
+                Ok(Expr::Let(name, Box::new(dup_expr), Box::new(body), span))
+            } else {
+                Ok(Expr::Let(name.clone(), Box::new(dup_expr), Box::new(Expr::Var(name, span)), span))
+            }
         }
         Some(Token::Fix) => {
             parser.advance();

@@ -1,5 +1,7 @@
-# D005: dup on affine Box value
+# D005: dup on FnOnce closure (captures Box)
+# Dup on Box works (deep copy), but FnOnce closures still can't be duped
 def main = fn () {
     def b = box(42);
-    dup(b)
+    def reader = fn (x: Int) { unbox(b) };
+    dup r2 = reader
 }

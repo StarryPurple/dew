@@ -42,15 +42,15 @@ This is Rust's `Fn`/`FnOnce` rule: a closure is `FnOnce` if it moves any affine 
 
 ## `dup`
 
-`dup(e)` duplicates a **Normal** value. It is a compile-time error to `dup` an affine value.
+`dup y = x;` duplicates a **Normal** value. It is a compile-time error to `dup` an affine value.
 
 ```dew
 def x = 3;
-def y = dup(x);    # ok — Int is Normal
-x + y              # → 6
+dup y = x;    # ok — Int is Normal
+x + y         # → 6
 
 # def b = box(42);
-# def c = dup(b);  # ERROR: cannot dup Box(Int) — it's affine
+# dup c = b;  # ERROR [D005]: cannot dup Box(Int) — it's affine
 ```
 
 ## `fix`

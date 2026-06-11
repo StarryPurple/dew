@@ -9,7 +9,7 @@
 | `if` | Conditional expression | `if cond { 1 } else { 0 }` |
 | `else` | Alternative branch of `if` | `if cond { a } else { b }` |
 | `fix` | Fixed-point combinator (recursion) | `fix f: Int -> Int { ... }` |
-| `dup` | Duplicate a normal (copyable) value | `dup(x)` |
+| `dup` | Duplicate a normal (copyable) value | `dup y = x` |
 
 ## Resource Keywords (Affine Types)
 

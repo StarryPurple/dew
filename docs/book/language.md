@@ -15,7 +15,7 @@ expr ::= INT | true | false | ()
        | !expr                  -- explicit strict evaluation
        | def IDENT = expr ; expr
        | def IDENT = expr       -- standalone binding (no continuation)
-       | dup ( expr )
+       | dup IDENT = expr       -- duplicate a normal value into binding
        | fix IDENT : type { expr }
        | box ( expr )
        | unbox ( expr )
@@ -39,7 +39,7 @@ type ::= Int | Bool | () | Box ( type ) | type -> type
 | `e1 \|> e2` | `T -> (T -> U) -> U` | Pipe-forward: `e1 \|> e2` = `e2(e1)` |
 | `!e` | `T -> T` | Force strict evaluation — overrides implicit laziness |
 | `def x = e1; e2` | `T -> U -> U` | Let binding |
-| `dup(e)` | `T -> T` (T Normal) | Duplicate a normal value |
+| `dup y = e` | `T -> T` (T Normal) | Duplicate a normal value into binding `y` |
 | `fix f: T { e }` | `T -> T` (T is function) | Recursion — `f` is unrestricted within `e` |
 | `box(e)` | `T -> Box(T)` | Allocate linear box — returns affine resource |
 | `unbox(e)` | `Box(T) -> T` | Deallocate linear box — consumes the box |

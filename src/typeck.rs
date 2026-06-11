@@ -423,10 +423,21 @@ impl<'a> TypeChecker<'a> {
             }
 
             Expr::Dup(inner, _) => {
-                let (s, ty) = self.infer_w(inner)?;
+                // Dup doesn't consume the source — it creates a copy.
+                // Infer the type without marking variables as consumed.
+                let (s, ty) = if let Expr::Var(name, _) = inner.as_ref() {
+                    let scheme = self.ctx.vars.get(name)
+                        .map(|(s, _)| s.clone())
+                        .ok_or_else(|| TypeError::UnboundVariable(name.clone()))?;
+                    (Subst::new(), self.instantiate(&scheme))
+                } else {
+                    self.infer_w(inner)?
+                };
                 let concrete = ty.apply(&s);
                 if !matches!(&concrete, Type::Var(_)) && concrete.is_affine() {
-                    return Err(TypeError::DupOnAffine(concrete));
+                    if !matches!(&concrete, Type::Box(_)) {
+                        return Err(TypeError::DupOnAffine(concrete));
+                    }
                 }
                 Ok((s, ty))
             }
