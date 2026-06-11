@@ -1,0 +1,24 @@
+{
+    "name": "dew-lang",
+    "displayName": "Dew Language Support",
+    "description": "Syntax highlighting, diagnostics, and completions for the Dew functional language",
+    "version": "0.1.0",
+    "publisher": "dew",
+    "engines": { "vscode": "^1.85.0" },
+    "categories": ["Programming Languages"],
+    "activationEvents": ["onLanguage:dew"],
+    "main": "./extension.js",
+    "contributes": {
+        "languages": [{
+            "id": "dew",
+            "aliases": ["Dew", "dew"],
+            "extensions": [".dew"],
+            "configuration": "./language-configuration.json"
+        }],
+        "grammars": [{
+            "language": "dew",
+            "scopeName": "source.dew",
+            "path": "./syntaxes/dew.tmLanguage.json"
+        }]
+    }
+}
