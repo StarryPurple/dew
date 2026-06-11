@@ -1,6 +1,6 @@
 /// Compilation from typed AST to IR, with strictness-based suspend/force insertion.
 
-use crate::ast::{BinOp, Expr};
+use crate::ast::{BinOp, Expr, Pattern};
 use crate::ir::{Ir, IrOp};
 use crate::strictness::{Context, StrictnessAnalysis};
 use std::collections::HashSet;
@@ -139,7 +139,17 @@ impl IrCompiler {
                 };
                 for (_pat, body) in &arms[..arms.len().saturating_sub(1)] {
                     let b = self.compile_expr(body, Context::Lazy);
-                    ir_arms.push((0, b, Vec::new()));
+                    let vars = extract_pattern_vars(_pat);
+                    ir_arms.push((0, Box::new(b), vars));
+                }
+                // Last arm as default if it's a wildcard
+                if let Some((pat, body)) = arms.last() {
+                    let b = self.compile_expr(body, Context::Lazy);
+                    let vars = extract_pattern_vars(pat);
+                    // If last arm has variables, it should be an arm, not default
+                    if !vars.is_empty() || !matches!(pat, crate::ast::Pattern::Wildcard) {
+                        ir_arms.push((0, Box::new(b), vars));
+                    }
                 }
                 Ir::Match(Box::new(s), ir_arms, Box::new(default))
             }
@@ -226,6 +236,22 @@ impl IrCompiler {
             Ir::Tail(inner) => { self.collect_free(inner, fv); }
             Ir::IsNil(inner) => { self.collect_free(inner, fv); }
             Ir::Lit(_) | Ir::Bool(_) | Ir::Unit => {}
+            Ir::Variant(_, _, fields) => { for f in fields { self.collect_free(f, fv); } }
+            Ir::Match(s, arms, d) => { self.collect_free(s, fv); for (_, b, _) in arms { self.collect_free(b, fv); } self.collect_free(d, fv); }
         }
+    }
+}
+
+fn extract_pattern_vars(pat: &crate::ast::Pattern) -> Vec<String> {
+    match pat {
+        crate::ast::Pattern::Var(name) => vec![name.clone()],
+        crate::ast::Pattern::Constructor(_, sub_pats) => {
+            let mut vars = Vec::new();
+            for sp in sub_pats {
+                vars.extend(extract_pattern_vars(sp));
+            }
+            vars
+        }
+        crate::ast::Pattern::Wildcard => Vec::new(),
     }
 }

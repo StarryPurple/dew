@@ -5,7 +5,7 @@
 ///        dew complete <FILE> --prefix <PREFIX>
 
 use clap::{Parser as ClapParser, Subcommand};
-use dew::ast::Expr;
+use dew::ast::{Expr, TypeDecl};
 use dew::diagnostics::DiagnosticCollector;
 use dew::eval::Evaluator;
 use dew::ir_gen;
@@ -105,9 +105,9 @@ fn read_source(file: &PathBuf) -> String {
     }
 }
 
-fn parse_source(source: &str) -> Expr {
-    match parser::parse(source) {
-        Ok(ast) => ast,
+fn parse_source(source: &str) -> (Expr, Vec<TypeDecl>) {
+    match parser::parse_with_types(source) {
+        Ok((decls, ast)) => (ast, decls),
         Err(errs) => {
             for e in errs {
                 eprintln!("Parse error: {e}");
@@ -152,10 +152,10 @@ fn collect_defs(expr: &Expr, names: &mut HashSet<String>) {
 
 fn cmd_run(file: &PathBuf, emit: &str, trace: bool) {
     let source = read_source(file);
-    let ast = parse_source(&source);
+    let (ast, decls) = parse_source(&source);
 
     let mut diag = DiagnosticCollector::new();
-    let mut typeck = TypeChecker::new(&mut diag);
+    let mut typeck = TypeChecker::with_type_decls(&mut diag, &decls);
     match typeck.check(&ast) {
         Ok(_ty) => {}
         Err(err) => {
@@ -218,8 +218,8 @@ fn cmd_run(file: &PathBuf, emit: &str, trace: bool) {
 
 fn cmd_lint(file: &PathBuf) {
     let source = read_source(file);
-    let ast = match parser::parse(&source) {
-        Ok(a) => a,
+    let (ast, decls) = match parser::parse_with_types(&source) {
+        Ok((d, a)) => (a, d),
         Err(errs) => {
             for e in &errs {
                 eprintln!("error: {e}");
@@ -229,7 +229,7 @@ fn cmd_lint(file: &PathBuf) {
     };
 
     let mut diag = DiagnosticCollector::new();
-    let mut typeck = TypeChecker::new(&mut diag);
+    let mut typeck = TypeChecker::with_type_decls(&mut diag, &decls);
     let mut has_errors = false;
 
     match typeck.check(&ast) {

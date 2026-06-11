@@ -638,6 +638,7 @@ fn expect_brace(parser: &mut Parser, expected: Token, label: &str) -> Result<(),
 fn expect_ident(parser: &mut Parser) -> Result<String, String> {
     match parser.peek() {
         Some(Token::Ident(s)) => { let s = s.clone(); parser.advance(); Ok(s) }
+        Some(Token::Underscore) => { parser.advance(); Ok("_".to_string()) }
         Some(tok) => Err(format!("expected identifier but found {tok}")),
         None => Err("expected identifier but reached end of input".to_string()),
     }

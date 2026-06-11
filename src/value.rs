@@ -35,7 +35,7 @@ impl Value {
             Value::Nil => "Nil",
             Value::Cons(_, _) => "Cons",
             Value::Thunk(_) => "Thunk",
-            Value::Variant(name, _, _) => name.as_str(),
+            Value::Variant(_, _, _) => "Variant",
         }
     }
 

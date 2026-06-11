@@ -213,6 +213,48 @@ impl<'a> Evaluator<'a> {
                     _ => Err(format!("isnil requires a list, got {val:?}")),
                 }
             }
+
+            Ir::Variant(name, tag, fields) => {
+                let mut vals = Vec::new();
+                for f in fields {
+                    vals.push(self.eval_ir(f)?);
+                }
+                Ok(Value::Variant(name.clone(), *tag, vals))
+            }
+
+            Ir::Match(scrutinee, arms, default) => {
+                let val = self.eval_ir(scrutinee)?;
+                self.eval_match_value(&val, arms, default)
+            }
+        }
+    }
+
+    fn eval_match_value(&mut self, val: &Value, arms: &[(usize, Box<Ir>, Vec<String>)], default: &Box<Ir>) -> Result<Value, String> {
+        match val {
+            Value::Variant(_name, tag, fields) => {
+                for (arm_tag, body, bindings) in arms {
+                    if arm_tag == tag {
+                        let saved_env = self.env.clone();
+                        for (i, bv) in bindings.iter().enumerate() {
+                            if i < fields.len() {
+                                self.env.insert(bv.clone(), fields[i].clone());
+                            }
+                        }
+                        let result = self.eval_ir(body);
+                        self.env = saved_env;
+                        return result;
+                    }
+                }
+                self.eval_ir(default)
+            }
+            Value::Thunk(id) => {
+                let forced = self.force_thunk(*id)?;
+                // Need to clone arms and default to avoid borrow issues
+                let arms_clone: Vec<(usize, Box<Ir>, Vec<String>)> = arms.iter().map(|(t, b, v)| (*t, b.clone(), v.clone())).collect();
+                let default_clone = default.clone();
+                self.eval_match_value(&forced, &arms_clone, &default_clone)
+            }
+            _ => Err(format!("match requires a variant, got {:?}", val)),
         }
     }
 
@@ -241,47 +283,10 @@ impl<'a> Evaluator<'a> {
                     Err(e) => {
                         self.thunks.insert(id, ThunkState::Evaluating);
                         Err(e)
-                }
-            }
-            Ir::Variant(name, tag, fields) => {
-                let mut vals = Vec::new();
-                for f in fields {
-                    vals.push(self.eval_ir(f)?);
-                }
-                Ok(Value::Variant(name.clone(), *tag, vals))
-            }
-            Ir::Match(scrutinee, arms, default) => {
-                let val = self.eval_ir(scrutinee)?;
-                match &val {
-                    Value::Variant(_name, tag, _fields) => {
-                        for (arm_tag, body, _bindings) in arms {
-                            if *arm_tag == *tag {
-                                return self.eval_ir(body);
-                            }
-                        }
-                        self.eval_ir(default)
                     }
-                    Value::Thunk(id) => {
-                        let forced = self.force_thunk(*id)?;
-                        // Re-evaluate match with forced value
-                        // For simplicity, just handle the forced case
-                        match &forced {
-                            Value::Variant(_name, tag, _fields) => {
-                                for (arm_tag, body, _bindings) in arms {
-                                    if *arm_tag == *tag {
-                                        return self.eval_ir(body);
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                        self.eval_ir(default)
-                    }
-                    _ => Err(format!("match requires a variant, got {:?}", val)),
                 }
             }
         }
-    }
     }
 
     fn eval_binop(op: IrOp, left: Value, right: Value) -> Result<Value, String> {

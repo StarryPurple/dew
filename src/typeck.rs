@@ -502,8 +502,11 @@ impl<'a> TypeChecker<'a> {
             Expr::Constructor(name, _, args, _) => {
                 let (decl, _tag) = self.lookup_constructor(name)
                     .ok_or_else(|| TypeError::UnboundVariable(format!("constructor '{name}'")))?;
-                let variant = decl.variants.iter().find(|v| v.name == *name).unwrap();
-                if args.len() != variant.fields.len() {
+                let expected_fields = decl.variants.iter().find(|v| v.name == *name).map(|v| v.fields.len()).unwrap_or(0);
+                let param_count = decl.params.len();
+                // Done with `decl` — clone needed data, drop the borrow
+                drop(decl);
+                if args.len() != expected_fields {
                     return Err(TypeError::TypeMismatch {
                         expected: Type::Int, found: Type::Int,
                     });
@@ -513,8 +516,7 @@ impl<'a> TypeChecker<'a> {
                     let (s_a, _) = self.infer_w(a)?;
                     s = s.compose(&s_a);
                 }
-                // Build type: e.g., Option(Int) with fresh vars for params
-                let type_args: Vec<Type> = decl.params.iter().map(|_| self.fresh_var()).collect();
+                let type_args: Vec<Type> = (0..param_count).map(|_| self.fresh_var()).collect();
                 Ok((s, Type::Named(name.clone(), type_args)))
             }
 
@@ -525,13 +527,20 @@ impl<'a> TypeChecker<'a> {
                         expected: Type::Int, found: Type::Int,
                     });
                 }
-                let (_, first_body_ty) = self.infer_w(&arms[0].1)?;
-                for (pat, body) in &arms[1..] {
-                    let (_, body_ty) = self.infer_w(body)?;
-                    // TODO: proper pattern type checking
-                    let _ = (pat, body_ty);
+                // Bind pattern variables for each arm body
+                let mut body_ty = Type::Int;
+                let mut s_body = Subst::new();
+                for (i, (pat, body)) in arms.iter().enumerate() {
+                    let saved = self.ctx.clone();
+                    bind_pattern_vars(pat, &scrut_ty, &mut self.ctx);
+                    let (s_b, ty_b) = self.infer_w(body)?;
+                    self.ctx = saved;
+                    if i == 0 {
+                        body_ty = ty_b;
+                    }
+                    s_body = s_b;
                 }
-                Ok((s_scrut, first_body_ty))
+                Ok((s_scrut.compose(&s_body), body_ty))
             }
 
             Expr::Pipe(left, right, _) => { /* ... existing ... */
@@ -686,5 +695,20 @@ fn infer_body_type(expr: &Expr) -> Type {
         }
         Expr::Lam(_, _, _, _) => Type::Int,
         Expr::Nil(_) => Type::Int,
+    }
+}
+
+/// Bind pattern variables to the context for match arms.
+fn bind_pattern_vars(pat: &Pattern, scrut_ty: &Type, ctx: &mut Ctx) {
+    match pat {
+        Pattern::Var(name) => {
+            ctx.insert(name.clone(), Scheme::monomorphic(scrut_ty.clone()));
+        }
+        Pattern::Constructor(_name, sub_patterns) => {
+            for sp in sub_patterns {
+                bind_pattern_vars(sp, scrut_ty, ctx);
+            }
+        }
+        Pattern::Wildcard => {}
     }
 }
