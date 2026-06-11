@@ -122,12 +122,29 @@ impl IrCompiler {
                 let l = self.compile_expr(list, Context::Strict);
                 Ir::IsNil(Box::new(l))
             }
+            Expr::Constructor(name, tag, args, _) => {
+                let mut fields = Vec::new();
+                for a in args {
+                    fields.push(self.compile_expr(a, Context::Strict));
+                }
+                Ir::Variant(name.clone(), *tag, fields)
+            }
+            Expr::Match(scrutinee, arms, _) => {
+                let s = self.compile_expr(scrutinee, Context::Strict);
+                let mut ir_arms = Vec::new();
+                let default = if let Some((_, body)) = arms.last() {
+                    self.compile_expr(body, Context::Lazy)
+                } else {
+                    Ir::Unit
+                };
+                for (_pat, body) in &arms[..arms.len().saturating_sub(1)] {
+                    let b = self.compile_expr(body, Context::Lazy);
+                    ir_arms.push((0, b, Vec::new()));
+                }
+                Ir::Match(Box::new(s), ir_arms, Box::new(default))
+            }
             Expr::ForceStrict(inner, _) => {
                 self.compile_expr(inner, Context::Strict)
-            }
-            Expr::Constructor(_, _, _) | Expr::Match(_, _, _) => {
-                // Handled after type checking
-                Ir::Lit(0)
             }
             Expr::Pipe(left, right, _) => {
                 // Desugar: left |> right → right(left), recognizing built-in names

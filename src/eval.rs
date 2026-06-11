@@ -241,10 +241,47 @@ impl<'a> Evaluator<'a> {
                     Err(e) => {
                         self.thunks.insert(id, ThunkState::Evaluating);
                         Err(e)
+                }
+            }
+            Ir::Variant(name, tag, fields) => {
+                let mut vals = Vec::new();
+                for f in fields {
+                    vals.push(self.eval_ir(f)?);
+                }
+                Ok(Value::Variant(name.clone(), *tag, vals))
+            }
+            Ir::Match(scrutinee, arms, default) => {
+                let val = self.eval_ir(scrutinee)?;
+                match &val {
+                    Value::Variant(_name, tag, _fields) => {
+                        for (arm_tag, body, _bindings) in arms {
+                            if *arm_tag == *tag {
+                                return self.eval_ir(body);
+                            }
+                        }
+                        self.eval_ir(default)
                     }
+                    Value::Thunk(id) => {
+                        let forced = self.force_thunk(*id)?;
+                        // Re-evaluate match with forced value
+                        // For simplicity, just handle the forced case
+                        match &forced {
+                            Value::Variant(_name, tag, _fields) => {
+                                for (arm_tag, body, _bindings) in arms {
+                                    if *arm_tag == *tag {
+                                        return self.eval_ir(body);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                        self.eval_ir(default)
+                    }
+                    _ => Err(format!("match requires a variant, got {:?}", val)),
                 }
             }
         }
+    }
     }
 
     fn eval_binop(op: IrOp, left: Value, right: Value) -> Result<Value, String> {

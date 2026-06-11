@@ -42,7 +42,8 @@ pub enum Expr {
     /// Pipe-forward: e1 |> e2 — desugared to e2(e1) in type checker
     Pipe(Box<Expr>, Box<Expr>, Span),
     /// Constructor application: Some(42), None
-    Constructor(String, Vec<Expr>, Span),
+    /// (name, tag_index, args, span) — tag is 0-indexed in type declaration
+    Constructor(String, usize, Vec<Expr>, Span),
     /// Pattern match: match e { pat1 => body1, pat2 => body2 }
     Match(Box<Expr>, Vec<(Pattern, Expr)>, Span),
 }

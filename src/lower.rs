@@ -364,6 +364,13 @@ impl LowerCtx {
                 let t = self.emit(Op::IsNil, vec![l]);
                 Arg::Temp(t)
             }
+            Ir::Variant(_, _, _) => {
+                let t = self.emit(Op::Move, vec![Arg::LitUnit]);
+                Arg::Temp(t)
+            }
+            Ir::Match(_, _, default) => {
+                self.lower_expr(default)
+            }
         }
     }
 

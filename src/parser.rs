@@ -460,7 +460,7 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, String> {
                     }
                 }
                 parser.expect(&Token::RParen)?;
-                Ok(Expr::Constructor(name, args, span))
+                Ok(Expr::Constructor(name, 0, args, span))
             } else {
                 Ok(Expr::Var(name, span))
             }

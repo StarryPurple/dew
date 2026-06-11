@@ -20,6 +20,8 @@ pub enum Value {
     Cons(Box<Value>, Box<Value>),
     /// Reference to a thunk in the thunk store.
     Thunk(ThunkId),
+    /// Tagged variant value: type name, constructor tag, fields.
+    Variant(String, usize, Vec<Value>),
 }
 
 impl Value {
@@ -33,6 +35,7 @@ impl Value {
             Value::Nil => "Nil",
             Value::Cons(_, _) => "Cons",
             Value::Thunk(_) => "Thunk",
+            Value::Variant(name, _, _) => name.as_str(),
         }
     }
 

@@ -77,6 +77,10 @@ pub enum Ir {
     Tail(Box<Ir>),
     /// Test if list is empty.
     IsNil(Box<Ir>),
+    /// Constructor: tag name + tag index + field values.
+    Variant(String, usize, Vec<Ir>),
+    /// Pattern match dispatch: (scrutinee, [(tag, body, var_bindings)])
+    Match(Box<Ir>, Vec<(usize, Box<Ir>, Vec<String>)>, Box<Ir>),
 }
 
 impl fmt::Display for Ir {
@@ -120,6 +124,8 @@ impl Ir {
             }
             Ir::Tail(inner) => inner.ty(),
             Ir::IsNil(_) => Type::Bool, // placeholder — resolved during evaluation
+            Ir::Variant(_, _, _) => Type::Int, // placeholder
+            Ir::Match(_, _, _) => Type::Int, // placeholder
         }
     }
 
@@ -214,6 +220,13 @@ impl Ir {
             Ir::IsNil(inner) => {
                 writeln!(f, "{pad}isnil")?;
                 inner.pretty(f, indent + 1)
+            }
+            Ir::Variant(name, _tag, _fields) => {
+                write!(f, "{pad}variant {name}")
+            }
+            Ir::Match(scrutinee, _arms, _default) => {
+                writeln!(f, "{pad}match")?;
+                scrutinee.pretty(f, indent + 1)
             }
         }
     }

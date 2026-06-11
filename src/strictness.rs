@@ -44,7 +44,8 @@ impl StrictnessAnalysis {
             | crate::ir::Ir::Unit | crate::ir::Ir::BinOp(_, _, _)
             | crate::ir::Ir::Force(_) | crate::ir::Ir::Dealloc(_)
             | crate::ir::Ir::Head(_) | crate::ir::Ir::Tail(_)
-            | crate::ir::Ir::IsNil(_) | crate::ir::Ir::Nil)
+            | crate::ir::Ir::IsNil(_) | crate::ir::Ir::Nil
+            | crate::ir::Ir::Variant(_, _, _) | crate::ir::Ir::Match(_, _, _))
     }
 
     pub fn is_naturally_lazy(ir: &crate::ir::Ir) -> bool {

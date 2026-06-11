@@ -6,7 +6,7 @@
 /// Affine tracking: only active when types are annotated (Box(T) etc).
 /// Inferred type variables are treated as Normal.
 
-use crate::ast::{BinOp, Expr};
+use crate::ast::{BinOp, Expr, Pattern, TypeDecl};
 use crate::diagnostics::DiagnosticCollector;
 use crate::types::{Affinity, Scheme, Subst, Type};
 use std::collections::{HashMap, HashSet};
@@ -133,11 +133,31 @@ pub struct TypeChecker<'a> {
     ctx: Ctx,
     diag: &'a mut DiagnosticCollector,
     tv_counter: u32,
+    type_env: HashMap<String, TypeDecl>,
 }
 
 impl<'a> TypeChecker<'a> {
     pub fn new(diag: &'a mut DiagnosticCollector) -> Self {
-        TypeChecker { ctx: Ctx::new(), diag, tv_counter: 0 }
+        TypeChecker { ctx: Ctx::new(), diag, tv_counter: 0, type_env: HashMap::new() }
+    }
+
+    pub fn with_type_decls(diag: &'a mut DiagnosticCollector, decls: &[TypeDecl]) -> Self {
+        let mut env = HashMap::new();
+        for d in decls {
+            env.insert(d.name.clone(), d.clone());
+        }
+        TypeChecker { ctx: Ctx::new(), diag, tv_counter: 0, type_env: env }
+    }
+
+    fn lookup_constructor(&self, name: &str) -> Option<(&TypeDecl, usize)> {
+        for (type_name, decl) in &self.type_env {
+            for (i, v) in decl.variants.iter().enumerate() {
+                if v.name == name {
+                    return Some((decl, i));
+                }
+            }
+        }
+        None
     }
 
     fn fresh_var(&mut self) -> Type {
@@ -479,17 +499,23 @@ impl<'a> TypeChecker<'a> {
                 self.infer_w(inner)
             }
 
-            Expr::Constructor(name, args, _) => {
-                let mut s = Subst::new();
-                let mut arg_tys = Vec::new();
-                for a in args {
-                    let (s_a, ty_a) = self.infer_w(a)?;
-                    s = s.compose(&s_a);
-                    arg_tys.push(ty_a.apply(&s_a));
+            Expr::Constructor(name, _, args, _) => {
+                let (decl, _tag) = self.lookup_constructor(name)
+                    .ok_or_else(|| TypeError::UnboundVariable(format!("constructor '{name}'")))?;
+                let variant = decl.variants.iter().find(|v| v.name == *name).unwrap();
+                if args.len() != variant.fields.len() {
+                    return Err(TypeError::TypeMismatch {
+                        expected: Type::Int, found: Type::Int,
+                    });
                 }
-                // Type will be resolved against type decls later
-                let ret = Type::Named(name.clone(), arg_tys);
-                Ok((s, ret))
+                let mut s = Subst::new();
+                for a in args {
+                    let (s_a, _) = self.infer_w(a)?;
+                    s = s.compose(&s_a);
+                }
+                // Build type: e.g., Option(Int) with fresh vars for params
+                let type_args: Vec<Type> = decl.params.iter().map(|_| self.fresh_var()).collect();
+                Ok((s, Type::Named(name.clone(), type_args)))
             }
 
             Expr::Match(scrutinee, arms, _) => {
@@ -576,7 +602,7 @@ fn collect_free(expr: &Expr, fv: &mut HashSet<String>) {
         Expr::Box(inner, _) => { collect_free(inner, fv); }
         Expr::Unbox(inner, _) => { collect_free(inner, fv); }
         Expr::ForceStrict(inner, _) => { collect_free(inner, fv); }
-        Expr::Constructor(_, args, _) => { for a in args { collect_free(a, fv); } }
+        Expr::Constructor(_, _, args, _) => { for a in args { collect_free(a, fv); } }
         Expr::Match(scrut, arms, _) => { collect_free(scrut, fv); for (_, b) in arms { collect_free(b, fv); } }
         Expr::Nil(_) => {}
         Expr::Cons(head, tail, _) => { collect_free(head, fv); collect_free(tail, fv); }
@@ -618,9 +644,10 @@ fn find_main_in(expr: &Expr, results: &mut Vec<(Type, Type)>) {
         Expr::Head(inner, _) => find_main_in(inner, results),
         Expr::Tail(inner, _) => find_main_in(inner, results),
         Expr::IsNil(inner, _) => find_main_in(inner, results),
-        Expr::ForceStrict(inner, _) => find_main_in(inner, results),
-        Expr::Constructor(_, args, _) => { for a in args { find_main_in(a, results); } }
+        Expr::Constructor(_, _, args, _) => { for a in args { find_main_in(a, results); } }
         Expr::Match(scrut, arms, _) => { find_main_in(scrut, results); for (_, b) in arms { find_main_in(b, results); } }
+        Expr::Pipe(left, right, _) => { find_main_in(left, results); find_main_in(right, results); }
+        Expr::ForceStrict(inner, _) => find_main_in(inner, results),
         Expr::Pipe(left, right, _) => { find_main_in(left, results); find_main_in(right, results); }
         Expr::Lam(_, _, body, _) => find_main_in(body, results),
         _ => {}
@@ -652,7 +679,7 @@ fn infer_body_type(expr: &Expr) -> Type {
         },
         Expr::Cons(_, _, _) => Type::Int,
         Expr::ForceStrict(inner, _) => infer_body_type(inner),
-        Expr::Constructor(_, _, _) => Type::Int,
+        Expr::Constructor(_, _, _, _) => Type::Int,
         Expr::Match(_, arms, _) => if let Some((_, b)) = arms.first() { infer_body_type(b) } else { Type::Int },
         Expr::Pipe(left, right, _) => {
             infer_body_type(&Expr::App(right.clone(), left.clone(), (0, 0, 0, 0)))
