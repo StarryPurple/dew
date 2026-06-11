@@ -90,7 +90,7 @@ impl fmt::Display for Type {
         match self {
             Type::Int => write!(f, "Int"),
             Type::Bool => write!(f, "Bool"),
-            Type::Unit => write!(f, "()"),
+            Type::Unit => write!(f, "Unit"),
             Type::Box(inner) => write!(f, "Box({inner})"),
             Type::List(inner) => write!(f, "[{inner}]"),
             Type::Fun(param, ret, affinity) => {

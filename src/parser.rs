@@ -545,16 +545,12 @@ fn parse_simple_type(parser: &mut Parser) -> Result<Type, String> {
     match parser.peek() {
         Some(Token::Ident(s)) if s == "Int" => { parser.advance(); Ok(Type::Int) }
         Some(Token::Ident(s)) if s == "Bool" => { parser.advance(); Ok(Type::Bool) }
+        Some(Token::Ident(s)) if s == "Unit" => { parser.advance(); Ok(Type::Unit) }
         Some(Token::LParen) => {
             parser.advance();
-            if parser.check(&Token::RParen) {
-                parser.advance(); // )
-                Ok(Type::Unit)
-            } else {
-                let ty = parse_type(parser)?;
-                parser.expect(&Token::RParen)?;
-                Ok(ty)
-            }
+            let ty = parse_type(parser)?;
+            parser.expect(&Token::RParen)?;
+            Ok(ty)
         }
         Some(Token::LBracket) => {
             // [T] — list type sugar for List(T)
