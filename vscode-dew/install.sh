@@ -1,12 +1,15 @@
 #!/bin/bash
-# Install Dew VS Code extension for the current user
+# Install Dew extension for VS Code / Cursor
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
-EXT_DIR="$HOME/.vscode/extensions/dew-lang"
-mkdir -p "$HOME/.vscode/extensions"
-if [ -L "$EXT_DIR" ] || [ -d "$EXT_DIR" ]; then
+
+for EXT_BASE in "$HOME/.cursor/extensions" "$HOME/.vscode/extensions"; do
+    mkdir -p "$EXT_BASE"
+    EXT_DIR="$EXT_BASE/dew-lang"
     rm -rf "$EXT_DIR"
-fi
-ln -s "$DIR" "$EXT_DIR"
-echo "Dew extension installed → $EXT_DIR"
-echo "Reload VS Code (Ctrl+Shift+P → Reload Window)"
+    cp -r "$DIR" "$EXT_DIR"
+    (cd "$EXT_DIR" && npm install --silent 2>/dev/null)
+    echo "Installed → $EXT_DIR"
+done
+
+echo "Reload your editor (Ctrl+Shift+P → Reload Window)"
