@@ -1,18 +1,99 @@
 /// Hand-written recursive descent parser for Dew.
 
-use crate::ast::{BinOp, Expr, Span};
+use crate::ast::{BinOp, Expr, Pattern, Span, TypeDecl, VariantDecl};
 use crate::types::Type;
 
+/// Parse a Dew source file — backward compatible, no type decls.
 pub fn parse(source: &str) -> Result<Expr, Vec<String>> {
+    parse_with_types(source).map(|(_, expr)| expr)
+}
+
+/// Parse a Dew source file. Returns (type_declarations, main_expression).
+pub fn parse_with_types(source: &str) -> Result<(Vec<TypeDecl>, Expr), Vec<String>> {
     let mut lexer = Lexer::new(source);
     let (tokens, spans) = lexer.tokenize().map_err(|errs| errs)?;
     let mut parser = Parser::new(tokens, spans);
+    let type_decls = parse_type_decls(&mut parser)?;
     let expr = parse_expr_from_parser(&mut parser).map_err(|e| vec![e])?;
     match parser.peek() {
         Some(tok) if !matches!(tok, Token::Eof) => {
             Err(vec![format!("unexpected token '{tok}' — end of input expected")])
         }
-        _ => Ok(expr),
+        _ => Ok((type_decls, expr)),
+    }
+}
+
+fn parse_type_decls(parser: &mut Parser) -> Result<Vec<TypeDecl>, Vec<String>> {
+    macro_rules! try_parse {
+        ($e:expr) => { $e.map_err(|e| vec![e])? };
+    }
+    let mut decls = Vec::new();
+    while parser.check(&Token::TypeKw) {
+        parser.advance();
+        let name = try_parse!(expect_ident(parser));
+        // Type parameters: <T, U>
+        let mut params = Vec::new();
+        if parser.check(&Token::Lt) {
+            parser.advance();
+            params.push(try_parse!(expect_ident(parser)));
+            while parser.check(&Token::Comma) {
+                parser.advance();
+                params.push(try_parse!(expect_ident(parser)));
+            }
+            try_parse!(parser.expect(&Token::Gt));
+        }
+        try_parse!(parser.expect(&Token::Eq));
+        let mut variants = Vec::new();
+        loop {
+            let vname = try_parse!(expect_ident(parser));
+            let mut fields = Vec::new();
+            if parser.check(&Token::LParen) {
+                parser.advance();
+                if !parser.check(&Token::RParen) {
+                    fields.push(try_parse!(parse_type(parser)));
+                    while parser.check(&Token::Comma) {
+                        parser.advance();
+                        fields.push(try_parse!(parse_type(parser)));
+                    }
+                }
+                try_parse!(parser.expect(&Token::RParen));
+            }
+            variants.push(VariantDecl { name: vname, fields });
+            if parser.check(&Token::Bar) {
+                parser.advance();
+            } else {
+                break;
+            }
+        }
+        decls.push(TypeDecl { name, params, variants });
+    }
+    Ok(decls)
+}
+
+fn parse_pattern(parser: &mut Parser) -> Result<Pattern, String> {
+    match parser.peek() {
+        Some(Token::Underscore) => { parser.advance(); Ok(Pattern::Wildcard) }
+        Some(Token::Ident(name)) => {
+            let name = name.clone();
+            parser.advance();
+            if parser.check(&Token::LParen) {
+                parser.advance();
+                let mut sub_patterns = Vec::new();
+                if !parser.check(&Token::RParen) {
+                    sub_patterns.push(parse_pattern(parser)?);
+                    while parser.check(&Token::Comma) {
+                        parser.advance();
+                        sub_patterns.push(parse_pattern(parser)?);
+                    }
+                }
+                parser.expect(&Token::RParen)?;
+                Ok(Pattern::Constructor(name, sub_patterns))
+            } else {
+                Ok(Pattern::Var(name))
+            }
+        }
+        Some(tok) => Err(format!("expected pattern, found {tok}")),
+        None => Err("unexpected end of input in pattern".to_string()),
     }
 }
 
@@ -22,10 +103,11 @@ pub fn parse(source: &str) -> Result<Expr, Vec<String>> {
 enum Token {
     Int(i64), True, False, Ident(String),
     Fn, Let, If, Else, Fix, Dup, Box, Unbox, Nil, Cons, Head, Tail, IsNil,
-    Pipe, Bang,
+    Pipe, Bang, TypeKw, Match, Bar, FatArrow,
     LBracket, RBracket,
     LParen, RParen, LBrace, RBrace, Semicolon, Colon, Comma, Arrow, Eq,
     Plus, Minus, Star, Slash, EqEq, Lt, Gt,
+    Underscore,
     Eof,
 }
 
@@ -51,6 +133,10 @@ impl std::fmt::Display for Token {
             Token::IsNil => write!(f, "isnil"),
             Token::Pipe => write!(f, "|>"),
             Token::Bang => write!(f, "!"),
+            Token::TypeKw => write!(f, "type"),
+            Token::Match => write!(f, "match"),
+            Token::Bar => write!(f, "|"),
+            Token::FatArrow => write!(f, "=>"),
             Token::LBracket => write!(f, "["),
             Token::RBracket => write!(f, "]"),
             Token::LParen => write!(f, "("),
@@ -69,6 +155,7 @@ impl std::fmt::Display for Token {
             Token::EqEq => write!(f, "=="),
             Token::Lt => write!(f, "<"),
             Token::Gt => write!(f, ">"),
+            Token::Underscore => write!(f, "_"),
             Token::Eof => write!(f, "EOF"),
         }
     }
@@ -166,6 +253,7 @@ impl Lexer {
                 '=' => {
                     self.advance();
                     if self.peek_char() == Some('=') { self.advance(); Token::EqEq }
+                    else if self.peek_char() == Some('>') { self.advance(); Token::FatArrow }
                     else { Token::Eq }
                 }
                 '-' => {
@@ -176,12 +264,13 @@ impl Lexer {
                 '|' => {
                     self.advance();
                     if self.peek_char() == Some('>') { self.advance(); Token::Pipe }
-                    else { return Err(vec![format!("expected '>' after '|' for pipe operator at {}", self.span())]); }
+                    else { Token::Bar }
                 }
                 '+' => { self.advance(); Token::Plus }
                 '*' => { self.advance(); Token::Star }
                 '/' => { self.advance(); Token::Slash }
                 '!' => { self.advance(); Token::Bang }
+                '_' => { self.advance(); Token::Underscore }
                 '[' => { self.advance(); Token::LBracket }
                 ']' => { self.advance(); Token::RBracket }
                 '<' => { self.advance(); Token::Lt }
@@ -199,6 +288,8 @@ impl Lexer {
                         "nil" | "Nil" => Token::Nil, "cons" | "Cons" => Token::Cons,
                         "head" | "Head" => Token::Head, "tail" | "Tail" => Token::Tail,
                         "isnil" | "IsNil" | "isNil" => Token::IsNil,
+                        "type" | "Type" => Token::TypeKw,
+                        "match" | "Match" => Token::Match,
                         "true" | "True" => Token::True, "false" | "False" => Token::False,
                         "Int" | "Bool" | "List" => Token::Ident(s),
                         _ => Token::Ident(s),
@@ -338,7 +429,8 @@ fn parse_app(parser: &mut Parser) -> Result<Expr, String> {
         && !parser.check(&Token::Head) && !parser.check(&Token::Tail)
         && !parser.check(&Token::IsNil) && !parser.check(&Token::Cons)
         && !parser.check(&Token::Dup) && !parser.check(&Token::Box)
-        && !parser.check(&Token::Unbox)
+        && !parser.check(&Token::Unbox) && !parser.check(&Token::Match)
+        && !parser.check(&Token::TypeKw) && !parser.check(&Token::Underscore)
     {
         let arg = parse_primary(parser)?;
         let span = parser.span();
@@ -353,7 +445,26 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, String> {
         Some(Token::Int(n)) => { let n = *n; parser.advance(); Ok(Expr::LitInt(n, span)) }
         Some(Token::True) => { parser.advance(); Ok(Expr::LitBool(true, span)) }
         Some(Token::False) => { parser.advance(); Ok(Expr::LitBool(false, span)) }
-        Some(Token::Ident(name)) => { let name = name.clone(); parser.advance(); Ok(Expr::Var(name, span)) }
+        Some(Token::Ident(name)) => {
+            let name = name.clone();
+            parser.advance();
+            // Constructor: UpperCamelCase followed by (
+            if name.chars().next().map_or(false, |c| c.is_uppercase()) && parser.check(&Token::LParen) {
+                parser.advance(); // (
+                let mut args = Vec::new();
+                if !parser.check(&Token::RParen) {
+                    args.push(parse_expr_from_parser(parser)?);
+                    while parser.check(&Token::Comma) {
+                        parser.advance();
+                        args.push(parse_expr_from_parser(parser)?);
+                    }
+                }
+                parser.expect(&Token::RParen)?;
+                Ok(Expr::Constructor(name, args, span))
+            } else {
+                Ok(Expr::Var(name, span))
+            }
+        }
         Some(Token::If) => {
             parser.advance();
             let cond = parse_expr_from_parser(parser)?;
@@ -431,6 +542,29 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, String> {
             let inner = parse_expr_from_parser(parser)?;
             parser.expect(&Token::RParen)?;
             Ok(Expr::Unbox(Box::new(inner), span))
+        }
+        Some(Token::Match) => {
+            parser.advance();
+            let scrutinee = parse_expr_from_parser(parser)?;
+            expect_brace(parser, Token::LBrace, "{")?;
+            let mut arms = Vec::new();
+            loop {
+                let pat = parse_pattern(parser)?;
+                parser.expect(&Token::FatArrow)?;
+                let body = parse_expr_from_parser(parser)?;
+                arms.push((pat, body));
+                if parser.check(&Token::Comma) {
+                    parser.advance();
+                } else {
+                    break;
+                }
+            }
+            expect_brace(parser, Token::RBrace, "}")?;
+            Ok(Expr::Match(Box::new(scrutinee), arms, span))
+        }
+        Some(Token::TypeKw) => {
+            parser.advance();
+            Err("type declarations must appear before function definitions".to_string())
         }
         Some(Token::Nil) => {
             parser.advance();

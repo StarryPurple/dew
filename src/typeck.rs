@@ -479,7 +479,36 @@ impl<'a> TypeChecker<'a> {
                 self.infer_w(inner)
             }
 
-            Expr::Pipe(left, right, _) => {
+            Expr::Constructor(name, args, _) => {
+                let mut s = Subst::new();
+                let mut arg_tys = Vec::new();
+                for a in args {
+                    let (s_a, ty_a) = self.infer_w(a)?;
+                    s = s.compose(&s_a);
+                    arg_tys.push(ty_a.apply(&s_a));
+                }
+                // Type will be resolved against type decls later
+                let ret = Type::Named(name.clone(), arg_tys);
+                Ok((s, ret))
+            }
+
+            Expr::Match(scrutinee, arms, _) => {
+                let (s_scrut, scrut_ty) = self.infer_w(scrutinee)?;
+                if arms.is_empty() {
+                    return Err(TypeError::TypeMismatch {
+                        expected: Type::Int, found: Type::Int,
+                    });
+                }
+                let (_, first_body_ty) = self.infer_w(&arms[0].1)?;
+                for (pat, body) in &arms[1..] {
+                    let (_, body_ty) = self.infer_w(body)?;
+                    // TODO: proper pattern type checking
+                    let _ = (pat, body_ty);
+                }
+                Ok((s_scrut, first_body_ty))
+            }
+
+            Expr::Pipe(left, right, _) => { /* ... existing ... */
                 let desugared = match right.as_ref() {
                     Expr::Var(name, span) => match name.as_str() {
                         "tail" => Expr::Tail(left.clone(), *span),
@@ -502,6 +531,7 @@ fn occurs_in(var: u32, ty: &Type) -> bool {
         Type::Var(v) => *v == var,
         Type::Box(inner) => occurs_in(var, inner),
         Type::List(inner) => occurs_in(var, inner),
+        Type::Named(_, args) => args.iter().any(|a| occurs_in(var, a)),
         Type::Fun(p, r, _) => occurs_in(var, p) || occurs_in(var, r),
         _ => false,
     }
@@ -512,6 +542,7 @@ fn collect_type_vars(ty: &Type, vars: &mut HashSet<u32>) {
         Type::Var(v) => { vars.insert(*v); }
         Type::Box(inner) => collect_type_vars(inner, vars),
         Type::List(inner) => collect_type_vars(inner, vars),
+        Type::Named(_, args) => { for a in args { collect_type_vars(a, vars); } }
         Type::Fun(p, r, _) => { collect_type_vars(p, vars); collect_type_vars(r, vars); }
         _ => {}
     }
@@ -545,6 +576,8 @@ fn collect_free(expr: &Expr, fv: &mut HashSet<String>) {
         Expr::Box(inner, _) => { collect_free(inner, fv); }
         Expr::Unbox(inner, _) => { collect_free(inner, fv); }
         Expr::ForceStrict(inner, _) => { collect_free(inner, fv); }
+        Expr::Constructor(_, args, _) => { for a in args { collect_free(a, fv); } }
+        Expr::Match(scrut, arms, _) => { collect_free(scrut, fv); for (_, b) in arms { collect_free(b, fv); } }
         Expr::Nil(_) => {}
         Expr::Cons(head, tail, _) => { collect_free(head, fv); collect_free(tail, fv); }
         Expr::Head(inner, _) => { collect_free(inner, fv); }
@@ -586,6 +619,8 @@ fn find_main_in(expr: &Expr, results: &mut Vec<(Type, Type)>) {
         Expr::Tail(inner, _) => find_main_in(inner, results),
         Expr::IsNil(inner, _) => find_main_in(inner, results),
         Expr::ForceStrict(inner, _) => find_main_in(inner, results),
+        Expr::Constructor(_, args, _) => { for a in args { find_main_in(a, results); } }
+        Expr::Match(scrut, arms, _) => { find_main_in(scrut, results); for (_, b) in arms { find_main_in(b, results); } }
         Expr::Pipe(left, right, _) => { find_main_in(left, results); find_main_in(right, results); }
         Expr::Lam(_, _, body, _) => find_main_in(body, results),
         _ => {}
@@ -617,6 +652,8 @@ fn infer_body_type(expr: &Expr) -> Type {
         },
         Expr::Cons(_, _, _) => Type::Int,
         Expr::ForceStrict(inner, _) => infer_body_type(inner),
+        Expr::Constructor(_, _, _) => Type::Int,
+        Expr::Match(_, arms, _) => if let Some((_, b)) = arms.first() { infer_body_type(b) } else { Type::Int },
         Expr::Pipe(left, right, _) => {
             infer_body_type(&Expr::App(right.clone(), left.clone(), (0, 0, 0, 0)))
         }

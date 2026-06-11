@@ -125,6 +125,10 @@ impl IrCompiler {
             Expr::ForceStrict(inner, _) => {
                 self.compile_expr(inner, Context::Strict)
             }
+            Expr::Constructor(_, _, _) | Expr::Match(_, _, _) => {
+                // Handled after type checking
+                Ir::Lit(0)
+            }
             Expr::Pipe(left, right, _) => {
                 // Desugar: left |> right → right(left), recognizing built-in names
                 if let Expr::Var(name, _) = right.as_ref() {

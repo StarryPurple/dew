@@ -41,6 +41,36 @@ pub enum Expr {
     ForceStrict(Box<Expr>, Span),
     /// Pipe-forward: e1 |> e2 — desugared to e2(e1) in type checker
     Pipe(Box<Expr>, Box<Expr>, Span),
+    /// Constructor application: Some(42), None
+    Constructor(String, Vec<Expr>, Span),
+    /// Pattern match: match e { pat1 => body1, pat2 => body2 }
+    Match(Box<Expr>, Vec<(Pattern, Expr)>, Span),
+}
+
+/// Pattern for match expressions.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    /// Constructor pattern: Some(x), None
+    Constructor(String, Vec<Pattern>),
+    /// Variable binding: x
+    Var(String),
+    /// Wildcard: _
+    Wildcard,
+}
+
+/// Variant declaration in a type definition: Some(T)
+#[derive(Debug, Clone, PartialEq)]
+pub struct VariantDecl {
+    pub name: String,
+    pub fields: Vec<Type>,
+}
+
+/// Type declaration: type Option(T) = None | Some(T)
+#[derive(Debug, Clone)]
+pub struct TypeDecl {
+    pub name: String,
+    pub params: Vec<String>,
+    pub variants: Vec<VariantDecl>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

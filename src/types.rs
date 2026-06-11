@@ -92,6 +92,8 @@ pub enum Type {
     /// Type variable — placeholder to be unified. Not serializable.
     #[serde(skip)]
     Var(u32),
+    /// User-defined algebraic type: Option(Int), Result(Int, Bool)
+    Named(String, Vec<Type>),
 }
 
 impl Type {
@@ -104,6 +106,9 @@ impl Type {
                 Type::Fun(Box::new(param.apply(subst)), Box::new(ret.apply(subst)), *aff)
             }
             Type::List(inner) => Type::List(Box::new(inner.apply(subst))),
+            Type::Named(name, args) => {
+                Type::Named(name.clone(), args.iter().map(|a| a.apply(subst)).collect())
+            }
             other => other.clone(),
         }
     }
@@ -111,7 +116,7 @@ impl Type {
     /// Returns true if values of this type can be freely copied/duplicated.
     pub fn is_copyable(&self) -> bool {
         match self {
-            Type::Int | Type::Bool | Type::Unit | Type::List(_) | Type::Var(_) => true,
+            Type::Int | Type::Bool | Type::Unit | Type::List(_) | Type::Var(_) | Type::Named(_, _) => true,
             Type::Box(_) => false,
             Type::Fun(_, _, affinity) => !affinity.is_affine(),
         }
@@ -149,6 +154,18 @@ impl fmt::Display for Type {
             Type::Box(inner) => write!(f, "Box({inner})"),
             Type::List(inner) => write!(f, "[{inner}]"),
             Type::Var(v) => write!(f, "?{v}"),
+            Type::Named(name, args) => {
+                write!(f, "{name}")?;
+                if !args.is_empty() {
+                    write!(f, "(")?;
+                    for (i, a) in args.iter().enumerate() {
+                        if i > 0 { write!(f, ", ")?; }
+                        write!(f, "{a}")?;
+                    }
+                    write!(f, ")")?;
+                }
+                Ok(())
+            }
             Type::Fun(param, ret, affinity) => {
                 let param_str = if matches!(param.as_ref(), Type::Fun(_, _, _)) {
                     format!("({param})")
