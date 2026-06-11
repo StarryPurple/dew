@@ -368,13 +368,19 @@ fn parse_primary(parser: &mut Parser) -> Result<Expr, String> {
         }
         Some(Token::Fn) => {
             parser.advance();
-            parser.expect(&Token::LParen)?;
-            let (param_name, param_ty) = if parser.check(&Token::RParen) {
-                parser.advance(); // )
+            let (param_name, param_ty) = if parser.check(&Token::LBrace) {
+                // Sugar: fn { body }  ≡  fn () { body }
                 ("_".to_string(), Type::Unit)
             } else {
-                let p = parse_param(parser)?;
-                parser.expect(&Token::RParen)?;
+                parser.expect(&Token::LParen)?;
+                let p = if parser.check(&Token::RParen) {
+                    parser.advance(); // )
+                    ("_".to_string(), Type::Unit)
+                } else {
+                    let p = parse_param(parser)?;
+                    parser.expect(&Token::RParen)?;
+                    p
+                };
                 p
             };
             expect_brace(parser, Token::LBrace, "{")?;
