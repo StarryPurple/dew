@@ -275,7 +275,7 @@ impl Lexer {
                 ']' => { self.advance(); Token::RBracket }
                 '<' => { self.advance(); Token::Lt }
                 '>' => { self.advance(); Token::Gt }
-                'a'..='z' | 'A'..='Z' | '_' => {
+                'a'..='z' | 'A'..='Z' => {
                     let mut s = String::new();
                     while let Some(c) = self.peek_char() {
                         if c.is_alphanumeric() || c == '_' { s.push(c); self.advance(); }

@@ -1,6 +1,6 @@
 /// Compilation from typed AST to IR, with strictness-based suspend/force insertion.
 
-use crate::ast::{BinOp, Expr, Pattern};
+use crate::ast::{BinOp, Expr};
 use crate::ir::{Ir, IrOp};
 use crate::strictness::{Context, StrictnessAnalysis};
 use std::collections::HashSet;

@@ -150,7 +150,7 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn lookup_constructor(&self, name: &str) -> Option<(&TypeDecl, usize)> {
-        for (type_name, decl) in &self.type_env {
+        for (_type_name, decl) in &self.type_env {
             for (i, v) in decl.variants.iter().enumerate() {
                 if v.name == name {
                     return Some((decl, i));
@@ -504,8 +504,6 @@ impl<'a> TypeChecker<'a> {
                     .ok_or_else(|| TypeError::UnboundVariable(format!("constructor '{name}'")))?;
                 let expected_fields = decl.variants.iter().find(|v| v.name == *name).map(|v| v.fields.len()).unwrap_or(0);
                 let param_count = decl.params.len();
-                // Done with `decl` — clone needed data, drop the borrow
-                drop(decl);
                 if args.len() != expected_fields {
                     return Err(TypeError::TypeMismatch {
                         expected: Type::Int, found: Type::Int,
@@ -657,7 +655,6 @@ fn find_main_in(expr: &Expr, results: &mut Vec<(Type, Type)>) {
         Expr::Match(scrut, arms, _) => { find_main_in(scrut, results); for (_, b) in arms { find_main_in(b, results); } }
         Expr::Pipe(left, right, _) => { find_main_in(left, results); find_main_in(right, results); }
         Expr::ForceStrict(inner, _) => find_main_in(inner, results),
-        Expr::Pipe(left, right, _) => { find_main_in(left, results); find_main_in(right, results); }
         Expr::Lam(_, _, body, _) => find_main_in(body, results),
         _ => {}
     }
