@@ -1,6 +1,6 @@
 # Lazy Lists
 
-`List(T)` is a lazy linked list type. Lists are **unrestricted** (freely copyable). The key design: `cons` tail is **lazy** — the tail is suspended as a thunk and only evaluated when `tail()` is called.
+`List(T)` is a lazy linked list type. Lists are **Normal** (freely copyable). The key design: `cons` tail is **lazy** — the tail is suspended as a thunk and only evaluated when `tail()` is called.
 
 This enables **infinite lists**, the classic demonstration of lazy evaluation.
 
@@ -83,7 +83,7 @@ The thunks for `from(4)`, `from(5)`, etc. are never forced — they remain as un
 
 ## List Affinity
 
-Lists are **unrestricted** regardless of element type. A `List(Box(Int))` can be freely copied even though `Box(Int)` is affine. This is because lists are structural — copying a list doesn't duplicate the elements, it creates a new list with the same values.
+Lists are **Normal** regardless of element type. A `List(Box(Int))` can be freely copied even though `Box(Int)` is affine.
 
 ```dew
 # Lists are copyable even with affine elements

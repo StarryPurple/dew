@@ -77,7 +77,7 @@ error[D001]: affine resource used after consumption
    |   ^^^^^^^ second use — b is no longer available
    |
 note: Box(T) values must be consumed at most once to prevent double deallocation.
-help: Extract the inner value once and reuse the unrestricted result:
+help: Extract the inner value once and reuse the Normal result:
    |
 5  |   def n = unbox(b);
 6  |   n + n
@@ -157,7 +157,7 @@ Every error involving affinity should include the *reason*:
 ### 3.4 P1: Actionable Suggestions
 
 For each error pattern, provide a code fix:
-- Double-use of unrestricted value → `help: consider dup y = x to create a copy`
+- Double-use of Normal value → `help: consider dup y = x to create a copy`
 - Double-unbox → `help: unbox once into a variable, then use that variable`
 - FnOnce double-call → `help: call once and reuse the result`
 

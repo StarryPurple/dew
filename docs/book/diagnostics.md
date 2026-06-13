@@ -73,7 +73,7 @@ Reports how each closure was classified (Fn vs FnOnce).
 
 Each closure gets an entry showing:
 - `param`: the lambda's parameter name
-- `affinity`: `"Fn"` (unrestricted) or `"FnOnce"` (affine)
+- `affinity`: `"Fn"` (Normal) or `"FnOnce"` (affine)
 - `affine_captures`: list of captured affine variables and their types
 
 ## Thunk Diagnostics

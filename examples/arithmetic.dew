@@ -1,4 +1,4 @@
 # Simple arithmetic — evaluates to 7
-def main = fn {
+def main = fn () {
   (1 + 2) * 3 - 2
 }

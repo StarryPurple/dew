@@ -16,7 +16,7 @@ cargo run -- examples/<name>.dew
 ## Identity
 
 ```dew
-# → 42. Pure closure → unrestricted (Fn)
+// → 42. Pure closure → Normal (Fn)
 def id = fn (x: Int) { x };
 id(42)
 ```
@@ -105,7 +105,7 @@ reader(0) + reader(0)
 ## Pure Function Reuse
 
 ```dew
-# → 5. Pure closure → unrestricted, freely reusable
+// → 5. Pure closure → Normal, freely reusable
 def add_one = fn (x: Int) { x + 1 };
 add_one(1) + add_one(2)
 ```

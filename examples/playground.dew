@@ -1,0 +1,5 @@
+def rec = fix f:
+  fn (n: Int) {
+    if (n < 2) { 1 } else { n * f(n - 1) }
+  };
+def main = fn { rec(5) }

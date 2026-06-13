@@ -57,7 +57,7 @@ Terminator = Ret { arg }
 | `box`, `unbox` | value | Allocate/deallocate linear box |
 | `cons` | head, tail | List cons cell |
 | `head`, `tail`, `isnil` | list | List accessors |
-| `dup` | value | Duplicate an unrestricted value |
+| `dup` | value | Duplicate a value |
 
 ## Example: Arithmetic
 

@@ -26,16 +26,16 @@
 ### Closure Affinity Inference
 
 ```dew
-# Pure closure — no captures → unrestricted (Fn)
+// Pure closure — no captures → Normal (Fn)
 def add_one = fn (x: Int) { x + 1 };
-add_one(1) + add_one(2)   # fine
+add_one(1) + add_one(2)   // fine
 
-# Closure captures Box → affine (FnOnce)
+// Closure captures Box → affine (FnOnce)
 def b = box(99);
-def reader = fn (x: Int) { unbox(b) };   # captures b: Box(Int)
-reader(0);                               # ok, consumes reader
+def reader = fn (x: Int) { unbox(b) };   // captures b: Box(Int)
+reader(0);                               // ok, consumes reader
 
-# reader(0);  # ERROR: affine violation — reader already consumed
+// reader(0);  // ERROR [D001]: affine violation — reader already consumed
 ```
 
 This is Rust's `Fn`/`FnOnce` rule: a closure is `FnOnce` if it moves any affine resource into itself.
@@ -71,6 +71,6 @@ fact(5)   # → 120
 Function parameters are explicitly typed. The compiler infers return types and closure affinity. No type inference for variables — types are always determined from context.
 
 ```dew
-fn (x: Int) { x + 1 }           # Int -> Int (unrestricted)
-fn (x: Box(Int)) { unbox(x) }   # Box(Int) -> Int (unrestricted — no captures)
+fn (x: Int) { x + 1 }           // Int -> Int (Normal)
+fn (x: Box(Int)) { unbox(x) }   // Box(Int) -> Int (Normal — no captures)
 ```
