@@ -1,7 +1,0 @@
-# Nested boxes — evaluates to 5
-# Box(Box(Int)) — two levels of linear wrapping
-def main = fn () {
-  def outer = box(box(5));
-  def inner = unbox(outer);
-  unbox(inner)
-}

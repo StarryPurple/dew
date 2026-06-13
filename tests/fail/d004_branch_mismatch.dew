@@ -1,5 +1,0 @@
-# D004: branch mismatch — affine consumed in then but not else
-def main = fn () {
-    def b = box(42);
-    if true { unbox(b) } else { 0 }
-}

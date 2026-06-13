@@ -1,6 +1,0 @@
-# Box leak: b is created but never unboxed
-# Diagnostics: resource leak — affine variable 'b' never consumed
-def main = fn () {
-  def b = box(99);
-  0
-}

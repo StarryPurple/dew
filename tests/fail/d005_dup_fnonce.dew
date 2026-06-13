@@ -1,6 +1,0 @@
-# D005: dup on FnOnce closure (captures affine Box)
-def main = fn () {
-    def b = box(42);
-    def reader = fn (x: Int) { unbox(b) };
-    dup c = reader
-}

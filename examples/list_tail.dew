@@ -1,5 +1,0 @@
-# Access tail — evaluates to 20
-def main = fn () {
-  def xs = [10, 20, 30];
-  head(tail(xs))
-}

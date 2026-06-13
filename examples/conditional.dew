@@ -1,4 +1,0 @@
-# Conditional expression — evaluates to 100
-def main = fn () {
-  if (1 < 2) { 100 } else { 200 }
-}

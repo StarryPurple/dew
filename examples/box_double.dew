@@ -1,7 +1,0 @@
-# Box double-unbox: affine violation
-# unbox consumes b; second unbox is an error
-def main = fn () {
-  def b = box(42);
-  def _ = unbox(b);
-  unbox(b)
-}

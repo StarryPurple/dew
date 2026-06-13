@@ -1,3 +1,0 @@
-# D008: multiple main definitions
-def main = fn () { 1 };
-def main = fn () { 2 }

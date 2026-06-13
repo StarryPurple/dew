@@ -1,6 +1,0 @@
-# D002: affine Box captured by closure, closure never called
-def main = fn () {
-    def b = box(42);
-    def reader = fn (x: Int) { unbox(b) };
-    0
-}

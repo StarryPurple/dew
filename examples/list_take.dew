@@ -1,9 +1,0 @@
-# Take 4 elements from infinite list — evaluates to 6
-# Only elements 0-3 are ever evaluated; the rest stays as thunks
-def main = fn () {
-  def from = fix f: Int -> [Int] {
-    fn (n: Int) { cons(n, f(n + 1)) }
-  };
-  def nums = from(0);
-  head(nums) + head(tail(nums)) + head(tail(tail(nums))) + head(tail(tail(tail(nums))))
-}

@@ -1,6 +1,0 @@
-# Higher-order function — evaluates to 49
-# apply is pure (no affine captures) → unrestricted
-def main = fn () {
-  def apply = fn (f: Int -> Int) { fn (x: Int) { f(x) } };
-  apply (fn (n: Int) { n * n }) (7)
-}

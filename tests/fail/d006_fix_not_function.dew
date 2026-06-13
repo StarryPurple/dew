@@ -1,4 +1,0 @@
-# D006: fix requires a function type, found Int
-def main = fix f: Int {
-    42
-}

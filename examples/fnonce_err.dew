@@ -1,6 +1,0 @@
-# FnOnce called twice — affine violation
-def main = fn () {
-  def b = box(7);
-  def reader = fn (x: Int) { unbox(b) };
-  reader(0) + reader(0)
-}

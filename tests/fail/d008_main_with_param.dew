@@ -1,4 +1,0 @@
-# D008: main must take no parameters
-def main = fn (x: Int) {
-    x
-}

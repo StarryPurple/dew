@@ -1,5 +1,0 @@
-# Three-element list literal — evaluates to 10
-def main = fn () {
-  def xs = [10, 20, 30];
-  head(xs)
-}

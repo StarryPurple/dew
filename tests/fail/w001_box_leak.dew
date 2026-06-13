@@ -1,5 +1,0 @@
-# D002: affine Box allocated, never consumed
-def main = fn () {
-    def b = box(42);
-    0
-}

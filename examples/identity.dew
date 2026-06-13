@@ -1,6 +1,0 @@
-# Basic identity function application — evaluates to 42
-# Pure closure (no affine captures) → unrestricted (Fn)
-def main = fn () {
-  def id = fn (x: Int) { x };
-  id(42)
-}

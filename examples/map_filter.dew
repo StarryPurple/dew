@@ -1,8 +1,0 @@
-# List operations demo: sum of a concrete list
-# Uses inlined pattern that works with current evaluator
-
-def main = fn () {
-    def xs = cons(1, cons(2, cons(3, cons(4, cons(5, nil)))));
-    # Inline sum: avoids fix-to-fix list passing limitation
-    head(xs) + head(tail(xs)) + head(tail(tail(xs))) + head(tail(tail(tail(xs)))) + head(tail(tail(tail(tail(xs)))))
-}
