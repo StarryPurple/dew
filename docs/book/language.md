@@ -13,7 +13,7 @@ expr ::= INT | true | false | ()
        | fn () { expr }                     -- unit parameter
        | fn { expr }                        -- unit parameter sugar
        | expr expr                          -- application (juxtaposition)
-       | expr |> expr                       -- pipe-forward
+       | expr -> expr                       -- pipe-forward
        | !expr                              -- strictness override
        | def IDENT = expr ; expr
        | def IDENT = expr
@@ -45,7 +45,7 @@ type ::= Int | Bool | Unit | Box ( type ) | List ( type ) | type -> type
 | `fn (x) { e }` | `T -> U` | Lambda, parameter type inferred by HM |
 | `fn { e }` | `Unit -> U` | Lambda with no parameters (sugar for `fn () { e }`) |
 | `e1 e2` | `(T -> U) -> T -> U` | Function application |
-| `e1 \|> e2` | `T -> (T -> U) -> U` | Pipe-forward: `e1 \|> e2` = `e2(e1)` |
+| `e1 \-> e2` | `T -> (T -> U) -> U` | Pipe-forward: `e1 \-> e2` = `e2(e1)` |
 | `!e` | `T -> T` | Force strict evaluation — overrides implicit laziness |
 | `def x = e1; e2` | `T -> U -> U` | Let binding |
 | `dup y = e` | `T -> T` | Duplicate a value into binding (deep copy for Box) |
@@ -100,6 +100,6 @@ From tightest to loosest:
 2. `+`, `-`
 3. `<`, `>`, `==`
 4. Function application (juxtaposition)
-5. `|>` (pipe-forward)
+5. `->` (pipe-forward)
 
 Parentheses override precedence.

@@ -9,5 +9,5 @@ def reverse = fix rev: List(Int) -> (List(Int) -> List(Int)) {
 };
 
 def main = fn () {
-    reverse([1, 2, 3])(nil) |> head
+    reverse([1, 2, 3])(nil) -> head
 }

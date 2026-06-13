@@ -13,5 +13,5 @@ def take = fix tk: Int -> (List(Int) -> List(Int)) {
 };
 
 def main = fn () {
-    take(3)([10, 20, 30, 40, 50]) |> head
+    take(3)([10, 20, 30, 40, 50]) -> head
 }

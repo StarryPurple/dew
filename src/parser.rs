@@ -103,7 +103,7 @@ fn parse_pattern(parser: &mut Parser) -> Result<Pattern, String> {
 enum Token {
     Int(i64), True, False, Ident(String),
     Fn, Let, If, Else, Fix, Dup, Box, Unbox, Nil, Cons, Head, Tail, IsNil,
-    Pipe, Bang, TypeKw, Match, Bar, FatArrow,
+    Bang, TypeKw, Match, Bar, FatArrow,
     LBracket, RBracket,
     LParen, RParen, LBrace, RBrace, Semicolon, Colon, Comma, Arrow, Eq,
     Plus, Minus, Star, Slash, EqEq, Lt, Gt,
@@ -131,7 +131,6 @@ impl std::fmt::Display for Token {
             Token::Head => write!(f, "head"),
             Token::Tail => write!(f, "tail"),
             Token::IsNil => write!(f, "isnil"),
-            Token::Pipe => write!(f, "|>"),
             Token::Bang => write!(f, "!"),
             Token::TypeKw => write!(f, "type"),
             Token::Match => write!(f, "match"),
@@ -261,11 +260,7 @@ impl Lexer {
                     if self.peek_char() == Some('>') { self.advance(); Token::Arrow }
                     else { Token::Minus }
                 }
-                '|' => {
-                    self.advance();
-                    if self.peek_char() == Some('>') { self.advance(); Token::Pipe }
-                    else { Token::Bar }
-                }
+                '|' => { self.advance(); Token::Bar }
                 '+' => { self.advance(); Token::Plus }
                 '*' => { self.advance(); Token::Star }
                 '/' => { self.advance(); Token::Slash }
@@ -343,7 +338,7 @@ fn parse_expr_from_parser(parser: &mut Parser) -> Result<Expr, String> {
 
 fn parse_pipe(parser: &mut Parser) -> Result<Expr, String> {
     let mut left = parse_comp(parser)?;
-    while parser.check(&Token::Pipe) {
+    while parser.check(&Token::Arrow) {
         parser.advance();
         let span = parser.span();
         // Right side of pipe: treat built-in keywords as function names
@@ -424,7 +419,7 @@ fn parse_app(parser: &mut Parser) -> Result<Expr, String> {
         && !parser.check(&Token::Gt) && !parser.check(&Token::Plus)
         && !parser.check(&Token::Minus) && !parser.check(&Token::Star)
         && !parser.check(&Token::Slash) && !parser.check(&Token::Else)
-        && !parser.check(&Token::Pipe) && !parser.check(&Token::Bang)
+        && !parser.check(&Token::Bang)
         && !parser.check(&Token::RBracket) && !parser.check(&Token::LBracket)
         && !parser.check(&Token::Head) && !parser.check(&Token::Tail)
         && !parser.check(&Token::IsNil) && !parser.check(&Token::Cons)

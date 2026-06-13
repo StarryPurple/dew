@@ -9,5 +9,5 @@ def drop = fix dp: Int -> (List(Int) -> List(Int)) {
 };
 
 def main = fn () {
-    drop(2)([10, 20, 30, 40]) |> head
+    drop(2)([10, 20, 30, 40]) -> head
 }

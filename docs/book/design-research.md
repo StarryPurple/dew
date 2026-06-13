@@ -6,9 +6,9 @@ Research-driven design recommendations for Dew — a minimal functional language
 
 ## 1. Syntax & Ergonomics
 
-### 1.1 Pipe-Forward (`|>`)
+### 1.1 Pipe-Forward (`->`)
 
-**Precedent**: F# (idiomatic), Elm, Gleam, OCaml (4.14+ `|>`)  
+**Precedent**: F# (idiomatic), Elm, Gleam, OCaml (4.14+ `->`)  
 **Impact**: Eliminates deeply nested function calls, reads left-to-right as data pipeline.
 
 ```
@@ -16,10 +16,10 @@ Research-driven design recommendations for Dew — a minimal functional language
 head(tail(tail(xs)))
 
 # With pipe-forward
-xs |> tail |> tail |> head
+xs -> tail -> tail -> head
 ```
 
-**Verdict**: High value, low implementation cost. A syntactic desugaring of `x |> f` to `f(x)`.
+**Verdict**: High value, low implementation cost. A syntactic desugaring of `x -> f` to `f(x)`.
 
 ### 1.2 Pattern Matching
 
@@ -306,7 +306,7 @@ stdlib = { git = "https://github.com/dew-lang/stdlib", tag = "v0.1.0" }
 | 3 | Five-question error framework with suggestions | Medium | High |
 | 4 | Error codes (D001-D008) | Low | Medium |
 | 5 | Thunk source attribution in diagnostics | Low | High |
-| 6 | Pipe-forward `|>` operator | Low | High |
+| 6 | Pipe-forward `->` operator | Low | High |
 
 ### NEXT (growing the language)
 

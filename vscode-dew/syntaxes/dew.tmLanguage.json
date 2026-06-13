@@ -41,11 +41,11 @@
         },
         "operators": {
             "patterns": [
-                { "name": "keyword.operator.arrow.dew", "match": "->|\\|>" },
-                { "name": "keyword.operator.comparison.dew", "match": "==|!=|<|>|<=|>=" },
+                { "name": "keyword.operator.arrow.dew", "match": "->|\\->" },
+                { "name": "keyword.operator.comparison.dew", "match": "==|!=|<->|<=->=" },
                 { "name": "keyword.operator.arithmetic.dew", "match": "[+\\-*/%]" },
                 { "name": "keyword.operator.assignment.dew", "match": "=" },
-                { "name": "keyword.operator.pipe.dew", "match": "\\|>" },
+                { "name": "keyword.operator.pipe.dew", "match": "\\->" },
                 { "name": "keyword.operator.bang.dew", "match": "!" }
             ]
         },

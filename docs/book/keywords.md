@@ -75,7 +75,7 @@
 | `*`, `/` | Multiplication, division | 2 |
 | `+`, `-` | Addition, subtraction | 3 |
 | `<`, `>`, `==` | Comparison | 4 |
-| `\|>` | Pipe-forward | 5 (loosest) |
+| `\->` | Pipe-forward | 5 (loosest) |
 
 ## Comments
 

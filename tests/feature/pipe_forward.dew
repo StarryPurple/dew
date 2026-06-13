@@ -1,7 +1,7 @@
-# Demo: pipe-forward |> operator
-# xs |> tail |> head  desugars to  head(tail(xs))
+# Demo: pipe-forward -> operator
+# xs -> tail -> head  desugars to  head(tail(xs))
 
 def main = fn () {
     def xs = cons(10, cons(20, cons(30, nil)));
-    xs |> tail |> head
+    xs -> tail -> head
 }
