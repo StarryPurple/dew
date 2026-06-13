@@ -1,0 +1,6 @@
+[book]
+authors = ["Dew Contributors"]
+language = "zh-CN"
+multilingual = false
+src = "."
+title = "Dew 语言参考"
