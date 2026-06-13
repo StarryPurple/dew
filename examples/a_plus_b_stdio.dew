@@ -1,0 +1,8 @@
+def main = fn -> Int {
+  def a = 0;
+  def b = 0;
+  a -> Stdin;
+  b -> Stdin;
+  a + b -> Stdout;
+  0
+}

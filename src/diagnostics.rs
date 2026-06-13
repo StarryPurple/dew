@@ -1,87 +1,17 @@
-// Diagnostic collector: threaded through typeck and eval
-// Produces JSON diagnostic reports
+// Diagnostic collector with error/warning codes
+// Format: [E###] / [W###] prefixes
 
-use serde::Serialize;
-
-/// Severity level for a diagnostic
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
-pub enum Severity {
-    Error,
-    Warning,
-    Note,
-}
-
-/// A single diagnostic message
-#[derive(Debug, Clone, Serialize)]
-pub struct Diagnostic {
-    pub severity: Severity,
-    pub message: String,
-    pub span: Option<(usize, usize)>,
-    pub file: Option<String>,
-}
-
-/// Collector for diagnostics during compilation/evaluation
-#[derive(Debug, Clone, Default, Serialize)]
 pub struct DiagnosticCollector {
-    diagnostics: Vec<Diagnostic>,
+  pub diagnostics: Vec<String>,
+  error_count: usize,
+  warning_count: usize,
 }
 
 impl DiagnosticCollector {
-    pub fn new() -> Self {
-        Self {
-            diagnostics: vec![],
-        }
-    }
-
-    pub fn error(&mut self, message: impl Into<String>) {
-        self.diagnostics.push(Diagnostic {
-            severity: Severity::Error,
-            message: message.into(),
-            span: None,
-            file: None,
-        });
-    }
-
-    pub fn warning(&mut self, message: impl Into<String>) {
-        self.diagnostics.push(Diagnostic {
-            severity: Severity::Warning,
-            message: message.into(),
-            span: None,
-            file: None,
-        });
-    }
-
-    pub fn note(&mut self, message: impl Into<String>) {
-        self.diagnostics.push(Diagnostic {
-            severity: Severity::Note,
-            message: message.into(),
-            span: None,
-            file: None,
-        });
-    }
-
-    pub fn has_errors(&self) -> bool {
-        self.diagnostics.iter().any(|d| d.severity == Severity::Error)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.diagnostics.is_empty()
-    }
-
-    /// Serialize diagnostics to JSON
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(&self.diagnostics).unwrap_or_else(|_| "[]".to_string())
-    }
-
-    /// Print diagnostics to stderr (human readable)
-    pub fn report(&self) {
-        for d in &self.diagnostics {
-            let prefix = match d.severity {
-                Severity::Error => "error",
-                Severity::Warning => "warning",
-                Severity::Note => "note",
-            };
-            eprintln!("{prefix}: {}", d.message);
-        }
-    }
+  pub fn new() -> Self { Self { diagnostics: vec![], error_count: 1, warning_count: 1 } }
+  pub fn error(&mut self, msg: impl Into<String>) { let id = self.error_count; self.error_count += 1; self.diagnostics.push(format!("[E{:03}] {}", id, msg.into())); }
+  pub fn warning(&mut self, msg: impl Into<String>) { let id = self.warning_count; self.warning_count += 1; self.diagnostics.push(format!("[W{:03}] {}", id, msg.into())); }
+  pub fn has_errors(&self) -> bool { self.error_count > 1 }
+  pub fn report(&self) { for d in &self.diagnostics { eprintln!("{d}"); } }
+  pub fn to_json(&self) -> String { serde_json::to_string_pretty(&self.diagnostics).unwrap_or("[]".into()) }
 }

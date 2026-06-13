@@ -9,11 +9,12 @@ use crate::strictness;
 
 pub struct GenCtx {
   next_id: usize,
+  current_def: Option<(String, crate::ir::Label)>,
 }
 
 impl GenCtx {
   pub fn new() -> Self {
-    Self { next_id: 0 }
+    Self { next_id: 0, current_def: None }
   }
 
   fn fresh_label(&mut self) -> crate::ir::Label {
@@ -34,6 +35,8 @@ impl GenCtx {
     match decl {
       Decl::Def { name, value, .. } => {
         let thunk_label = self.fresh_label();
+        let saved = self.current_def.take();
+        self.current_def = Some((name.clone(), thunk_label.clone()));
         module.push(Node::ThunkAlloc { label: thunk_label.clone() });
         let body = self.compile_expr(value);
         module.push(Node::ThunkDef { label: thunk_label.clone(), body });
@@ -41,6 +44,7 @@ impl GenCtx {
         module.push(Node::Force { label: force_label.clone(), target: thunk_label.clone() });
         module.push(Node::Update { label: thunk_label.clone(), value: ValueRef::Label(force_label) });
         module.push(Node::Def { name: name.clone(), label: thunk_label });
+        self.current_def = saved;
       }
       Decl::Struct { .. } | Decl::Enum { .. } | Decl::Import { .. } => {}
     }
@@ -67,7 +71,14 @@ impl GenCtx {
       Expr::Bool(b, _) => Ir::Lit(Lit::Bool(*b)),
       Expr::Char(c, _) => Ir::Lit(Lit::Char(*c)),
       Expr::Unit(_) => Ir::Lit(Lit::Unit),
-      Expr::Var(name, _) => Ir::Var(name.clone()),
+      Expr::Var(name, _) => {
+        if let Some((def_name, label)) = &self.current_def {
+          if name == def_name {
+            return Ir::Ref(label.clone());
+          }
+        }
+        Ir::Var(name.clone())
+      },
 
       Expr::Fn { params, body, .. } => {
         let names: Vec<String> = params.iter().map(|(n, _)| n.clone()).collect();
@@ -142,10 +153,21 @@ impl GenCtx {
       }
 
       Expr::StructCons { name, fields, .. } => {
+        // Struct construction is function application to the struct constructor
         let fs: Vec<Ir> = fields.iter()
           .map(|f| self.compile_expr_ctx(f, strictness::Strictness::Lazy))
           .collect();
-        Ir::Struct { name: name.clone(), fields: fs }
+        // Check recursive reference
+        let func = if let Some((def_name, label)) = &self.current_def {
+          if name == def_name {
+            Ir::Ref(label.clone())
+          } else {
+            Ir::Var(name.clone())
+          }
+        } else {
+          Ir::Var(name.clone())
+        };
+        Ir::Apply { func: Box::new(func), args: fs }
       }
 
       Expr::FieldAccess { expr, field, .. } => {
