@@ -10,7 +10,7 @@ pub enum Token {
   Plus, Minus, Star, Slash, Percent,
   Lt, Gt, Le, Ge, EqEq, Ne,
   AndAnd, OrOr,
-  Arrow, Dot, Amp, Bang,
+  Arrow, FatArrow, Dot, Amp, Bang,
   LParen, RParen, LBrace, RBrace, LBracket, RBracket,
   Comma, Semicolon, Colon, Underscore, Eq,
   Eof,
@@ -43,6 +43,7 @@ fn tokenize(source: &str) -> Result<Vec<Token>, String> {
     }
     if c.is_ascii_digit() { let mut n: i64 = 0; while i < chars.len() && chars[i].is_ascii_digit() { n = n * 10 + (chars[i] as i64 - '0' as i64); i += 1; } tokens.push(Token::IntLit(n)); continue; }
     if c == '-' && i + 1 < chars.len() && chars[i + 1] == '>' { tokens.push(Token::Arrow); i += 2; continue; }
+    if c == '=' && i + 1 < chars.len() && chars[i + 1] == '>' { tokens.push(Token::FatArrow); i += 2; continue; }
     if c == '<' && i + 1 < chars.len() && chars[i + 1] == '=' { tokens.push(Token::Le); i += 2; continue; }
     if c == '>' && i + 1 < chars.len() && chars[i + 1] == '=' { tokens.push(Token::Ge); i += 2; continue; }
     if c == '=' && i + 1 < chars.len() && chars[i + 1] == '=' { tokens.push(Token::EqEq); i += 2; continue; }
@@ -151,7 +152,7 @@ impl Parser {
   }
 
   fn parse_if(&mut self) -> Result<Expr, String> { self.advance(); let c = self.parse_expr()?; let t = self.parse_block()?; if self.peek() == &Token::Else { self.advance(); let e = if self.peek() == &Token::If { self.parse_if()? } else { self.parse_block()? }; Ok(Expr::If { cond: Box::new(c), then: Box::new(t), else_: Box::new(e), span: self.span() }) } else { Ok(Expr::If { cond: Box::new(c), then: Box::new(t), else_: Box::new(Expr::Unit(self.span())), span: self.span() }) } }
-  fn parse_match(&mut self) -> Result<Expr, String> { self.advance(); let s = self.parse_expr()?; self.expect(&Token::LBrace)?; let mut arms = Vec::new(); while self.peek() != &Token::RBrace { let p = self.parse_pattern()?; self.expect(&Token::Arrow)?; let b = self.parse_expr()?; arms.push((p, b)); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Expr::Match { scrutinee: Box::new(s), arms, span: self.span() }) }
+  fn parse_match(&mut self) -> Result<Expr, String> { self.advance(); let s = self.parse_expr()?; self.expect(&Token::LBrace)?; let mut arms = Vec::new(); while self.peek() != &Token::RBrace { let p = self.parse_pattern()?; self.expect(&Token::FatArrow)?; let b = self.parse_expr()?; arms.push((p, b)); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Expr::Match { scrutinee: Box::new(s), arms, span: self.span() }) }
   fn parse_fn(&mut self) -> Result<Expr, String> { self.advance(); let mut ps = Vec::new(); if self.peek() != &Token::Arrow && self.peek() == &Token::LParen { self.advance(); while self.peek() != &Token::RParen { let borrow = self.peek() == &Token::Amp; if borrow { self.advance(); } let n = self.expect_ident()?; let t = if self.peek() == &Token::Colon { self.advance(); self.parse_type()? } else { Type::Var("_".into()) }; ps.push((n, t)); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); } let rt = if self.peek() == &Token::Arrow { self.advance(); Some(self.parse_type()?) } else { None }; let b = self.parse_block()?; Ok(Expr::Fn { params: ps, ret_ty: rt, body: Box::new(b), span: self.span() }) }
   fn parse_fix(&mut self) -> Result<Expr, String> { self.advance(); let n = self.expect_ident()?; let b = self.parse_block()?; Ok(Expr::Fix { name: n, body: Box::new(b), span: self.span() }) }
 
