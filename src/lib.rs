@@ -12,3 +12,4 @@ pub mod strictness;
 pub mod typeck;
 pub mod types;
 pub mod value;
+pub mod lsp;

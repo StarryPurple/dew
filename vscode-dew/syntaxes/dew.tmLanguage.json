@@ -1,0 +1,54 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Dew",
+  "scopeName": "source.dew",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#chars" },
+    { "include": "#keywords" },
+    { "include": "#functions" },
+    { "include": "#types" },
+    { "include": "#operators" },
+    { "include": "#numbers" },
+    { "include": "#idents" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.dew", "match": "//.*$" },
+        { "name": "comment.block.dew", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.dew", "begin": "\"", "end": "\"", "patterns": [{ "name": "constant.character.escape.dew", "match": "\\\\." }]
+    },
+    "chars": {
+      "name": "string.quoted.single.dew", "match": "'(\\\\.|[^'])'"
+    },
+    "keywords": {
+      "name": "keyword.control.dew",
+      "match": "\\b(def|fn|struct|enum|match|if|else|return|fix|import|force|true|false|not)\\b"
+    },
+    "functions": {
+      "name": "entity.name.function.dew",
+      "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*\\()"
+    },
+    "types": {
+      "name": "storage.type.dew",
+      "match": "\\b(Int|Bool|Char|Unit|Array|List|Box)\\b"
+    },
+    "operators": {
+      "name": "keyword.operator.dew",
+      "match": "->|==|!=|<=|>=|&&|\\|\\||[+\\-*/%<>=!&|.]"
+    },
+    "numbers": {
+      "name": "constant.numeric.integer.dew",
+      "match": "\\b\\d+\\b"
+    },
+    "idents": {
+      "name": "variable.other.dew",
+      "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
+    }
+  }
+}

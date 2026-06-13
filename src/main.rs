@@ -1,5 +1,5 @@
-// Dew CLI — compiler + evaluator
-use clap::Parser;
+// Dew CLI
+use clap::{Parser, Subcommand};
 use std::{fs, process};
 use dew::parser::parse_program;
 use dew::ir_gen::GenCtx;
@@ -9,16 +9,28 @@ use dew::diagnostics::DiagnosticCollector;
 #[derive(Parser)]
 #[command(name = "dew")]
 struct Cli {
-  file: String,
+  #[command(subcommand)]
+  command: Option<Command>,
+  file: Option<String>,
   #[arg(long)]
   emit: Option<String>,
   #[arg(long)]
   trace: bool,
 }
 
+#[derive(Subcommand)]
+enum Command {
+  Lsp,
+}
+
 fn main() {
   let cli = Cli::parse();
-  let source = fs::read_to_string(&cli.file).unwrap_or_else(|e| { eprintln!("[E001] cannot read {}: {e}", cli.file); process::exit(1); });
+  if let Some(Command::Lsp) = cli.command {
+    dew::lsp::run();
+    return;
+  }
+  let file = cli.file.unwrap_or_else(|| { eprintln!("[E001] no file specified"); process::exit(1); });
+  let source = fs::read_to_string(&file).unwrap_or_else(|e| { eprintln!("[E001] cannot read {file}: {e}"); process::exit(1); });
   let decls = parse_program(&source).unwrap_or_else(|e| { eprintln!("[E002] parse error: {e}"); process::exit(1); });
   let mut gen_ctx = GenCtx::new();
   let module = gen_ctx.compile_program(&decls);
