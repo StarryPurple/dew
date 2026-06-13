@@ -1,0 +1,4 @@
+def sum_to = fn(n: Int) -> Int {
+  if n == 0 { 0 } else { n + sum_to(n - 1) }
+}
+def main = fn -> Int { sum_to(100) }

@@ -1,0 +1,13 @@
+def fizzbuzz = fn(n: Int) -> Int {
+  match n % 15 {
+    0 => 0,
+    3 => 1,
+    5 => 1,
+    6 => 1,
+    9 => 1,
+    10 => 1,
+    12 => 1,
+    _ => n,
+  }
+}
+def main = fn -> Int { fizzbuzz(33) }

@@ -1,0 +1,3 @@
+struct Point { x: Int, y: Int }
+def dist_sq = fn(p: Point) -> Int { p.x * p.x + p.y * p.y }
+def main = fn -> Int { def p = Point(3, 4); dist_sq(p) }

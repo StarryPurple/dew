@@ -1,0 +1,11 @@
+def is_leap = fn(year: Int) -> Int {
+  if year % 400 == 0 { 1 }
+  else {
+    if year % 100 == 0 { 0 }
+    else {
+      if year % 4 == 0 { 1 }
+      else { 0 }
+    }
+  }
+}
+def main = fn -> Int { is_leap(2024) }

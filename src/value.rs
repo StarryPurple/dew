@@ -28,6 +28,7 @@ pub enum Value {
     /// Struct instance
     Struct {
         name: String,
+        field_names: Vec<String>,
         fields: Vec<Value>,
     },
 
@@ -81,7 +82,7 @@ impl fmt::Display for Value {
       Value::Builtin(name) => write!(f, "<builtin:{name}>"),
             Value::Closure { params, .. } => write!(f, "<fn({})>", params.join(", ")),
             Value::Thunk { .. } => write!(f, "<thunk>"),
-            Value::Struct { name, fields } => {
+            Value::Struct { name, fields, .. } => {
                 write!(f, "{name}(")?;
                 for (i, v) in fields.iter().enumerate() {
                     if i > 0 { write!(f, ", ")?; }

@@ -37,6 +37,13 @@ fn main() {
   if let Some(_) = cli.emit { print!("{module}"); return; }
   let mut diag = DiagnosticCollector::new();
   let mut eval = Evaluator::new(&mut diag);
+
+  // Register struct definitions
+  for decl in &decls {
+    if let dew::ast::Decl::Struct { name, fields } = decl {
+      eval.register_struct(name.clone(), fields.iter().map(|(n, _)| n.clone()).collect());
+    }
+  }
   if let Err(e) = eval.eval_module(&module) { diag.error(format!("eval: {e}")); diag.report(); process::exit(1); }
   match eval.call_main() {
     Ok(dew::value::Value::Int(n)) => { println!("=> {n}"); process::exit(n as i32); }

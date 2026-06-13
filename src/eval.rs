@@ -15,12 +15,17 @@ enum ThunkState {
 pub struct Evaluator<'a> {
   env: Env,
   heap: HashMap<Label, ThunkState>,
+  struct_fields: HashMap<String, Vec<String>>,
   diag: &'a mut DiagnosticCollector,
 }
 
 impl<'a> Evaluator<'a> {
   pub fn new(diag: &'a mut DiagnosticCollector) -> Self {
-    Self { env: Env::new(), heap: HashMap::new(), diag }
+    Self { env: Env::new(), heap: HashMap::new(), struct_fields: HashMap::new(), diag }
+  }
+
+  pub fn register_struct(&mut self, name: String, field_names: Vec<String>) {
+    self.struct_fields.insert(name, field_names);
   }
 
   pub fn eval_module(&mut self, module: &Module) -> Result<(), String> {
@@ -123,6 +128,31 @@ impl<'a> Evaluator<'a> {
       }
       Ir::Prim { op, args } => self.eval_prim(*op, args),
       Ir::Return(inner) => self.eval_ir(inner),
+      Ir::Match { scrutinee, arms } => {
+        let val = self.eval_ir(scrutinee)?;
+        for (pat, body) in arms {
+          if self.pattern_matches(pat, &val) {
+            return self.eval_ir(body);
+          }
+        }
+        Err("no match arm matched".into())
+      }
+      Ir::FieldAccess { expr, field } => {
+        let val = self.eval_ir(expr)?;
+        match val {
+          Value::Struct { name: _, field_names, fields } => {
+            // Search by name
+            if let Some(idx) = field_names.iter().position(|n| n == field) {
+              fields.get(idx).cloned().ok_or("field index out of bounds".into())
+            } else if let Ok(idx) = field.parse::<usize>() {
+              fields.get(idx).cloned().ok_or("field index out of bounds".into())
+            } else {
+              Err(format!("no field '{field}' in struct"))
+            }
+          }
+          _ => Err("field access on non-struct".into()),
+        }
+      }
       _ => Ok(Value::Unit),
     }
   }
@@ -145,6 +175,10 @@ impl<'a> Evaluator<'a> {
         let v = self.eval_ir(args.first().ok_or("not: 1 arg")?)?;
         match v { Value::Bool(b) => Ok(Value::Bool(!b)), _ => Err("not: Bool".into()) }
       }
+      Ir::Var(name) if name.chars().next().map_or(false, |c| c.is_uppercase()) => {
+        let fields: Vec<Value> = args.iter().map(|a| self.eval_ir(a)).collect::<Result<_, _>>()?;
+        Ok(Value::Struct { name: name.clone(), field_names: self.struct_fields.get(name).cloned().unwrap_or_default(), fields })
+      }
       _ => {
         let f = self.eval_ir(func)?;
         match f {
@@ -160,6 +194,24 @@ impl<'a> Evaluator<'a> {
           }
           _ => Err(format!("not a function")),
         }
+      }
+    }
+  }
+
+  fn pattern_matches(&self, pat: &Pattern, val: &Value) -> bool {
+    match pat {
+      Pattern::Wildcard => true,
+      Pattern::Var(_) => true,
+      Pattern::Lit(Lit::Int(n)) => matches!(val, Value::Int(x) if *x == *n),
+      Pattern::Lit(Lit::Bool(b)) => matches!(val, Value::Bool(x) if *x == *b),
+      Pattern::Lit(Lit::Char(c)) => matches!(val, Value::Char(x) if *x == *c),
+      Pattern::Lit(Lit::Unit) => matches!(val, Value::Unit),
+      Pattern::Struct(_, _) => false,
+      Pattern::EnumVariant(_, _) => false,
+      Pattern::Tuple(ps) => {
+        if let Value::Tuple(vs) = val {
+          ps.len() == vs.len() && ps.iter().zip(vs).all(|(p, v)| self.pattern_matches(p, v))
+        } else { false }
       }
     }
   }
