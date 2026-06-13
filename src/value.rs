@@ -6,6 +6,7 @@ use std::fmt;
 /// Runtime value
 #[derive(Debug, Clone)]
 pub enum Value {
+    Builtin(String),
     Int(i64),
     Bool(bool),
     Char(char),
@@ -77,6 +78,7 @@ impl fmt::Display for Value {
             Value::Bool(b) => write!(f, "{b}"),
             Value::Char(c) => write!(f, "'{c}'"),
             Value::Unit => write!(f, "()"),
+      Value::Builtin(name) => write!(f, "<builtin:{name}>"),
             Value::Closure { params, .. } => write!(f, "<fn({})>", params.join(", ")),
             Value::Thunk { .. } => write!(f, "<thunk>"),
             Value::Struct { name, fields } => {

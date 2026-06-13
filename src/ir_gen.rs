@@ -55,7 +55,7 @@ impl GenCtx {
     let inner = self.compile_expr_inner(expr);
     match ctx {
       strictness::Strictness::Strict => {
-        Ir::Prim { op: PrimOp::Not, args: vec![inner] }
+        inner
       }
       strictness::Strictness::Lazy => inner,
     }
@@ -104,7 +104,7 @@ impl GenCtx {
 
       Expr::Force { expr, .. } => {
         let inner = self.compile_expr_ctx(expr, strictness::Strictness::Strict);
-        Ir::Prim { op: PrimOp::Not, args: vec![inner] }
+        inner
       }
 
       Expr::Return { expr, .. } => {
