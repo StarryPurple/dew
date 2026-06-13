@@ -1,11 +1,10 @@
 // Runtime values and environments for the evaluator
 
-use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt;
 
 /// Runtime value
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),
     Bool(bool),
@@ -46,7 +45,7 @@ pub enum Value {
 }
 
 /// Runtime environment: maps variable names to values
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default)]
 pub struct Env {
     bindings: HashMap<String, Value>,
 }
