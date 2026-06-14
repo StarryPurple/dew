@@ -52,7 +52,7 @@ impl Compiler {
                 module.push(Item::FnDef { name: name.clone(), params: param_names, blocks });
               }
             } else {
-              self.emit_thunk_chain(name, value, module);
+              self.emit_fn_thunk_chain(name, params, body, module);
             }
           } else {
             self.emit_thunk_chain(name, value, module);
@@ -72,6 +72,24 @@ impl Compiler {
     module.push(Item::Alloc(label.clone()));
     let thunk_name = format!("__{name}");
     let (thunk, _ret) = self.compile_expr_to_thunk(&thunk_name, value);
+    module.push(Item::Thunk(thunk));
+    module.push(Item::ThunkDef { label: label.clone(), thunk: thunk_name });
+    let force_label = self.ctx.fresh_label();
+    module.push(Item::Force { dest: force_label.clone(), src: label.clone() });
+    module.push(Item::Update { label: label.clone(), value: ValueRef::Label(force_label) });
+    module.push(Item::Def { name: name.to_string(), label });
+  }
+
+  fn emit_fn_thunk_chain(&mut self, name: &str, params: &[(String, crate::ast::Type)], body: &Expr, module: &mut Module) {
+    let label = self.ctx.fresh_label();
+    self.current_label = Some(label.0.clone());
+    module.push(Item::Alloc(label.clone()));
+    let thunk_name = format!("__{name}");
+    let (entry_block, _) = self.compile_expr_to_block("entry", body);
+    let mut blocks = vec![entry_block];
+    blocks.append(&mut self.extra_blocks);
+    let param_tys: Vec<(String, Ty)> = params.iter().map(|(n, t)| (n.clone(), type_to_ir(t))).collect();
+    let thunk = Thunk { name: thunk_name.clone(), params: param_tys, ret_ty: Ty::void(), blocks };
     module.push(Item::Thunk(thunk));
     module.push(Item::ThunkDef { label: label.clone(), thunk: thunk_name });
     let force_label = self.ctx.fresh_label();

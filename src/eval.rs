@@ -131,12 +131,16 @@ impl<'a> Evaluator<'a> {
       None => return Err(format!("unknown thunk {label}")),
       _ => {}
     }
-    let (blocks, _params) = match self.heap.get(label) {
+    let (blocks, params) = match self.heap.get(label) {
       Some(ThunkState::Suspended { blocks: Some(b), params: Some(p) }) => (b.clone(), p.clone()),
       _ => return Ok(Value::Unit),
     };
     self.heap.insert(label.clone(), ThunkState::Evaluating);
-    let val = self.eval_blocks(&blocks, &[])?;
+    let val = if params.is_empty() {
+      self.eval_blocks(&blocks, &[])?
+    } else {
+      Value::Closure { params, blocks, env: self.env.clone() }
+    };
     self.heap.insert(label.clone(), ThunkState::Evaluated(val.clone()));
     Ok(val)
   }
