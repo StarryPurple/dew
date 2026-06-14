@@ -21,7 +21,7 @@ Dew provides four built-in primitive types:
 |--------|-----------|----------|-------------------|
 | **`i64` (chosen)** | Stack, 8 bytes | Normal | Arithmetic just works |
 | `i128` | Stack, 16 bytes | Normal | No practical benefit on 64-bit hardware |
-| Big integer | Heap | Affine or Persistent | Every `+` would consume its operands |
+| Big integer | Heap | Affine | Every `+` would consume its operands |
 
 If `Int` were heap-allocated (affine), the simplest expressions would break:
 
@@ -33,7 +33,7 @@ def z = x + 2;  // ERROR: x already moved
 
 `Int` as Normal is essential to the language's usability. A 64-bit signed integer matches the machine word on modern hardware, provides clean C interop (`int64_t`), and offers sufficient range for virtually all numeric programs (factorial of 20 is ~2.4 × 10¹⁸, still within `i64`).
 
-**Arbitrary-precision integers** are planned as a separate `BigInt` type with Affine or Persistent affinity — opt-in for the rare cases that need them.
+**Arbitrary-precision integers** are planned as a separate `BigInt` type with Affine affinity — opt-in for the rare cases that need them.
 
 ```dew
 def meaning: Int = 42;
@@ -135,7 +135,7 @@ def digits: Array(Int, 3) = [1, 2, 3];
 
 ### List Types
 
-The internal type system supports `List(T)` as a parameterized persistent collection, though the surface syntax currently treats them through library definitions.
+Lists are standard library types (not built-in). They use library-level reference counting for shared access.
 
 ## The Internal Type System
 
@@ -149,8 +149,6 @@ enum Ty {
     Adt(String, Vec<Ty>),   // named ADT (struct/enum)
     Tuple(Vec<Ty>),          // tuple type
     Array(Box<Ty>, usize),   // fixed-size array
-    List(Box<Ty>),           // persistent list
-    Affine(Box<Ty>),         // affine resource wrapper
     Hole(usize),             // inference gap
 }
 ```
@@ -172,12 +170,9 @@ Every type has an associated **affinity** determining how values of that type ma
 | Affinity | Types | Rules |
 |----------|-------|-------|
 | **Normal** | `Int`, `Bool`, `Char`, `Unit`, pure structs, tuples of Normal | Baseline — no restriction |
-| **Affine** | `Affine(T)` | Used at most once |
-| **Persistent** | `List(T)` | Reference-counted, shared |
+| **Affine** | `Affine(T)`, `#[Affine]` structs/enums | Used at most once |
 
-The affine type system ensures that resources are never silently duplicated. `Affine(T)` is a zero-cost compile-time marker — using an affine value more than once produces a compile-time error.
-
-See the [Affine Types](affine.md) chapter for the full resource-tracking model.
+The `#[Affine]` attribute system marks types as affine. See [Affine Types](affine.md) for the full resource-tracking model.
 
 ## Next
 

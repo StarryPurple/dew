@@ -2,75 +2,82 @@
 
 Dew's type system tracks **resource affinity** — how many times a value can be used. This enables compile-time guarantees about resource safety without a garbage collector.
 
-## The Three Resource Kinds
+## The Two Resource Kinds
 
-Every type in Dew belongs to exactly one of three resource categories:
+Every type in Dew belongs to one of two resource categories:
 
 | Kind | Description | Examples | Rules |
 |------|-------------|----------|-------|
 | **Normal** | Baseline — no restriction | `Int`, `Bool`, `Char`, `Unit`, pure structs | Unlimited use |
-| **Affine** | Used at most once, ownership transfers | `Affine(T)` | Single use, auto-dropped at scope end |
-| **Persistent** | Reference-counted, shared access | `List(T)` | Multiple references, refcount-managed |
+| **Affine** | Used at most once, ownership transfers | `Affine(T)`, `#[Affine]` structs | Single use, auto-dropped at scope end |
 
-## The `Affine(T)` Wrapper
+## `#[Affine]` Attribute System
 
-`Affine(T)` is a **zero-cost compile-time marker**. There is no heap allocation — it wraps any value (Normal or already-affine) and marks it as tracked:
+Affinity is controlled by attributes, not type wrappers:
 
 ```dew
-def x = Affine(42);      // x: Affine(Int) — the integer 42, now tracked
-def y = Affine(true);    // y: Affine(Bool)
-def z = Affine(Unit);    // z: Affine(Unit)
+#[Affine]
+struct Affine(T) { data: T }
+
+#[Affine]
+enum Option { Some(Int), None }
 ```
 
-### Implicit Unwrap
+The `#[Affine]` attribute marks a type as affine. Currently only `#[Affine]` is supported. Future attributes may include `#[strict]`, `#[inline]`, etc.
 
-When an `Affine(T)` value appears where `T` is expected, the compiler **automatically unwraps** it and consumes the wrapper. You rarely need to write `consume` explicitly:
+### Infectious Rule
+
+If a struct contains any `#[Affine]` field, the entire struct becomes affine:
+
+```dew
+struct Pair {
+  x: Int,              // Normal
+  #[Affine] y: Int,    // this field makes Pair Affine
+}
+// Pair is now Affine — infectious from any #[Affine] field
+```
+
+### `Affine(T)` is a Standard Library Struct
+
+```dew
+#[Affine]
+struct Affine(T) { data: T }
+```
+
+It's an ordinary single-field struct with the `#[Affine]` attribute. No special runtime variant — `Affine(42)` is just `Value::Struct { name: "Affine", fields: [42] }`.
+
+### Field Access Consumes
+
+Field access on `#[Affine]` types consumes the struct:
 
 ```dew
 def x = Affine(42);
-def y = x + 1;    // + expects Int, Int — x is implicitly unwrapped, consumed
-// x is now dead — the Affine wrapper was consumed
-
-def f = fn(a: Int) -> Int { a * 2 };
-def z = Affine(10);
-f(z)              // f expects Int — z is implicitly unwrapped, consumed
+def y = x.data;    // x is consumed — ownership transfers to y
+// def z = x.data; // ERROR: x is already consumed
 ```
 
-The implicit unwrap applies wherever the inner type is demanded:
-
-| Context | Behavior |
-|---------|----------|
-| Arithmetic (`+`, `-`, `*`, `/`, `%`) | Unwraps `Affine(Int)` → `Int` |
-| Comparison (`<`, `>`, `==`, etc.) | Unwraps `Affine(Int)` → `Int` |
-| Function call matching parameter type | Unwraps if param expects inner type |
-| Condition (`if`, `match` scrutinee) | Unwraps if needed |
-
-### Explicit `consume`
-
-For cases where you want to explicitly consume the wrapper, use `consume`:
+Pattern matching also consumes:
 
 ```dew
-def consume = fn(x: Affine(Int)) -> Int {
-  consume(x)   // explicit: consume the Affine wrapper, yield the inner Int
+match x {
+  Affine(val) => val,  // x consumed, val = 42
 }
-
-def a = Affine(42);
-consume(a)   // a is consumed — transferred into the function, then opened
 ```
 
-`open` fails at runtime if the value is not `Affine(T)`:
+### `consume` as a Standard Library Function
 
 ```dew
-def x = 42;
-consume(x)    // runtime error: consume: expected Affine value
+def consume = fn(x: Affine(T)) -> T { x.data }
 ```
+
+No builtin required — just field access sugar.
 
 ### No Implicit Wrapping
 
 The compiler **never** implicitly wraps a value in `Affine`. This must be explicit:
 
 ```dew
-def f = fn(x: Affine(Int)) -> Int { consume(x) }
+def f = fn(x: Affine(Int)) -> Int { x.data }
 def a = 42;
 // f(a);         // ERROR: Int where Affine(Int) expected
 f(Affine(a));     // OK: explicit opt-in to tracking
@@ -81,7 +88,7 @@ f(Affine(a));     // OK: explicit opt-in to tracking
 | Have | Expected | Result |
 |------|----------|--------|
 | `T` | `T` | Copy — both alive |
-| `Affine(T)` | `T` | **Implicit unwrap** — affine consumed, inner extracted |
+| `Affine(T)` | `T` | **Field access consumes** — `x.data` extracts inner, wrapper consumed |
 | `Affine(T)` | `Affine(T)` | Ownership transfer — stays wrapped |
 | `T` | `Affine(T)` | **Rejected** — must use `Affine(x)` explicitly |
 
@@ -94,20 +101,21 @@ The affinity of a type is determined structurally:
 Int, Bool, Char, Unit → Normal
 ```
 
-### Affine Wrapper
+### `#[Affine]` Attribute
 ```
-Affine(T) → Affine (regardless of T)
+#[Affine] struct/enum → Affine
+Any struct with a #[Affine] field → Affine (infectious)
 ```
 
 ### Structs
 ```
-All fields Normal → Normal
-Any field Affine   → Affine
+No #[Affine] fields → Normal
+Any #[Affine] field → Affine (infectious)
 ```
 
 ### Enums
 ```
-Same as structs — all variants Normal → Normal; any Affine variant → Affine
+Same as structs — no #[Affine] variant → Normal; any #[Affine] variant → Affine
 ```
 
 ### Tuples
@@ -129,7 +137,7 @@ Arrays are always Normal (elements must be Normal)
 
 ## Ownership Transfer
 
-When an affine value is used, its ownership transfers. Using it again after transfer is a compile-time error:
+When an affine value is used, its ownership transfers. Use `.data` to access the inner value:
 
 ```dew
 def x = Affine(42);  // x owns the tracked integer
@@ -143,12 +151,11 @@ Passing an affine value to a function transfers ownership:
 
 ```dew
 def consume = fn(b: Affine(Int)) -> Int {
-  // b is consumed here — auto-dropped at end of scope
-  0
+  b.data  // field access consumes b
 }
 
 def x = Affine(42);
-consume(x);    // x's ownership moves into the function
+x.data;    // x's ownership moves into the function
 // x is now unavailable
 ```
 
@@ -197,7 +204,7 @@ f();                               // can call multiple times
 f();                               // OK
 
 def y = Affine(42);                // y: Affine(Int)
-def g = fn() -> Int { consume(y) }; // captures Affine → Affine closure (FnOnce)
+def g = fn() -> Int { y.data };   // captures Affine → Affine closure (FnOnce)
 g();                               // OK — first call
 // g();                            // ERROR: closure already consumed
 ```
@@ -233,7 +240,7 @@ Mutex(T)      // mutual exclusion — inherently affine
 Channel(T)    // message passing — inherently affine
 ```
 
-These are `Type::App(name, [T])` in the parser — no new syntax needed. Each registers itself as affine with the type checker. The `open` builtin, implicit unwrap, and ownership transfer rules apply uniformly.
+These are `#[Affine]` structs in the standard library — no new syntax or runtime needed. Field access (`.data`), ownership transfer, and the `#[Affine]` infectious rule apply uniformly.
 
 ## Memory Model
 
@@ -241,7 +248,6 @@ These are `Type::App(name, [T])` in the parser — no new syntax needed. Each re
 |------|-----------|--------------|
 | Normal | Stack | Stack unwind |
 | Affine | Determined by containing type | Compiler-inserted `drop` |
-| Persistent | Heap, reference-counted | Last reference dropped → deallocation |
 
 **No tracing garbage collection.** The combination of immutability and affine types guarantees no reference cycles, making reference counting sufficient.
 

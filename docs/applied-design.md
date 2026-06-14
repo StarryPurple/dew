@@ -1,88 +1,90 @@
 # Dew Applied Design — Post-Discussion Summary
 
-This document records the design decisions made after reviewing the initial specification against implementation realities. It supersedes `initial-design.md` where they conflict.
+This document records design decisions made after reviewing the initial specification against implementation realities. It supersedes `initial-design.md` where they conflict.
 
 ---
 
-## 1. Resource Kinds: Normal, Affine, Persistent
+## 1. Resource Kinds: Normal and Affine
 
-Three resource management **strategies**, not three data types:
+Two resource management strategies:
 
 | Kind | Semantics | C++ Analogue | Rule |
 |------|-----------|-------------|------|
 | **Normal** | Baseline — no special restriction | Plain value semantics | `y = x` does not consume `x` |
 | **Affine** | At most one use | `std::move` | `y = x` consumes `x` |
-| **Persistent** | Reference-counted immutable sharing | `shared_ptr<const T>` | `y = x` increments refcount |
 
-**Key insight:** Normal is not "a third strategy." It is the absence of strategy — the default with no restrictions. Affine and Persistent are two orthogonal strategies applied on top.
-
-### Orthogonality
-
-Container type and resource kind are completely independent:
-
-```
-Affine(List(Int))   — an affine list (use once)
-List(Affine(Int))   — a persistent list of affine elements
-```
+**Persistent is removed.** Immutable sharing (formerly "Persistent") is a library-level concern (`Rc<T>`-style), not a built-in resource kind. Affine is the only non-default strategy.
 
 ---
 
-## 2. Affine Semantics
+## 2. `#[Affine]` Attribute System
 
-### The `Affine(T)` Wrapper
-
-A zero-cost compile-time marker. No heap allocation.
+### Syntax
 
 ```dew
-def x = Affine(1)        // x: Affine(Int)
-def y = x                // y owns it, x consumed
+#[Affine]
+struct Affine(T) { data: T }
+
+#[Affine]
+enum Option { Some(Int), None }
 ```
 
-### `consume` — Explicit and Implicit
+Attributes are Rust-style (`#[...]`) and placed before `struct` or `enum`.
+
+### Currently supported
+
+| Attribute | Meaning |
+|-----------|---------|
+| `#[Affine]` | Marks the type as affine. All uses are ownership-transferring. |
+
+### Infectious rule
+
+If a struct contains any `#[Affine]` field, the entire struct is affine:
 
 ```dew
-def x = Affine(1)
-def y = consume(x)       // explicit: unwrap Affine, yield Int
-def y = x + 1            // implicit: context expects Int, auto-unwrap
+struct Pair {
+  x: Int,              // Normal
+  #[Affine] y: Int,    // marks Pair as Affine
+}
+// Pair is now Affine — any field with #[Affine] infects the struct
 ```
 
-Implicit consume fires when context expects `T` but receives `Affine(T)`, and `T` itself is not `Affine(_)`. Only one layer is unwrapped.
-
-### Auto-Drop
-
-At scope end, the compiler inserts `drop` for unconsumed affine values. `drop` is generated, type-specialized, not user-exposed.
-
-### Future Affine Primitives
-
-`Affine(T)` is the general wrapper. Later phases add domain-specific primitives:
+### `Affine(T)` definition (stdlib)
 
 ```dew
-Mutex(T)      // inherently affine
-Channel(T)    // inherently affine
-File          // inherently affine (Phase 5)
+#[Affine]
+struct Affine(T) { data: T }
 ```
 
-All use `Type::App(name, [T])` — no new syntax.
+A single-field struct. `Affine(42)` constructs `Affine { data: 42 }`. Field access `x.data` on `#[Affine]` types consumes the struct.
+
+### Field access consumes
+
+```dew
+def x = Affine(42);
+def y = x.data;    // x is consumed — ownership transfers to y
+// def z = x.data; // ERROR: x already consumed
+```
+
+Pattern matching on `#[Affine]` types also consumes:
+
+```dew
+match x {
+  Affine(val) => val,  // x consumed, val = inner value
+}
+```
+
+### `consume` as stdlib sugar
+
+```dew
+def consume = fn(x: Affine(T)) -> T { x.data }
+```
+
+No builtin needed — it's a standard library function.
 
 ---
 
-## 3. Persistent Semantics
-
-```dew
-type List(T) = Cons(T, List(T)) | Nil
-
-def xs = Cons(1, Cons(2, Nil))
-def ys = xs              // shared — refcount incremented
-def zs = xs { [0] = 10 } // "modification" creates new value
-```
-
-- Immutable `shared_ptr` — shared but never mutated
-- Copy-on-Write by construction (immutability guarantees safety)
-- Reference counting, no GC needed (no cycles due to immutability)
-
----
-
-## 4. `def` Keyword
+## 3. `def` Keyword
 
 `def` is the sole binding keyword. It distinguishes new bindings from rebinding:
 
@@ -93,57 +95,36 @@ def x = x + 1          // new binding, shadows old (not mutation)
 
 ---
 
-## 5. `&` Borrow Sugar — Explicit Rebinding
+## 4. `&` Borrow Sugar — Explicit Rebinding
 
-### Parameter Syntax
+### Three forms
 
-```dew
-def f = fn(&p: Point) -> Point { ... }
-// & decorates the parameter NAME, not the type
-// p: &Point  ← WRONG
-// &p: Point  ← RIGHT
-```
+| Form | Context | Example |
+|------|---------|---------|
+| `&name` (bare) | Call site, pattern | `f(&p)` |
+| `&name = expr;` | Block statement | `&p = Point(1,2);` |
+| `&name { field = val };` | Block statement | `&p { x = 10 };` |
 
-### Rebind Rule
+### Rebind rule
 
-Inside `&`-parameter scope, modifying the parameter requires `&`:
-
-```dew
-def f = fn(&p: Point) -> Point {
-    &p = Point(10, 20)      // rebinds the parameter — affects caller
-    &p { x = 10 }           // field update — affects caller
-    &p = p { x = 10 }       // redundant but allowed
-}
-```
-
-Without `&`, `=` creates a local binding:
+Inside `&`-parameter scope, rebinding requires `&`:
 
 ```dew
 def f = fn(&p: Point) -> Point {
-    p = Point(10, 20)       // local binding, shadows parameter
-    p                        // returns local, parameter unchanged
+    &p = Point(10, 20)      // rebinds parameter
+    &p { x = 10 }           // field update — rebinds parameter
 }
 ```
 
-### Desugaring
+Without `&`, `=` creates a local binding that shadows the parameter.
 
-```
-fn(&p: T, ...) -> U      →    fn(p: T, ...) -> (T, U)
-call f(&x, ...)          →    def x = f(x, ...)
-```
+### Statement-level
 
-### AST Nodes
-
-```
-Expr::Borrow { name, span }           // &x in param patterns
-Expr::BorrowBind { name, value, span } // &x = expr in body
-```
+`&p = expr;` and `&p { ... };` are block-level statements (like `def`), not expressions. They require a trailing semicolon.
 
 ---
 
-## 6. Desugaring Pipeline
-
-All syntactic sugar expands before type checking:
+## 5. Desugaring Pipeline
 
 ```
 Source → Parser → AST (with sugar nodes)
@@ -155,11 +136,11 @@ Source → Parser → AST (with sugar nodes)
                  → Evaluator
 ```
 
-The desugaring pass transforms AST → AST. The type checker and IR generator only see the expanded form. Syntax sugar has no runtime semantics.
+Syntax sugar has no runtime semantics — it's AST-to-AST transformation before type checking.
 
 ---
 
-## 7. Function Types: `->` Notation
+## 6. Function Types: `->` Notation
 
 ```
 Int -> Bool                      // single param
@@ -172,7 +153,7 @@ Right-associative. Legacy `fn(...) -> ...` keyword form preserved for backward c
 
 ---
 
-## 8. `Unit` as a Keyword
+## 7. `Unit` as a Keyword
 
 ```
 Unit                            // value literal (like true/false)
@@ -183,45 +164,33 @@ def x: Unit = Unit
 
 ---
 
-## 9. `Int` is 64-bit
+## 8. `Int` is 64-bit
 
 Fixed-size, stack-allocated, Normal. Big integers will be a separate `BigInt` type later.
 
 ---
 
-## 10. Loop Sugar (Future)
+## 9. Loop Sugar (Future)
 
 `for`/`while` desugar to `fix` + `&` parameters. **Not in initial version.** Deferred to after Typeclass (Phase 6).
 
-```dew
-// Future syntax
-for def i = 0; i < 10; i = i + 1 { &sum = sum + i }
-
-// Expands to:
-def sum = fix loop {
-    fn(&i: Int, &sum: Int) -> Unit {
-        if i < 10 { &sum = sum + i; &i = i + 1; loop(&i, &sum) }
-    }
-}(0, sum)
-```
-
 ---
 
-## 11. Phase Plan (Updated)
+## 10. Phase Plan
 
 | Phase | Content |
 |-------|---------|
 | **Phase 1** | Core: HM, ADT, lazy evaluation, pipe, primitives, I/O |
-| **Phase 2** | Affine, `consume`, `&` sugar |
+| **Phase 2** | `#[Affine]` attribute system, `&` sugar |
 | **Phase 3** | Array, List, higher-order functions, `fix`, `type_of` |
 | **Phase 4** | Rx/C interop |
 | **Phase 5** | File I/O, concurrency |
 | **Phase 6** | Typeclass |
-| **Future** | Loop sugar (`for`/`while`), `strict fn` |
+| **Future** | Loop sugar (`for`/`while`), `strict fn`, `BigInt` |
 
 ---
 
-## 12. Keywords and Builtins
+## 11. Keywords and Builtins
 
 ### Keywords
 ```
@@ -229,9 +198,14 @@ def, fn, struct, enum, match, if, else, return, fix,
 import, force, true, false, Unit
 ```
 
+### Attributes
+```
+#[Affine]
+```
+
 ### Built-in Functions
 ```
-force, not, type_of, Stdin, Stdout, consume, Affine
+force, not, type_of, Stdin, Stdout
 ```
 
 ### Operators
@@ -244,13 +218,16 @@ force, not, type_of, Stdin, Stdout, consume, Affine
 .           field access
 []          subscript
 {}          update
-&           borrow parameter / rebind
+&           borrow parameter reference
 !           force prefix
+#           attribute prefix
 ```
 
 ---
 
-## 13. Out of Scope
+## 12. Out of Scope
 
 - `Float`, `const`, `mut`, loop syntax, explicit lifetimes, tracing GC, panic system
+- `Persistent` as built-in (library-level `Rc<T>` instead)
 - Single-element tuple, unit tuple, numeric tuple access
+- `where` clauses (affinity is inferred, not declared)
