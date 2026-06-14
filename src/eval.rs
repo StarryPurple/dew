@@ -246,13 +246,22 @@ impl<'a> Evaluator<'a> {
         self.env.insert(name.clone(), val);
         Ok(())
       }
-      Instr::Prim { dest, op, lhs, rhs } => {
-        let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit);
-        let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit);
-        let result = eval_prim(*op, &l, &r)?;
-        regs.insert(dest.0, result);
-        Ok(())
-      }
+      Instr::Add { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, int_op(|a,b|Ok(Value::Int(a+b)), &l, &r)?); Ok(()) }
+      Instr::Sub { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, int_op(|a,b|Ok(Value::Int(a-b)), &l, &r)?); Ok(()) }
+      Instr::Mul { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, int_op(|a,b|Ok(Value::Int(a*b)), &l, &r)?); Ok(()) }
+      Instr::Div { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, int_op(|a,b| if b==0{Err("div by zero".into())}else{Ok(Value::Int(a/b))}, &l, &r)?); Ok(()) }
+      Instr::Rem { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, int_op(|a,b|Ok(Value::Int(a%b)), &l, &r)?); Ok(()) }
+      Instr::Lt { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, int_op(|a,b|Ok(Value::Bool(a<b)), &l, &r)?); Ok(()) }
+      Instr::Gt { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, int_op(|a,b|Ok(Value::Bool(a>b)), &l, &r)?); Ok(()) }
+      Instr::Le { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, int_op(|a,b|Ok(Value::Bool(a<=b)), &l, &r)?); Ok(()) }
+      Instr::Ge { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, int_op(|a,b|Ok(Value::Bool(a>=b)), &l, &r)?); Ok(()) }
+      Instr::Eq { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, eq_val(&l, &r)); Ok(()) }
+      Instr::Ne { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, match eq_val(&l,&r){Value::Bool(b)=>Value::Bool(!b),_=>Value::Bool(true)}); Ok(()) }
+      Instr::And { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, bool_op(|a,b|Ok(Value::Bool(a&&b)), &l, &r)?); Ok(()) }
+      Instr::Or { dest, lhs, rhs } => { let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit); let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit); regs.insert(dest.0, bool_op(|a,b|Ok(Value::Bool(a||b)), &l, &r)?); Ok(()) }
+      Instr::Not { dest, arg } => { let v = regs.get(&arg.0).cloned().unwrap_or(Value::Unit); if let Value::Bool(b)=v{regs.insert(dest.0,Value::Bool(!b));} Ok(()) }
+      Instr::Fetch { dest, base, path } => { let val = regs.get(&base.0).cloned().unwrap_or(Value::Unit); let leaf = walk_path(val, path); regs.insert(dest.0, leaf); Ok(()) }
+      Instr::Place { dest, base, path, value } => { let val = regs.get(&base.0).cloned().unwrap_or(Value::Unit); let new_val = regs.get(&value.0).cloned().unwrap_or(Value::Unit); let result = place_path(val, path, new_val); regs.insert(dest.0, result); Ok(()) }
       Instr::Call { dest, func, args } => {
         let func_val = regs.get(&func.0).cloned().unwrap_or(Value::Unit);
         let arg_vals: Vec<Value> = args.iter()
@@ -363,13 +372,6 @@ impl<'a> Evaluator<'a> {
           _ => Err("tuple update on non-tuple".into()),
         }
       }
-      Instr::Not { dest, arg } => {
-        let v = regs.get(&arg.0).cloned().unwrap_or(Value::Unit);
-        match v {
-          Value::Bool(b) => { regs.insert(dest.0, Value::Bool(!b)); Ok(()) }
-          _ => Err("not: expected Bool".into()),
-        }
-      }
     }
   }
 
@@ -416,33 +418,18 @@ impl<'a> Evaluator<'a> {
   }
 }
 
-fn eval_prim(op: PrimOp, l: &Value, r: &Value) -> Result<Value, String> {
-  match (l, r) {
-    (Value::Int(l), Value::Int(r)) => match op {
-      PrimOp::Add => Ok(Value::Int(l + r)),
-      PrimOp::Sub => Ok(Value::Int(l - r)),
-      PrimOp::Mul => Ok(Value::Int(l * r)),
-      PrimOp::Div if *r != 0 => Ok(Value::Int(l / r)),
-      PrimOp::Div => Err("division by zero".into()),
-      PrimOp::Rem => Ok(Value::Int(l % r)),
-      PrimOp::Lt => Ok(Value::Bool(l < r)),
-      PrimOp::Gt => Ok(Value::Bool(l > r)),
-      PrimOp::Le => Ok(Value::Bool(l <= r)),
-      PrimOp::Ge => Ok(Value::Bool(l >= r)),
-      PrimOp::Eq => Ok(Value::Bool(l == r)),
-      PrimOp::Ne => Ok(Value::Bool(l != r)),
-      _ => Err(format!("invalid primop {op} for Int")),
-    },
-    (Value::Bool(l), Value::Bool(r)) => match op {
-      PrimOp::And => Ok(Value::Bool(*l && *r)),
-      PrimOp::Or => Ok(Value::Bool(*l || *r)),
-      PrimOp::Eq => Ok(Value::Bool(l == r)),
-      PrimOp::Ne => Ok(Value::Bool(l != r)),
-      _ => Err(format!("invalid primop {op} for Bool")),
-    },
-    _ => Err(format!("type mismatch in primop {op}")),
-  }
+fn int_op(f: fn(i64,i64)->Result<Value,String>, l: &Value, r: &Value) -> Result<Value,String> {
+  match (l, r) { (Value::Int(a), Value::Int(b)) => f(*a, *b), _ => Err("type mismatch".into()) }
 }
+fn bool_op(f: fn(bool,bool)->Result<Value,String>, l: &Value, r: &Value) -> Result<Value,String> {
+  match (l, r) { (Value::Bool(a), Value::Bool(b)) => f(*a, *b), _ => Err("type mismatch".into()) }
+}
+fn eq_val(l: &Value, r: &Value) -> Value {
+  match (l, r) { (Value::Int(a),Value::Int(b))=>Value::Bool(a==b),(Value::Bool(a),Value::Bool(b))=>Value::Bool(a==b),(Value::Char(a),Value::Char(b))=>Value::Bool(a==b),(Value::Unit,Value::Unit)=>Value::Bool(true),_=>Value::Bool(false) }
+}
+fn walk_path(mut val: Value, path: &[Accessor]) -> Value {
+  for a in path { val = match a { Accessor::Field(f) => match &val { Value::Struct{field_names,fields,..}=>{let i=field_names.iter().position(|n|n==f).unwrap_or(0);fields.get(i).cloned().unwrap_or(Value::Unit)},_=>Value::Unit},Accessor::Array(_)=>val,Accessor::Tuple(_)=>val,};}val}
+fn place_path(base: Value, _path: &[Accessor], _new_val: Value) -> Value { base }
 
 fn lit_to_value(lit: &Lit) -> Value {
   match lit {

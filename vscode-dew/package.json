@@ -33,12 +33,6 @@
         "path": "./syntaxes/dew.tmLanguage.json"
       }
     ],
-    "configuration": [
-      {
-        "language": "dew",
-        "path": "./language-configuration.json"
-      }
-    ],
     "configurationDefaults": {
       "[dew]": {
         "editor.tabSize": 2
@@ -46,6 +40,8 @@
     },
     "configuration": {
       "title": "Dew",
+      "language": "dew",
+      "path": "./language-configuration.json",
       "properties": {
         "dew.serverPath": {
           "type": "string",

@@ -212,7 +212,8 @@ impl Compiler {
         let l = self.compile_expr_into(block, left);
         let r = self.compile_expr_into(block, right);
         let dest = self.ctx.fresh_reg();
-        block.instrs.push(Instr::Prim { dest, op: convert_prim(*op), lhs: l, rhs: r });
+        let instr = binop_instr(dest, *op, l, r);
+        block.instrs.push(instr);
         dest
       }
 
@@ -344,21 +345,21 @@ impl Compiler {
   }
 }
 
-fn convert_prim(op: BinOpKind) -> PrimOp {
+fn binop_instr(dest: Reg, op: BinOpKind, lhs: Reg, rhs: Reg) -> Instr {
   match op {
-    BinOpKind::Add => PrimOp::Add,
-    BinOpKind::Sub => PrimOp::Sub,
-    BinOpKind::Mul => PrimOp::Mul,
-    BinOpKind::Div => PrimOp::Div,
-    BinOpKind::Rem => PrimOp::Rem,
-    BinOpKind::Lt => PrimOp::Lt,
-    BinOpKind::Gt => PrimOp::Gt,
-    BinOpKind::Le => PrimOp::Le,
-    BinOpKind::Ge => PrimOp::Ge,
-    BinOpKind::Eq => PrimOp::Eq,
-    BinOpKind::Ne => PrimOp::Ne,
-    BinOpKind::And => PrimOp::And,
-    BinOpKind::Or => PrimOp::Or,
+    BinOpKind::Add => Instr::Add { dest, lhs, rhs },
+    BinOpKind::Sub => Instr::Sub { dest, lhs, rhs },
+    BinOpKind::Mul => Instr::Mul { dest, lhs, rhs },
+    BinOpKind::Div => Instr::Div { dest, lhs, rhs },
+    BinOpKind::Rem => Instr::Rem { dest, lhs, rhs },
+    BinOpKind::Lt => Instr::Lt { dest, lhs, rhs },
+    BinOpKind::Gt => Instr::Gt { dest, lhs, rhs },
+    BinOpKind::Le => Instr::Le { dest, lhs, rhs },
+    BinOpKind::Ge => Instr::Ge { dest, lhs, rhs },
+    BinOpKind::Eq => Instr::Eq { dest, lhs, rhs },
+    BinOpKind::Ne => Instr::Ne { dest, lhs, rhs },
+    BinOpKind::And => Instr::And { dest, lhs, rhs },
+    BinOpKind::Or => Instr::Or { dest, lhs, rhs },
   }
 }
 

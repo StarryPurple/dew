@@ -89,6 +89,13 @@ pub struct BasicBlock {
 
 // ── Instructions ──────────────────────────────────────────
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum Accessor {
+  Array(Reg),
+  Field(String),
+  Tuple(usize),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Instr {
   Lit { dest: Reg, value: Lit },
@@ -97,8 +104,29 @@ pub enum Instr {
   Lambda { dest: Reg, thunk: String, param_tys: Vec<(String, Ty)>, ret_ty: Ty },
   LambdaBlock { dest: Reg, params: Vec<String>, blocks: Vec<BasicBlock> },
   Bind { name: String, value: Reg },
-  Prim { dest: Reg, op: PrimOp, lhs: Reg, rhs: Reg },
+  // Arithmetic
+  Add { dest: Reg, lhs: Reg, rhs: Reg },
+  Sub { dest: Reg, lhs: Reg, rhs: Reg },
+  Mul { dest: Reg, lhs: Reg, rhs: Reg },
+  Div { dest: Reg, lhs: Reg, rhs: Reg },
+  Rem { dest: Reg, lhs: Reg, rhs: Reg },
+  // Comparison
+  Lt { dest: Reg, lhs: Reg, rhs: Reg },
+  Gt { dest: Reg, lhs: Reg, rhs: Reg },
+  Le { dest: Reg, lhs: Reg, rhs: Reg },
+  Ge { dest: Reg, lhs: Reg, rhs: Reg },
+  Eq { dest: Reg, lhs: Reg, rhs: Reg },
+  Ne { dest: Reg, lhs: Reg, rhs: Reg },
+  // Logic
+  And { dest: Reg, lhs: Reg, rhs: Reg },
+  Or { dest: Reg, lhs: Reg, rhs: Reg },
+  Not { dest: Reg, arg: Reg },
+  // GEP-like path access
+  Fetch { dest: Reg, base: Reg, path: Vec<Accessor> },
+  Place { dest: Reg, base: Reg, path: Vec<Accessor>, value: Reg },
+  // Function
   Call { dest: Reg, func: Reg, args: Vec<Reg> },
+  // Data
   Field { dest: Reg, expr: Reg, field: String },
   StructCons { dest: Reg, name: String, fields: Vec<Reg> },
   EnumCons { dest: Reg, enum_name: String, variant: String, payload: Option<Reg> },
@@ -108,7 +136,6 @@ pub enum Instr {
   ArrayAccess { dest: Reg, expr: Reg, index: Reg },
   ArrayUpdate { dest: Reg, expr: Reg, index: Reg, value: Reg },
   TupleUpdate { dest: Reg, expr: Reg, index: usize, value: Reg },
-  Not { dest: Reg, arg: Reg },
 }
 
 // ── Terminators ───────────────────────────────────────────
@@ -134,14 +161,6 @@ pub enum Lit {
   Bool(bool),
   Char(char),
   Unit,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum PrimOp {
-  Add, Sub, Mul, Div, Rem,
-  Lt, Gt, Le, Ge,
-  Eq, Ne,
-  And, Or,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -268,7 +287,30 @@ impl fmt::Display for Instr {
         write!(f, "}}")
       }
       Instr::Bind { name, value } => write!(f, "bind @{name} {value}"),
-      Instr::Prim { dest, op, lhs, rhs } => write!(f, "{dest} = prim {op} {lhs} {rhs}"),
+      Instr::Add { dest, lhs, rhs } => write!(f, "{dest} = add {lhs} {rhs}"),
+      Instr::Sub { dest, lhs, rhs } => write!(f, "{dest} = sub {lhs} {rhs}"),
+      Instr::Mul { dest, lhs, rhs } => write!(f, "{dest} = mul {lhs} {rhs}"),
+      Instr::Div { dest, lhs, rhs } => write!(f, "{dest} = div {lhs} {rhs}"),
+      Instr::Rem { dest, lhs, rhs } => write!(f, "{dest} = rem {lhs} {rhs}"),
+      Instr::Lt { dest, lhs, rhs } => write!(f, "{dest} = lt {lhs} {rhs}"),
+      Instr::Gt { dest, lhs, rhs } => write!(f, "{dest} = gt {lhs} {rhs}"),
+      Instr::Le { dest, lhs, rhs } => write!(f, "{dest} = le {lhs} {rhs}"),
+      Instr::Ge { dest, lhs, rhs } => write!(f, "{dest} = ge {lhs} {rhs}"),
+      Instr::Eq { dest, lhs, rhs } => write!(f, "{dest} = eq {lhs} {rhs}"),
+      Instr::Ne { dest, lhs, rhs } => write!(f, "{dest} = ne {lhs} {rhs}"),
+      Instr::And { dest, lhs, rhs } => write!(f, "{dest} = and {lhs} {rhs}"),
+      Instr::Or { dest, lhs, rhs } => write!(f, "{dest} = or {lhs} {rhs}"),
+      Instr::Not { dest, arg } => write!(f, "{dest} = not {arg}"),
+      Instr::Fetch { dest, base, path } => {
+        write!(f, "{dest} = fetch {base}")?;
+        for a in path { write!(f, " {a}")?; }
+        Ok(())
+      }
+      Instr::Place { dest, base, path, value } => {
+        write!(f, "{dest} = place {base}")?;
+        for a in path { write!(f, " {a}")?; }
+        write!(f, " = {value}")
+      }
       Instr::Call { dest, func, args } => {
         write!(f, "{dest} = call {func}")?;
         for a in args { write!(f, " {a}")?; }
@@ -338,22 +380,9 @@ impl fmt::Display for Lit {
   }
 }
 
-impl fmt::Display for PrimOp {
+impl fmt::Display for Accessor {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      PrimOp::Add => write!(f, "add"),
-      PrimOp::Sub => write!(f, "sub"),
-      PrimOp::Mul => write!(f, "mul"),
-      PrimOp::Div => write!(f, "div"),
-      PrimOp::Rem => write!(f, "rem"),
-      PrimOp::Lt => write!(f, "lt"),
-      PrimOp::Gt => write!(f, "gt"),
-      PrimOp::Le => write!(f, "le"),
-      PrimOp::Ge => write!(f, "ge"),
-      PrimOp::Eq => write!(f, "eq"),
-      PrimOp::Ne => write!(f, "ne"),
-      PrimOp::And => write!(f, "and"),
-      PrimOp::Or => write!(f, "or"),
-    }
+    match self { Accessor::Array(r) => write!(f, "[{r}]"), Accessor::Field(s) => write!(f, ".{s}"), Accessor::Tuple(i) => write!(f, ".{i}") }
   }
 }
+

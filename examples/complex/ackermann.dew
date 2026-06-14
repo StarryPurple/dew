@@ -6,3 +6,4 @@ def ack = fn(m: Int, n: Int) -> Int {
   }
 }
 def main = fn -> Int { ack(3, 4) }
+pr
