@@ -50,17 +50,17 @@ Type annotations use a colon after the name:
 def name: Type = expression;
 ```
 
-In function parameters, annotations are required for the parameter types. The return type annotation is optional:
+In function parameters, type annotations are optional — if omitted, the parameter gets a fresh type variable:
 
 ```dew
-def add = fn(x: Int, y: Int) -> Int { x + y }
-//        ^^^^^^^^^^^^^^^^^^ params        ^^^ return type
+def id = fn(x) { x }            // x: inferred type variable
+def add = fn(x: Int, y: Int) -> Int { x + y }  // explicit types
 ```
 
-For multi-parameter functions, all parameter types must be annotated. The return type defaults to a fresh type variable if omitted:
+The return type annotation is also optional:
 
 ```dew
-def id = fn(x: Int) { x }  // return type inferred as Int
+def id = fn(x: Int) { x }  // return type inferred
 ```
 
 ## Function Types
@@ -155,13 +155,13 @@ enum Ty {
 
 ## Type Inference
 
-Dew uses a **Hindley-Milner** type inference engine (WIP in v0.1.0). Currently, the following types are fully inferred:
+Dew uses a **Hindley-Milner** type inference engine (**skeleton** in v0.1.0). Currently:
 
-- Literals: `Int`, `Bool`, `Char`, `Unit`
-- Variable references: looked up from the environment
-- All other expression forms: assigned fresh type variables (to be unified in later passes)
+- Literals (`Int`, `Bool`, `Char`, `Unit`) are fully inferred
+- Variable references are looked up from the environment
+- All other expression forms receive fresh type variables — **unification, generalization, and polymorphism are not yet implemented**
 
-The type checker stores inferred types in a `TypeEnv` — a map from variable names to their resolved types. This environment is used by downstream passes for code generation.
+The type checker stores inferred types in a `TypeEnv` — a map from variable names to their resolved types.
 
 ## Resource Affinity
 

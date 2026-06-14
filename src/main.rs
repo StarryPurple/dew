@@ -32,6 +32,16 @@ fn main() {
   let file = cli.file.unwrap_or_else(|| { eprintln!("[E001] no file specified"); process::exit(1); });
   let source = fs::read_to_string(&file).unwrap_or_else(|e| { eprintln!("[E001] cannot read {file}: {e}"); process::exit(1); });
   let decls = parse_program(&source).unwrap_or_else(|e| { eprintln!("[E002] parse error: {e}"); process::exit(1); });
+
+  // Warn on redefining builtins
+  for decl in &decls {
+    if let dew::ast::Decl::Def { name, .. } = decl {
+      match name.as_str() {
+        "Stdin" | "Stdout" | "not" => eprintln!("[W001] redefining builtin '{name}' has no effect"),
+        _ => {}
+      }
+    }
+  }
   let mut gen_ctx = GenCtx::new();
   let module = gen_ctx.compile_program(&decls);
   if let Some(_) = cli.emit { print!("{module}"); return; }

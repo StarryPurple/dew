@@ -28,7 +28,7 @@ The `fn` keyword creates an anonymous function value:
 fn(params...) -> RetType { body }
 ```
 
-Parameters are written as `name: Type` pairs separated by commas. The return type annotation is optional — if omitted, it is inferred.
+Parameters are written as `name: Type` pairs separated by commas. Types are optional — untyped parameters get inferred type variables. The return type annotation is also optional:
 
 ```dew
 // With explicit return type
