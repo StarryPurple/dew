@@ -592,6 +592,7 @@ impl Parser {
             Token::IntLit(n) => { let n = *n; self.advance(); Ok(Expr::Int(n)) }
             Token::BoolLit(b) => { let b = *b; self.advance(); Ok(Expr::Bool(b)) }
             Token::StrLit(s) => { let s = s.clone(); self.advance(); Ok(Expr::Str(s)) }
+            Token::KwSelf | Token::KwRefSelf | Token::KwMutSelf => { self.advance(); Ok(Expr::Ident("self".into())) }
             Token::Ident(s) => {
                 let name = s.clone(); self.advance();
                 // Struct literal: Name { field: val, ... }
