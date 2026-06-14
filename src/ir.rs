@@ -50,6 +50,7 @@ pub enum Item {
   Update { label: Label, value: ValueRef },
   Def { name: String, label: Label },
   StrictDef { name: String, blocks: Vec<BasicBlock> },
+  FnDef { name: String, params: Vec<String>, blocks: Vec<BasicBlock> },
 }
 
 // ── Label ─────────────────────────────────────────────────
@@ -208,6 +209,12 @@ impl fmt::Display for Item {
       Item::Def { name, label } => writeln!(f, "def {name} {label}"),
       Item::StrictDef { name, blocks } => {
         writeln!(f, "strict_def {name} {{")?;
+        for block in blocks { write_block(f, block, 1)?; }
+        writeln!(f, "}}")
+      }
+      Item::FnDef { name, params, blocks } => {
+        let pstr = params.join(", ");
+        writeln!(f, "fn_def {name}({pstr}) {{")?;
         for block in blocks { write_block(f, block, 1)?; }
         writeln!(f, "}}")
       }

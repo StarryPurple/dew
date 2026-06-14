@@ -41,12 +41,16 @@ impl Compiler {
           module.push(Item::StrictDef { name: name.clone(), blocks });
         } else if self.opt >= 1 {
           if let Expr::Fn { params, body, .. } = value {
-            // O1: only inline zero-arg non-recursive fns (params need thunk)
-            if params.is_empty() && !contains_self_ref(name, body) {
+            if !contains_self_ref(name, body) {
               let (entry_block, _ret) = self.compile_expr_to_block("entry", body);
               let mut blocks = vec![entry_block];
               blocks.append(&mut self.extra_blocks);
-              module.push(Item::StrictDef { name: name.clone(), blocks });
+              if params.is_empty() {
+                module.push(Item::StrictDef { name: name.clone(), blocks });
+              } else {
+                let param_names: Vec<String> = params.iter().map(|(n, _)| n.clone()).collect();
+                module.push(Item::FnDef { name: name.clone(), params: param_names, blocks });
+              }
             } else {
               self.emit_thunk_chain(name, value, module);
             }

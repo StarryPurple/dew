@@ -113,6 +113,11 @@ impl<'a> Evaluator<'a> {
         self.env.insert(name.clone(), result);
         Ok(())
       }
+      Item::FnDef { name, params, blocks } => {
+        let val = Value::Closure { params: params.clone(), blocks: blocks.clone(), env: self.env.clone() };
+        self.env.insert(name.clone(), val);
+        Ok(())
+      }
     }
   }
 
