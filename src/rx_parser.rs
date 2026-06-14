@@ -247,6 +247,7 @@ impl Parser {
             Token::KwStruct => self.parse_struct(),
             Token::KwImpl => self.parse_impl(),
             Token::KwFn => self.parse_fn_decl().map(Decl::Fn),
+            Token::Ident(s) if s == "const" => self.parse_const(),
             _ => Err(format!("expected decl, got {:?}", self.current)),
         }
     }
@@ -265,6 +266,25 @@ impl Parser {
         }
         self.expect(&Token::RBrace)?;
         Ok(Decl::Struct { name, fields })
+    }
+
+    fn parse_const(&mut self) -> Result<Decl, String> {
+        self.advance(); // const
+        let name = self.expect_ident()?;
+        self.expect(&Token::Colon)?;
+        let _type = self.parse_type()?;
+        self.expect(&Token::Eq)?;
+        let mut value = String::new();
+        while !matches!(self.current, Token::Semi) {
+            match &self.current {
+                Token::IntLit(n) => { value.push_str(&n.to_string()); self.advance(); }
+                Token::Ident(s) => { value.push_str(s); self.advance(); }
+                Token::Plus | Token::Minus | Token::Star => { value.push_str(&format!("{:?}", self.current)); self.advance(); }
+                _ => break,
+            }
+        }
+        self.expect(&Token::Semi)?;
+        Ok(Decl::Const { name, value })
     }
 
     fn parse_type(&mut self) -> Result<String, String> {
