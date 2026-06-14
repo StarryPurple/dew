@@ -226,6 +226,12 @@ impl<'a> Evaluator<'a> {
         regs.insert(dest.0, Value::Closure { params, blocks, env: self.env.clone() });
         Ok(())
       }
+      Instr::LambdaBlock { dest, params, blocks } => {
+        regs.insert(dest.0, Value::Closure {
+          params: params.clone(), blocks: blocks.clone(), env: self.env.clone(),
+        });
+        Ok(())
+      }
       Instr::Bind { name, value } => {
         let val = regs.get(&value.0).cloned().unwrap_or(Value::Unit);
         self.env.insert(name.clone(), val);

@@ -10,7 +10,6 @@ use crate::strictness;
 
 pub struct Compiler {
   ctx: GenCtx,
-  pending_thunks: Vec<Thunk>,
   extra_blocks: Vec<BasicBlock>,
   current_def: Option<String>,
   current_label: Option<String>,
@@ -19,17 +18,13 @@ pub struct Compiler {
 
 impl Compiler {
   pub fn new(opt: u8) -> Self {
-    Self { ctx: GenCtx::new(), pending_thunks: vec![], extra_blocks: vec![], current_def: None, current_label: None, opt }
+    Self { ctx: GenCtx::new(), extra_blocks: vec![], current_def: None, current_label: None, opt }
   }
 
   pub fn compile_program(&mut self, decls: &[Decl]) -> Module {
     let mut module = Module::new();
     for decl in decls {
       self.compile_decl(decl, &mut module);
-    }
-    // Emit all pending thunks (lambda bodies) at the end
-    for thunk in self.pending_thunks.drain(..) {
-      module.push(Item::Thunk(thunk));
     }
     module
   }
@@ -143,18 +138,8 @@ impl Compiler {
         let mut blocks = vec![body_block];
         blocks.append(&mut self.extra_blocks);
         let param_names: Vec<String> = params.iter().map(|(n, _)| n.clone()).collect();
-        let thunk_name = format!("__lambda_{}", self.ctx.next_label);
-        self.ctx.next_label += 1;
-        let thunk = Thunk {
-          name: thunk_name.clone(),
-          params: params.iter().map(|(n, t)| (n.clone(), type_to_ir(t))).collect(),
-          ret_ty: Ty::void(),
-          blocks,
-        };
-        self.pending_thunks.push(thunk);
         let r = self.ctx.fresh_reg();
-        let param_tys: Vec<(String, Ty)> = params.iter().map(|(n, t)| (n.clone(), type_to_ir(t))).collect();
-        block.instrs.push(Instr::Lambda { dest: r, thunk: thunk_name, param_tys, ret_ty: Ty::void() });
+        block.instrs.push(Instr::LambdaBlock { dest: r, params: param_names, blocks });
         r
       }
 
