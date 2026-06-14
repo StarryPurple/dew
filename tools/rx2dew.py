@@ -1,117 +1,69 @@
 #!/usr/bin/env python3
-"""Rx → Dew source-to-source translator. Handles Rust subset used in Rx test suite."""
+"""Rx → Dew translator. Processes Rx source (Rust subset) and emits Dew source."""
 import sys, re
 
-class Translator:
+class Rx2Dew:
     def __init__(self, src):
-        self.src = src
-        self.impls = {}     # struct_name -> [(method_name, params, ret_type, body)]
-        self.structs = {}    # struct_name -> [field_names]
-        self.consts = {}     # name -> value
+        self.lines = self._preprocess(src)
+        self.structs = {}     # name → [field_names]
+        self.impls = {}       # struct_name → [(method_name, params_str, ret_type, body_lines)]
+        self.consts = {}      # name → value
         self.out = []
 
-    def translate(self):
-        # Preprocess: strip comments, join lines
-        code = self.preprocess()
-        # Extract impl blocks first (they get processed separately)
-        code = self.extract_impls(code)
-        # Process top-level declarations
-        self.process_toplevel(code)
-        # Emit impl methods as standalone functions
-        self.emit_impls()
-        return '\n'.join(self.out)
-
-    def preprocess(self):
+    def _preprocess(self, src):
         lines = []
         in_block = False
-        for line in self.src.split('\n'):
-            line = line.strip()
+        for line in src.split('\n'):
+            s = line.strip()
             if in_block:
-                if '*/' in line: in_block = False
+                if '*/' in s: in_block = False
                 continue
-            if line.startswith('/*'):
-                if '*/' not in line: in_block = True
+            if s.startswith('/*'):
+                if '*/' not in s: in_block = True
                 continue
-            if line.startswith('//') or not line:
-                continue
-            lines.append(line)
-        return '\n'.join(lines)
+            if s.startswith('//') or not s: continue
+            lines.append(s)
+        return lines
 
-    def extract_impls(self, code):
-        result = []
+    def translate(self):
         i = 0
-        while i < len(code):
-            if code[i:i+5] == 'impl ':
-                j = i + 5
-                name = ''
-                while j < len(code) and (code[j].isalnum() or code[j] == '_'):
-                    name += code[j]; j += 1
-                # Skip to {
-                while j < len(code) and code[j] != '{': j += 1
-                j += 1  # skip {
-                depth = 1
-                start = j
-                while j < len(code) and depth > 0:
-                    if code[j] == '{': depth += 1
-                    elif code[j] == '}': depth -= 1
-                    j += 1
-                body = code[start:j-1]
-                self.parse_impl(name, body)
-                i = j
-            else:
-                result.append(code[i]); i += 1
-        return ''.join(result)
+        while i < len(self.lines):
+            line = self.lines[i]
+            # Collect multi-line declarations
+            collected = [line]
+            # If line opens a brace or contains incomplete syntax, collect until balanced
+            depth = line.count('{') - line.count('}')
+            while depth > 0 and i + 1 < len(self.lines):
+                i += 1
+                nl = self.lines[i]
+                collected.append(nl)
+                depth += nl.count('{') - nl.count('}')
+            full = ' '.join(collected)
 
-    def parse_impl(self, struct_name, body):
-        methods = []
-        # Find fn definitions within impl body
-        pattern = r'fn\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*([^{;]+))?\s*\{'
-        for m in re.finditer(pattern, body):
-            mname = m.group(1)
-            params_str = m.group(2) or ''
-            ret_type = (m.group(3) or '()').strip()
-            # Find matching }
-            start = m.end()
-            depth = 1
-            j = start
-            while j < len(body) and depth > 0:
-                if body[j] == '{': depth += 1
-                elif body[j] == '}': depth -= 1
-                j += 1
-            mbody = body[start:j-1].strip()
-            params = []
-            for p in params_str.split(','):
-                p = p.strip()
-                if not p: continue
-                if p in ('self', '&self', '&mut self'): continue
-                parts = p.split(':')
-                if len(parts) >= 2:
-                    params.append((parts[0].strip(), ':'.join(parts[1:]).strip()))
-            methods.append((mname, params, ret_type, mbody))
-        if struct_name not in self.impls:
-            self.impls[struct_name] = []
-        self.impls[struct_name].extend(methods)
+            if full.startswith('const '):
+                self._const(full)
+            elif full.startswith('struct '):
+                self._struct(full)
+            elif full.startswith('impl '):
+                self._impl(full)
+            elif full.startswith('fn '):
+                self._fn(full)
+            i += 1
 
-    def process_toplevel(self, code):
-        # Split on top-level semicolons and closing braces of fn/struct
-        stmts = re.split(r';(?![^{]*\})', code)
-        for stmt in stmts:
-            stmt = stmt.strip()
-            if not stmt: continue
-            if stmt.startswith('const '):
-                self.translate_const(stmt)
-            elif stmt.startswith('struct '):
-                self.translate_struct(stmt)
-            elif stmt.startswith('fn '):
-                self.translate_fn(stmt)
+        # Emit collected output
+        self._emit_structs()
+        self._emit_impls()
+        return '\n'.join(self.out)
 
-    def translate_const(self, stmt):
-        m = re.match(r'const\s+(\w+)\s*:\s*\w+\s*=\s*(.+);?', stmt)
+    def _const(self, s):
+        m = re.match(r'const\s+(\w+)\s*:\s*\w+\s*=\s*(.+);?', s)
         if m:
-            self.consts[m.group(1)] = m.group(2).strip()
+            name, val = m.group(1), m.group(2).strip()
+            self.consts[name] = val
+            self.out.append(f'def {name} = {val};')
 
-    def translate_struct(self, stmt):
-        m = re.match(r'struct\s+(\w+)\s*\{([^}]*)\}', stmt)
+    def _struct(self, s):
+        m = re.match(r'struct\s+(\w+)\s*\{([^}]*)\}', s)
         if m:
             name = m.group(1)
             fields_str = m.group(2)
@@ -119,81 +71,88 @@ class Translator:
             for f in fields_str.split(','):
                 f = f.strip()
                 if not f: continue
-                parts = f.split(':')
-                if len(parts) >= 2:
-                    fields.append(parts[0].strip())
+                fname = f.split(':')[0].strip()
+                fields.append(fname)
             self.structs[name] = fields
-            # Emit Dew struct
-            field_lines = [f'  {f}: Int,' for f in fields]
-            self.out.append(f'struct {name} {{\n' + '\n'.join(field_lines) + '\n}\n')
 
-    def translate_fn(self, stmt):
-        m = re.match(r'fn\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*([^{]+))?\s*\{', stmt)
-        if not m: return
-        name = m.group(1)
-        params_str = m.group(2) or ''
-        ret_type = (m.group(3) or '()').strip()
-        # Find the body
-        start = m.end()
-        depth = 1; j = start
-        while j < len(stmt) and depth > 0:
-            if stmt[j] == '{': depth += 1
-            elif stmt[j] == '}': depth -= 1
-            j += 1
-        body = stmt[start:j-1].strip()
-        params = []
-        for p in params_str.split(','):
-            p = p.strip()
-            if not p: continue
-            parts = p.split(':')
-            if len(parts) >= 2:
-                pname = parts[0].strip()
-                ptype = self.map_type(':'.join(parts[1:]).strip())
-                params.append((pname, ptype))
-        rtype = self.map_type(ret_type)
-        pstr = ', '.join(f'{n}: {t}' for n, t in params)
-        self.out.append(f'def {name} = fn({pstr}) -> {rtype} {{')
-        trans_body = self.translate_body(body)
-        self.out.append(f'  {trans_body}')
-        self.out.append('}\n')
+    def _emit_structs(self):
+        for name, fields in self.structs.items():
+            flines = [f'  {f}: Int,' for f in fields]
+            self.out.append(f'struct {name} {{\n' + '\n'.join(flines) + '\n}\n')
 
-    def emit_impls(self):
+    def _impl(self, s):
+        m = re.match(r'impl\s+(\w+)\s*\{(.+)\}', s)
+        if m:
+            sname = m.group(1)
+            body = m.group(2).strip()
+            # Find fn definitions within
+            for fn_m in re.finditer(r'fn\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*(\S+(?:\s*\{)?))?\s*\{', body):
+                mname = fn_m.group(1)
+                params_str = fn_m.group(2).strip()
+                ret_type = (fn_m.group(3) or '()').strip().rstrip('{').strip()
+                start = fn_m.end()
+                depth = 1; j = start
+                while j < len(body) and depth > 0:
+                    if body[j] == '{': depth += 1
+                    elif body[j] == '}': depth -= 1
+                    j += 1
+                mbody = body[start:j-1].strip()
+                # Filter out self params
+                params = []
+                for p in params_str.split(','):
+                    p = p.strip()
+                    if not p or p in ('self', '&self', '&mut self'): continue
+                    parts = p.split(':')
+                    if len(parts) >= 2:
+                        params.append(f'{parts[0].strip()}: {self._ty(":".join(parts[1:]).strip())}')
+
+                if sname not in self.impls: self.impls[sname] = []
+                self.impls[sname].append((mname, params, self._ty(ret_type), mbody))
+
+    def _emit_impls(self):
         for sname, methods in self.impls.items():
             for mname, params, ret_type, body in methods:
-                all_params = [('self', sname)] + params
-                rtype = self.map_type(ret_type)
-                pstr = ', '.join(f'{n}: {t}' for n, t in all_params)
-                self.out.append(f'def {sname}_{mname} = fn({pstr}) -> {rtype} {{')
-                trans_body = self.translate_body(body)
-                self.out.append(f'  {trans_body}')
+                all_p = [f'self: {sname}'] + params
+                pstr = ', '.join(all_p)
+                self.out.append(f'def {sname}_{mname} = fn({pstr}) -> {ret_type} {{')
+                self.out.append(f'  {self._body(body)}')
                 self.out.append('}\n')
 
-    def translate_body(self, body):
-        lines = []
-        body = body.strip()
-        # Handle while loops first
-        body = self.translate_while(body)
-        # Split on semicolons at depth 0
-        stmts = self.split_stmts(body)
+    def _fn(self, s):
+        m = re.match(r'fn\s+(\w+)\s*\(([^)]*)\)(?:\s*->\s*(\S+))?\s*\{(.+)\}', s)
+        if m:
+            name = m.group(1)
+            params_str = m.group(2).strip()
+            ret_type = m.group(3) or 'Unit'
+            body = m.group(4).strip()
+            params = []
+            for p in params_str.split(','):
+                p = p.strip()
+                if not p: continue
+                parts = p.split(':')
+                if len(parts) >= 2:
+                    pname = parts[0].strip()
+                    ptype = self._ty(':'.join(parts[1:]).strip())
+                    params.append(f'{pname}: {ptype}')
+            pstr = ', '.join(params)
+            rty = self._ty(ret_type)
+            self.out.append(f'def {name} = fn({pstr}) -> {rty} {{')
+            self.out.append(f'  {self._body(body)}')
+            self.out.append('}\n')
+
+    def _body(self, body):
+        result = []
+        # Split into statements
+        stmts = self._split_stmts(body)
         for stmt in stmts:
-            stmt = stmt.strip()
-            if not stmt: continue
-            lines.append(self.translate_stmt(stmt))
-        return '\n  '.join(lines)
+            s = stmt.strip()
+            if not s: continue
+            translated = self._stmt(s)
+            if translated:
+                result.append(translated)
+        return '\n  '.join(result)
 
-    def translate_while(self, body):
-        """Replace while(cond) { ... } with placeholder for Dew's fix recursion"""
-        result = body
-        # For now, translate simple while loops
-        pattern = r'while\s*\(([^{]+)\)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}'
-        for m in re.finditer(pattern, body):
-            cond = m.group(1).strip()
-            inner = m.group(2).strip()
-            trans_inner = self.translate_body(inner)
-            result = result.replace(m.group(0), f'while ({cond}) {{\n    {trans_inner}\n  }}')
-        return result
-
-    def split_stmts(self, body):
+    def _split_stmts(self, body):
         stmts = []
         current = ''
         depth = 0; i = 0
@@ -212,102 +171,89 @@ class Translator:
         if s: stmts.append(s)
         return stmts
 
-    def translate_stmt(self, stmt):
-        s = stmt.strip().rstrip(';')
+    def _stmt(self, s):
+        s = s.strip()
         if not s: return ''
 
         # return expr
         if s.startswith('return '):
-            expr = s[7:].strip()
-            return self.translate_expr(expr)
+            return self._expr(s[7:].strip())
 
         # let mut name: type = expr
-        m = re.match(r'let\s+mut\s+(\w+)\s*:\s*([^=]+)=\s*(.+)', s)
+        m = re.match(r'let\s+mut\s+(\w+)\s*:\s*(.+?)\s*=\s*(.+)', s)
         if m:
-            name, _, expr = m.group(1), m.group(2), m.group(3)
-            return f'def {name} = {self.translate_expr(expr)}'
+            name, ty, expr = m.group(1), m.group(2), m.group(3)
+            # Handle array init: [val; N]
+            expr = self._expr(expr)
+            return f'def {name} = {expr}'
 
         # let name: type = expr
-        m = re.match(r'let\s+(\w+)\s*:\s*([^=]+)=\s*(.+)', s)
+        m = re.match(r'let\s+(\w+)\s*:\s*(.+?)\s*=\s*(.+)', s)
         if m:
-            name, _, expr = m.group(1), m.group(2), m.group(3)
-            return f'def {name} = {self.translate_expr(expr)}'
+            name, ty, expr = m.group(1), m.group(2), m.group(3)
+            return f'def {name} = {self._expr(expr)}'
 
-        # name = expr (mutation)
-        m = re.match(r'(\w+(?:\[[^\]]+\])*(?:\.[a-zA-Z_]\w*)*)\s*=\s*(.+)', s)
-        if m and not s.startswith('if') and not s.startswith('while') and not s.startswith('let'):
-            lhs = m.group(1)
-            rhs = m.group(2)
-            return f'&{lhs} = {self.translate_expr(rhs)}'
-
-        # if/else
-        if s.startswith('if '):
-            return self.translate_if(s)
-
-        # while
-        if s.startswith('while '):
-            m = re.match(r'while\s*\(([^{]+)\)\s*\{([^}]*)\}', s)
-            if m:
-                cond = m.group(1).strip()
-                inner = m.group(2).strip()
-                return f'while ({self.translate_expr(cond)}) {{\n    {self.translate_body(inner)}\n  }}'
-
-        # continue
-        if s == 'continue':
-            return '// continue (restructured)'
-
-        # exit(0)
-        if s == 'exit(0)':
-            return '0'
-
-        # Everything else: expression
-        return self.translate_expr(s)
-
-    def translate_if(self, s):
-        m = re.match(r'if\s*\(([^{]+)\)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}\s*else\s*\{([^}]*)\}', s)
+        # while(cond) { body }
+        m = re.match(r'while\s*\((.+)\)\s*\{(.+)\}', s)
         if m:
-            cond = self.translate_expr(m.group(1).strip())
-            then_b = self.translate_body(m.group(2).strip())
-            else_b = self.translate_body(m.group(3).strip())
+            cond = self._expr(m.group(1).strip())
+            inner = self._body(m.group(2).strip())
+            return f'while ({cond}) {{\n    {inner}\n  }}'
+
+        # if(cond) { then } else { else }
+        m = re.match(r'if\s*\((.+)\)\s*\{(.+)\}\s*else\s*\{(.+)\}', s)
+        if m:
+            cond = self._expr(m.group(1).strip())
+            then_b = self._body(m.group(2).strip())
+            else_b = self._body(m.group(3).strip())
             return f'if {cond} {{\n    {then_b}\n  }} else {{\n    {else_b}\n  }}'
 
-        m = re.match(r'if\s*\(([^{]+)\)\s*\{([^}]*)\}\s*else\s+', s)
+        m = re.match(r'if\s*\((.+)\)\s*\{(.+)\}\s*else\s+if', s)
         if m:
-            cond = self.translate_expr(m.group(1).strip())
-            then_b = self.translate_body(m.group(2).strip())
-            rest = s[m.end():].strip()
-            return f'if {cond} {{\n    {then_b}\n  }} else {{\n    {self.translate_stmt(rest)}\n  }}'
+            cond = self._expr(m.group(1).strip())
+            then_b = self._body(m.group(2).strip())
+            rest = s[m.end()-2:].strip()
+            return f'if {cond} {{\n    {then_b}\n  }} else {self._stmt(rest)}'
 
-        m = re.match(r'if\s*\(([^{]+)\)\s*\{([^}]*)\}', s)
+        m = re.match(r'if\s*\((.+)\)\s*\{(.+)\}', s)
         if m:
-            cond = self.translate_expr(m.group(1).strip())
-            then_b = self.translate_body(m.group(2).strip())
+            cond = self._expr(m.group(1).strip())
+            then_b = self._body(m.group(2).strip())
             return f'if {cond} {{\n    {then_b}\n  }}'
 
-        return s
-
-    def translate_expr(self, expr):
-        e = expr.strip()
-        if not e: return 'Unit'
+        # continue
+        if s == 'continue': return '// continue'
 
         # exit(0)
+        if s == 'exit(0)': return '0'
+
+        # Assignment: lhs = rhs (or lhs += rhs, etc.)
+        m = re.match(r'(\S+(?:\s*\[[^\]]+\])*(?:\.[a-zA-Z_]\w*)*)\s*(\+)?\s*=\s*(.+)', s)
+        if m:
+            lhs = m.group(1).strip()
+            is_plus = m.group(2)
+            rhs = self._expr(m.group(3).strip())
+            if is_plus:
+                return f'&{lhs} = {lhs} + {rhs}'
+            return f'&{lhs} = {rhs}'
+
+        # Expression statement
+        return self._expr(s)
+
+    def _expr(self, e):
+        e = e.strip()
+        if not e: return 'Unit'
         if e == 'exit(0)': return '0'
+        if e == 'continue': return 'Unit'
 
         # getInt()
-        if 'getInt()' in e:
-            return e.replace('getInt()', 'Stdin(0)')
+        e = e.replace('getInt()', 'Stdin(0)')
 
-        # printlnInt(x)
-        if e.startswith('printlnInt('):
-            inner = e[11:].rstrip(')')
-            return f'{self.translate_expr(inner)} -> Stdout'
+        # printlnInt(x) → x -> Stdout
+        e = re.sub(r'printlnInt\((.+)\)', r'\1 -> Stdout', e)
+        e = re.sub(r'printInt\((.+)\)', r'\1 -> Stdout', e)
 
-        # printInt(x)
-        if e.startswith('printInt('):
-            inner = e[9:].rstrip(')')
-            return f'{self.translate_expr(inner)} -> Stdout'
-
-        # Struct literal: Name { field: val, ... }
+        # Struct literal: Name { f1: v1, f2: v2 }
         m = re.match(r'(\w+)\s*\{([^}]*)\}', e)
         if m:
             name = m.group(1)
@@ -317,67 +263,72 @@ class Translator:
                 f = f.strip()
                 if not f: continue
                 if ':' in f:
-                    vals.append(self.translate_expr(f.split(':', 1)[1].strip()))
+                    vals.append(self._expr(f.split(':', 1)[1].strip()))
                 else:
-                    vals.append(self.translate_expr(f))
+                    vals.append(self._expr(f))
             return f'{name}({", ".join(vals)})'
 
         # Method call: obj.method(args)
-        m = re.match(r'(\w+(?:\[[^\]]+\])*(?:\.[a-zA-Z_]\w*)*)\.(\w+)\s*\(([^)]*)\)', e)
+        m = re.match(r'(.+)\.(\w+)\s*\(([^)]*)\)', e)
         if m:
-            obj = m.group(1)
+            obj = self._expr(m.group(1))
             method = m.group(2)
-            args_str = m.group(3)
-            args = []
-            if args_str.strip():
+            args_str = m.group(3).strip()
+            args = [obj]
+            if args_str:
                 for a in args_str.split(','):
-                    args.append(self.translate_expr(a.strip()))
-            # Look up struct type for method
-            return f'{method}({", ".join([self.translate_expr(obj)] + args)})'
+                    args.append(self._expr(a.strip()))
+            return f'{method}({", ".join(args)})'
 
-        # Array literal: [val; N]
-        m = re.match(r'\[([^;]+);\s*(\d+)\]', e)
+        # Array literal: [val; N] or [val; N + M]
+        m = re.match(r'\[(.+);\s*(.+)\]', e)
         if m:
-            val = self.translate_expr(m.group(1).strip())
-            n = m.group(2)
-            return f'[{", ".join([val] * int(n))}]'
+            val = self._expr(m.group(1).strip())
+            n = m.group(2).strip()
+            # Use Dew array literal: [val, val, ...] — but for large N, emit val
+            if n.isdigit():
+                count = int(n)
+                return f'[{", ".join([val] * count)}]'
+            # Evaluate const expression
+            for cname, cval in self.consts.items():
+                n = n.replace(cname, cval)
+            try:
+                count = int(eval(n))
+                return f'[{", ".join([val] * count)}]'
+            except:
+                return val  # Fallback: just use the value
 
         # Array access: name[idx]
-        m = re.match(r'(\w+)\[([^\]]+)\]', e)
-        if m:
-            name = m.group(1)
-            idx = self.translate_expr(m.group(2).strip())
-            return f'{name}[{idx}]'
+        e = re.sub(r'(\w+)\[([^\]]+)\]', r'\1[\2]', e)
 
-        # as casts: drop them
+        # as casts: drop
         e = re.sub(r'\s+as\s+\w+', '', e)
 
-        # Replace types
+        # dereference: *ptr → ptr
+        e = re.sub(r'\*(\w+)', r'\1', e)
+
+        # &mut x → x, &[T; N] parameter → drop &
+        e = re.sub(r'&(?:mut\s+)?', '', e)
+
+        # Type replacements
         e = e.replace('i32', 'Int')
         e = e.replace('usize', 'Int')
         e = e.replace('bool', 'Bool')
 
         return e
 
-    def map_type(self, t):
+    def _ty(self, t):
         t = t.strip()
-        t = re.sub(r'\s+as\s+\w+', '', t)
+        t = re.sub(r'&(?:mut\s+)?', '', t)
+        t = re.sub(r'\[(.+);\s*(.+)\]', r'Int', t)  # arrays → Int
+        t = t.replace('i32', 'Int').replace('usize', 'Int').replace('bool', 'Bool')
+        t = t.replace('()', 'Unit')
         for name, val in self.consts.items():
             t = t.replace(name, val)
-        t = t.replace('i32', 'Int')
-        t = t.replace('usize', 'Int')
-        t = t.replace('bool', 'Bool')
-        t = t.replace('()', 'Unit')
-        t = re.sub(r'\[([^;]+);\s*(\d+)\]', r'Int', t)  # array types → Int (simplified)
-        t = re.sub(r'&(?:mut\s+)?', '', t)  # remove reference markers
         return t or 'Unit'
 
-
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("usage: rx2dew.py <file.rx>", file=sys.stderr)
-        sys.exit(1)
     with open(sys.argv[1]) as f:
         src = f.read()
-    t = Translator(src)
+    t = Rx2Dew(src)
     print(t.translate())
