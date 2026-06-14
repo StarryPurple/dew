@@ -64,6 +64,8 @@ pub enum Node {
   Blackhole { label: Label },
   /// Top-level binding: Def "name" %t
   Def { name: String, label: Label },
+  /// Strict top-level binding (IO/FFI): StrictDef "name" { ... }
+  StrictDef { name: String, value: Ir },
 }
 
 // ── IR expressions (inside thunk bodies) ──────────────────
@@ -153,6 +155,8 @@ impl fmt::Display for Node {
         write!(f, "Blackhole {label}"),
       Node::Def { name, label } =>
         write!(f, "Def \"{name}\" {label}"),
+      Node::StrictDef { name, value } =>
+        write!(f, "StrictDef \"{name}\" {{\n  {value}\n}}"),
     }
   }
 }

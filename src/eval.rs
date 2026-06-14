@@ -81,6 +81,11 @@ impl<'a> Evaluator<'a> {
           .unwrap_or(Value::Unit);        self.env.insert(name.clone(), val);
         Ok(())
       }
+      Node::StrictDef { name, value } => {
+        let val = self.eval_ir(value)?;
+        self.env.insert(name.clone(), val);
+        Ok(())
+      }
     }
   }
 
@@ -167,6 +172,55 @@ impl<'a> Evaluator<'a> {
           }
           _ => Err("struct update on non-struct".into()),
         }
+      }
+      Ir::Array(items) => {
+        let vals: Vec<Value> = items.iter().map(|i| self.eval_ir(i)).collect::<Result<_, _>>()?;
+        Ok(Value::Array(vals))
+      }
+      Ir::ArrayAccess { expr, index } => {
+        let arr = self.eval_ir(expr)?;
+        let idx = self.eval_ir(index)?;
+        match (arr, idx) {
+          (Value::Array(mut vals), Value::Int(i)) => {
+            if i >= 0 && (i as usize) < vals.len() { Ok(vals.swap_remove(i as usize)) }
+            else { Err(format!("index {i} out of bounds")) }
+          }
+          _ => Err("array access on non-array".into()),
+        }
+      }
+      Ir::ArrayUpdate { expr, index, value } => {
+        let arr = self.eval_ir(expr)?;
+        let idx = self.eval_ir(index)?;
+        let val = self.eval_ir(value)?;
+        match (arr, idx) {
+          (Value::Array(mut vals), Value::Int(i)) => {
+            if i >= 0 && (i as usize) < vals.len() { vals[i as usize] = val; Ok(Value::Array(vals)) }
+            else { Err(format!("index {i} out of bounds")) }
+          }
+          _ => Err("array update on non-array".into()),
+        }
+      }
+      Ir::Tuple(items) => {
+        let vals: Vec<Value> = items.iter().map(|i| self.eval_ir(i)).collect::<Result<_, _>>()?;
+        Ok(Value::Tuple(vals))
+      }
+      Ir::TupleUpdate { expr, index, value } => {
+        let tup = self.eval_ir(expr)?;
+        let val = self.eval_ir(value)?;
+        match tup {
+          Value::Tuple(mut vals) => {
+            if *index < vals.len() { vals[*index] = val; Ok(Value::Tuple(vals)) }
+            else { Err(format!("tuple index {index} out of bounds")) }
+          }
+          _ => Err("tuple update on non-tuple".into()),
+        }
+      }
+      Ir::EnumVariant { enum_name, variant, payload } => {
+        let p = match payload {
+          Some(ir) => Some(Box::new(self.eval_ir(ir)?)),
+          None => None,
+        };
+        Ok(Value::EnumVariant { enum_name: enum_name.clone(), variant: variant.clone(), payload: p })
       }
       _ => Ok(Value::Unit),
     }

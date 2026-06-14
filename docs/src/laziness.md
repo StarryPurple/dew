@@ -17,6 +17,21 @@ expensive + 1                          // FORCED — evaluated when needed
 - **Composability**: infinite data structures are possible (with lazy tails)
 - **Recursion**: enables self-referential thunks for recursive bindings
 
+### Strict IO Functions
+
+A function is **strict-evaluated** if and only if it has side effects:
+
+```dew
+def greeting = Stdout("hello")     // strict — evaluated at def time
+def x = Stdin(0)                   // strict — reads stdin at def time
+def f = fn() { Stdout(1) }        // strict — IO in function body
+def g = fn(x: Int) -> Int { x }   // lazy — pure, no IO
+```
+
+The compiler detects calls to `Stdin`/`Stdout` (and future FFI functions) anywhere in the definition's expression tree. If found, the definition emits a `StrictDef` IR node — no thunk allocation, no lazy wrapping. Evaluation happens immediately.
+
+This is the only explicit strictness rule. Pure functions remain lazy by default. The `force`/`!` operator provides manual strictness when needed.
+
 ## Strictness Analysis
 
 The compiler performs a pass over the AST (see `strictness.rs`) to classify every expression context as **Strict** or **Lazy**:

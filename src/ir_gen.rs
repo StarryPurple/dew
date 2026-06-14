@@ -34,17 +34,22 @@ impl GenCtx {
   fn compile_decl(&mut self, decl: &Decl, module: &mut Module) {
     match decl {
       Decl::Def { name, value, .. } => {
-        let thunk_label = self.fresh_label();
-        let saved = self.current_def.take();
-        self.current_def = Some((name.clone(), thunk_label.clone()));
-        module.push(Node::ThunkAlloc { label: thunk_label.clone() });
-        let body = self.compile_expr(value);
-        module.push(Node::ThunkDef { label: thunk_label.clone(), body });
-        let force_label = self.fresh_label();
-        module.push(Node::Force { label: force_label.clone(), target: thunk_label.clone() });
-        module.push(Node::Update { label: thunk_label.clone(), value: ValueRef::Label(force_label) });
-        module.push(Node::Def { name: name.clone(), label: thunk_label });
-        self.current_def = saved;
+        if contains_io(value) {
+          let ir = self.compile_expr(value);
+          module.push(Node::StrictDef { name: name.clone(), value: ir });
+        } else {
+          let thunk_label = self.fresh_label();
+          let saved = self.current_def.take();
+          self.current_def = Some((name.clone(), thunk_label.clone()));
+          module.push(Node::ThunkAlloc { label: thunk_label.clone() });
+          let body = self.compile_expr(value);
+          module.push(Node::ThunkDef { label: thunk_label.clone(), body });
+          let force_label = self.fresh_label();
+          module.push(Node::Force { label: force_label.clone(), target: thunk_label.clone() });
+          module.push(Node::Update { label: thunk_label.clone(), value: ValueRef::Label(force_label) });
+          module.push(Node::Def { name: name.clone(), label: thunk_label });
+          self.current_def = saved;
+        }
       }
       Decl::Struct { .. } | Decl::Enum { .. } | Decl::Import { .. } => {}
     }
@@ -254,5 +259,36 @@ fn convert_pattern(pat: &APattern) -> Pattern {
     APattern::Tuple(items) =>
       Pattern::Tuple(items.iter().map(convert_pattern).collect()),
     _ => Pattern::Wildcard,
+  }
+}
+
+fn contains_io(expr: &Expr) -> bool {
+  match expr {
+    Expr::StructCons { name, fields, .. } => {
+      if name == "Stdin" || name == "Stdout" { return true; }
+      fields.iter().any(contains_io)
+    }
+    Expr::App { func, args, .. } => {
+      if let Expr::Var(name, _) = func.as_ref() {
+        if name == "Stdin" || name == "Stdout" { return true; }
+      }
+      contains_io(func) || args.iter().any(contains_io)
+    }
+    Expr::Fn { body, .. } => contains_io(body),
+    Expr::Let { value, body, .. } => contains_io(value) || contains_io(body),
+    Expr::If { cond, then, else_, .. } => contains_io(cond) || contains_io(then) || contains_io(else_),
+    Expr::Block { stmts, final_expr, .. } => stmts.iter().any(contains_io) || contains_io(final_expr),
+    Expr::BinOp { left, right, .. } => contains_io(left) || contains_io(right),
+    Expr::Match { scrutinee, arms, .. } => contains_io(scrutinee) || arms.iter().any(|(_, e)| contains_io(e)),
+    Expr::Pipe { left, right, .. } => {
+      if let Expr::Var(name, _) = right.as_ref() {
+        if name == "Stdin" || name == "Stdout" { return true; }
+      }
+      contains_io(left) || contains_io(right)
+    }
+    Expr::Force { expr, .. } => contains_io(expr),
+    Expr::Return { expr, .. } => contains_io(expr),
+    Expr::Fix { body, .. } => contains_io(body),
+    _ => false,
   }
 }
