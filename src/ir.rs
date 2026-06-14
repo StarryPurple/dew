@@ -243,11 +243,15 @@ impl fmt::Display for Instr {
       Instr::Var { dest, name } => write!(f, "{dest} = var @{name}"),
       Instr::Ref { dest, label } => write!(f, "{dest} = ref %{label}"),
       Instr::Lambda { dest, thunk } => write!(f, "{dest} = lambda @{thunk}"),
-      Instr::LambdaBlock { dest, params, .. } => {
+      Instr::LambdaBlock { dest, params, blocks } => {
         let pstr = params.join(", ");
-        write!(f, "{dest} = lambda({pstr}) {{ ... }}")
+        writeln!(f, "{dest} = lambda({pstr}) {{")?;
+        for block in blocks {
+          write_block(f, block, 1)?;
+        }
+        write!(f, "}}")
       }
-      Instr::Bind { name, value } => write!(f, "{} = bind @{name}", value),
+      Instr::Bind { name, value } => write!(f, "bind @{name} {value}"),
       Instr::Prim { dest, op, lhs, rhs } => write!(f, "{dest} = prim {op} {lhs} {rhs}"),
       Instr::Call { dest, func, args } => {
         write!(f, "{dest} = call {func}")?;
