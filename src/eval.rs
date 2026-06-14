@@ -108,8 +108,8 @@ impl<'a> Evaluator<'a> {
         self.env.insert(name.clone(), val);
         Ok(())
       }
-      Item::StrictDef { name, block } => {
-        let result = self.eval_blocks(&vec![block.clone()], &[])?;
+      Item::StrictDef { name, blocks } => {
+        let result = self.eval_blocks(blocks, &[])?;
         self.env.insert(name.clone(), result);
         Ok(())
       }
@@ -219,19 +219,11 @@ impl<'a> Evaluator<'a> {
         regs.insert(dest.0, val);
         Ok(())
       }
-      Instr::Lambda { dest, thunk } => {
+      Instr::Lambda { dest, thunk, .. } => {
         let (blocks, params) = self.thunks.get(thunk.as_str())
           .map(|(b, p)| (b.clone(), p.clone()))
           .unwrap_or_default();
         regs.insert(dest.0, Value::Closure { params, blocks, env: self.env.clone() });
-        Ok(())
-      }
-      Instr::LambdaBlock { dest, params, blocks } => {
-        regs.insert(dest.0, Value::Closure {
-          params: params.clone(),
-          blocks: blocks.clone(),
-          env: self.env.clone(),
-        });
         Ok(())
       }
       Instr::Bind { name, value } => {

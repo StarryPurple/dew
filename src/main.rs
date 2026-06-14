@@ -15,6 +15,8 @@ struct Cli {
   file: Option<String>,
   #[arg(long)]
   emit: Option<String>,
+  #[arg(long, default_value = "0")]
+  opt: u8,
   #[arg(long)]
   trace: bool,
 }
@@ -47,9 +49,10 @@ fn main() {
       }
     }
   }
-  let mut compiler = Compiler::new();
+  let mut compiler = Compiler::new(cli.opt);
   let module = compiler.compile_program(&decls);
-  if let Some(_) = cli.emit { print!("{module}"); return; }
+  if cli.emit.as_deref() == Some("json") { print!("{}", module.to_json()); return; }
+  if cli.emit.as_deref() == Some("text") { print!("{module}"); return; }
   let mut diag = DiagnosticCollector::new();
   let mut eval = Evaluator::new(&mut diag);
 

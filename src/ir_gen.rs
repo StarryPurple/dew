@@ -14,11 +14,12 @@ pub struct Compiler {
   extra_blocks: Vec<BasicBlock>,
   current_def: Option<String>,
   current_label: Option<String>,
+  opt: u8,
 }
 
 impl Compiler {
-  pub fn new() -> Self {
-    Self { ctx: GenCtx::new(), pending_thunks: vec![], extra_blocks: vec![], current_def: None, current_label: None }
+  pub fn new(opt: u8) -> Self {
+    Self { ctx: GenCtx::new(), pending_thunks: vec![], extra_blocks: vec![], current_def: None, current_label: None, opt }
   }
 
   pub fn compile_program(&mut self, decls: &[Decl]) -> Module {
@@ -40,21 +41,25 @@ impl Compiler {
         self.current_def = Some(name.clone());
         if contains_io(value) {
           let (block, _) = self.compile_expr_to_block("entry", value);
-          module.push(Item::StrictDef { name: name.clone(), block });
+          let mut blocks = vec![block];
+          blocks.append(&mut self.extra_blocks);
+          module.push(Item::StrictDef { name: name.clone(), blocks });
+        } else if self.opt >= 1 {
+          if let Expr::Fn { params, body, .. } = value {
+            // O1: only inline zero-arg non-recursive fns (params need thunk)
+            if params.is_empty() && !contains_self_ref(name, body) {
+              let (entry_block, _ret) = self.compile_expr_to_block("entry", body);
+              let mut blocks = vec![entry_block];
+              blocks.append(&mut self.extra_blocks);
+              module.push(Item::StrictDef { name: name.clone(), blocks });
+            } else {
+              self.emit_thunk_chain(name, value, module);
+            }
+          } else {
+            self.emit_thunk_chain(name, value, module);
+          }
         } else {
-          let label = self.ctx.fresh_label();
-          self.current_label = Some(label.0.clone());
-          module.push(Item::Alloc(label.clone()));
-
-          let thunk_name = format!("__{name}");
-          let (thunk, _ret) = self.compile_expr_to_thunk(&thunk_name, value);
-          module.push(Item::Thunk(thunk));
-          module.push(Item::ThunkDef { label: label.clone(), thunk: thunk_name });
-
-          let force_label = self.ctx.fresh_label();
-          module.push(Item::Force { dest: force_label.clone(), src: label.clone() });
-          module.push(Item::Update { label: label.clone(), value: ValueRef::Label(force_label) });
-          module.push(Item::Def { name: name.clone(), label });
+          self.emit_thunk_chain(name, value, module);
         }
         self.current_def = saved_def;
       }
@@ -62,11 +67,25 @@ impl Compiler {
     }
   }
 
+  fn emit_thunk_chain(&mut self, name: &str, value: &Expr, module: &mut Module) {
+    let label = self.ctx.fresh_label();
+    self.current_label = Some(label.0.clone());
+    module.push(Item::Alloc(label.clone()));
+    let thunk_name = format!("__{name}");
+    let (thunk, _ret) = self.compile_expr_to_thunk(&thunk_name, value);
+    module.push(Item::Thunk(thunk));
+    module.push(Item::ThunkDef { label: label.clone(), thunk: thunk_name });
+    let force_label = self.ctx.fresh_label();
+    module.push(Item::Force { dest: force_label.clone(), src: label.clone() });
+    module.push(Item::Update { label: label.clone(), value: ValueRef::Label(force_label) });
+    module.push(Item::Def { name: name.to_string(), label });
+  }
+
   fn compile_expr_to_thunk(&mut self, name: &str, expr: &Expr) -> (Thunk, Reg) {
     let (entry_block, result) = self.compile_expr_to_block("entry", expr);
     let mut blocks = vec![entry_block];
     blocks.append(&mut self.extra_blocks);
-    let thunk = Thunk { name: name.to_string(), params: vec![], blocks };
+    let thunk = Thunk { name: name.to_string(), params: vec![], ret_ty: Ty::void(), blocks };
     (thunk, result)
   }
 
@@ -124,8 +143,18 @@ impl Compiler {
         let mut blocks = vec![body_block];
         blocks.append(&mut self.extra_blocks);
         let param_names: Vec<String> = params.iter().map(|(n, _)| n.clone()).collect();
+        let thunk_name = format!("__lambda_{}", self.ctx.next_label);
+        self.ctx.next_label += 1;
+        let thunk = Thunk {
+          name: thunk_name.clone(),
+          params: params.iter().map(|(n, t)| (n.clone(), type_to_ir(t))).collect(),
+          ret_ty: Ty::void(),
+          blocks,
+        };
+        self.pending_thunks.push(thunk);
         let r = self.ctx.fresh_reg();
-        block.instrs.push(Instr::LambdaBlock { dest: r, params: param_names, blocks });
+        let param_tys: Vec<(String, Ty)> = params.iter().map(|(n, t)| (n.clone(), type_to_ir(t))).collect();
+        block.instrs.push(Instr::Lambda { dest: r, thunk: thunk_name, param_tys, ret_ty: Ty::void() });
         r
       }
 
@@ -342,6 +371,21 @@ fn type_to_str(ty: &crate::ast::Type) -> String {
   }
 }
 
+fn type_to_ir(ty: &crate::ast::Type) -> Ty {
+  match ty {
+    crate::ast::Type::Prim(p) => match p {
+      crate::ast::PrimType::Int => Ty::Int,
+      crate::ast::PrimType::Bool => Ty::Bool,
+      crate::ast::PrimType::Char => Ty::Char,
+      crate::ast::PrimType::Unit => Ty::Unit,
+    },
+    crate::ast::Type::Named(n) => Ty::Named(n.clone()),
+    crate::ast::Type::Fun(a, r) => Ty::Fun(Box::new(type_to_ir(a)), Box::new(type_to_ir(r))),
+    crate::ast::Type::Tuple(ts) => Ty::Tuple(ts.iter().map(type_to_ir).collect()),
+    _ => Ty::void(),
+  }
+}
+
 fn contains_io(expr: &Expr) -> bool {
   match expr {
     Expr::StructCons { name, fields, .. } => {
@@ -369,6 +413,25 @@ fn contains_io(expr: &Expr) -> bool {
     Expr::Force { expr, .. } => contains_io(expr),
     Expr::Return { expr, .. } => contains_io(expr),
     Expr::Fix { body, .. } => contains_io(body),
+    _ => false,
+  }
+}
+
+fn contains_self_ref(name: &str, expr: &Expr) -> bool {
+  match expr {
+    Expr::Var(n, _) if n == name => true,
+    Expr::StructCons { name: n, .. } if n == name => true,
+    Expr::Fn { body, .. } => contains_self_ref(name, body),
+    Expr::App { func, args, .. } => contains_self_ref(name, func) || args.iter().any(|a| contains_self_ref(name, a)),
+    Expr::Let { value, body, .. } => contains_self_ref(name, value) || contains_self_ref(name, body),
+    Expr::If { cond, then, else_, .. } => contains_self_ref(name, cond) || contains_self_ref(name, then) || contains_self_ref(name, else_),
+    Expr::Block { stmts, final_expr, .. } => stmts.iter().any(|s| contains_self_ref(name, s)) || contains_self_ref(name, final_expr),
+    Expr::BinOp { left, right, .. } => contains_self_ref(name, left) || contains_self_ref(name, right),
+    Expr::Pipe { left, right, .. } => contains_self_ref(name, left) || contains_self_ref(name, right),
+    Expr::Force { expr, .. } => contains_self_ref(name, expr),
+    Expr::Return { expr, .. } => contains_self_ref(name, expr),
+    Expr::Match { scrutinee, arms, .. } => contains_self_ref(name, scrutinee) || arms.iter().any(|(_, e)| contains_self_ref(name, e)),
+    Expr::Fix { body, .. } => contains_self_ref(name, body),
     _ => false,
   }
 }

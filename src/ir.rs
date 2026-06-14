@@ -7,11 +7,17 @@
 //
 // Text format: 2-space indent, %r = op args, snake_case keywords.
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Ty { Int, Bool, Char, Unit, Named(String), Fun(Box<Ty>, Box<Ty>), Tuple(Vec<Ty>), Array(Box<Ty>, usize) }
+impl fmt::Display for Ty { fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { match self { Ty::Int=>write!(f,"Int"),Ty::Bool=>write!(f,"Bool"),Ty::Char=>write!(f,"Char"),Ty::Unit=>write!(f,"Unit"),Ty::Named(n)=>write!(f,"{n}"),Ty::Fun(a,r)=>write!(f,"{a}->{r}"),Ty::Tuple(ts)=>{write!(f,"(")?;for(i,t)in ts.iter().enumerate(){if i>0{write!(f,", ")?}write!(f,"{t}")?}write!(f,")")},Ty::Array(t,n)=>write!(f,"Array({t},{n})") } } }
+impl Ty { pub const fn void() -> Self { Ty::Unit } }
 
 // ── Register ──────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Reg(pub usize);
 
 impl fmt::Display for Reg {
@@ -22,7 +28,7 @@ impl fmt::Display for Reg {
 
 // ── Module ────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Module {
   pub items: Vec<Item>,
 }
@@ -30,11 +36,12 @@ pub struct Module {
 impl Module {
   pub fn new() -> Self { Self { items: vec![] } }
   pub fn push(&mut self, item: Item) { self.items.push(item); }
+  pub fn to_json(&self) -> String { serde_json::to_string(self).unwrap_or_default() }
 }
 
 // ── Top-level Items ──────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Item {
   Thunk(Thunk),
   Alloc(Label),
@@ -42,12 +49,12 @@ pub enum Item {
   Force { dest: Label, src: Label },
   Update { label: Label, value: ValueRef },
   Def { name: String, label: Label },
-  StrictDef { name: String, block: BasicBlock },
+  StrictDef { name: String, blocks: Vec<BasicBlock> },
 }
 
 // ── Label ─────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Label(pub String);
 
 impl Label {
@@ -62,16 +69,17 @@ impl fmt::Display for Label {
 
 // ── Thunk ─────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Thunk {
   pub name: String,
-  pub params: Vec<(String, String)>,  // (name, type_str)
+  pub params: Vec<(String, Ty)>,
+  pub ret_ty: Ty,
   pub blocks: Vec<BasicBlock>,
 }
 
 // ── Basic Block ───────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BasicBlock {
   pub label: String,
   pub instrs: Vec<Instr>,
@@ -80,13 +88,12 @@ pub struct BasicBlock {
 
 // ── Instructions ──────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Instr {
   Lit { dest: Reg, value: Lit },
   Var { dest: Reg, name: String },
   Ref { dest: Reg, label: String },
-  Lambda { dest: Reg, thunk: String },
-  LambdaBlock { dest: Reg, params: Vec<String>, blocks: Vec<BasicBlock> },
+  Lambda { dest: Reg, thunk: String, param_tys: Vec<(String, Ty)>, ret_ty: Ty },
   Bind { name: String, value: Reg },
   Prim { dest: Reg, op: PrimOp, lhs: Reg, rhs: Reg },
   Call { dest: Reg, func: Reg, args: Vec<Reg> },
@@ -104,7 +111,7 @@ pub enum Instr {
 
 // ── Terminators ───────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Terminator {
   Ret(Reg),
   Br { cond: Reg, then_label: String, else_label: String },
@@ -113,13 +120,13 @@ pub enum Terminator {
 
 // ── Supporting types ──────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ValueRef {
   Lit(Lit),
   Label(Label),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Lit {
   Int(i64),
   Bool(bool),
@@ -127,7 +134,7 @@ pub enum Lit {
   Unit,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum PrimOp {
   Add, Sub, Mul, Div, Rem,
   Lt, Gt, Le, Ge,
@@ -135,7 +142,7 @@ pub enum PrimOp {
   And, Or,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Pattern {
   Wildcard,
   Var(String),
@@ -198,9 +205,9 @@ impl fmt::Display for Item {
       Item::Force { dest, src } => writeln!(f, "force {dest} {src}"),
       Item::Update { label, value } => writeln!(f, "update {label} {value}"),
       Item::Def { name, label } => writeln!(f, "def {name} {label}"),
-      Item::StrictDef { name, block } => {
+      Item::StrictDef { name, blocks } => {
         writeln!(f, "strict_def {name} {{")?;
-        write_block(f, block, 1)?;
+        for block in blocks { write_block(f, block, 1)?; }
         writeln!(f, "}}")
       }
     }
@@ -242,14 +249,9 @@ impl fmt::Display for Instr {
       Instr::Lit { dest, value } => write!(f, "{dest} = lit {value}"),
       Instr::Var { dest, name } => write!(f, "{dest} = var @{name}"),
       Instr::Ref { dest, label } => write!(f, "{dest} = ref %{label}"),
-      Instr::Lambda { dest, thunk } => write!(f, "{dest} = lambda @{thunk}"),
-      Instr::LambdaBlock { dest, params, blocks } => {
-        let pstr = params.join(", ");
-        writeln!(f, "{dest} = lambda({pstr}) {{")?;
-        for block in blocks {
-          write_block(f, block, 1)?;
-        }
-        write!(f, "}}")
+      Instr::Lambda { dest, thunk, param_tys, .. } => {
+        let pstr: Vec<String> = param_tys.iter().map(|(n, t)| format!("{n}: {t}")).collect();
+        write!(f, "{dest} = lambda @{thunk}({})", pstr.join(", "))
       }
       Instr::Bind { name, value } => write!(f, "bind @{name} {value}"),
       Instr::Prim { dest, op, lhs, rhs } => write!(f, "{dest} = prim {op} {lhs} {rhs}"),
