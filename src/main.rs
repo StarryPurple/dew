@@ -2,7 +2,7 @@
 use clap::{Parser, Subcommand};
 use std::{fs, process};
 use dew::parser::parse_program;
-use dew::ir_gen::GenCtx;
+use dew::ir_gen::Compiler;
 use dew::eval::Evaluator;
 use dew::diagnostics::DiagnosticCollector;
 
@@ -42,8 +42,8 @@ fn main() {
       }
     }
   }
-  let mut gen_ctx = GenCtx::new();
-  let module = gen_ctx.compile_program(&decls);
+  let mut compiler = Compiler::new();
+  let module = compiler.compile_program(&decls);
   if let Some(_) = cli.emit { print!("{module}"); return; }
   let mut diag = DiagnosticCollector::new();
   let mut eval = Evaluator::new(&mut diag);

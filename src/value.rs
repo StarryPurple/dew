@@ -12,16 +12,16 @@ pub enum Value {
     Char(char),
     Unit,
 
-    /// Closure: captures its environment by value
+    /// Closure: captures its environment by value, body is a thunk name
     Closure {
         params: Vec<String>,
-        body: crate::ir::Ir,
+        body: String,
         env: Env,
     },
 
-    /// Thunk: a suspended computation
+    /// Thunk: a suspended computation, references thunk by name
     Thunk {
-        expr: crate::ir::Ir,
+        name: String,
         env: Env,
     },
 

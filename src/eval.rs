@@ -1,4 +1,7 @@
-// Evaluator for the Thunk Graph IR
+// Evaluator for Thunk Graph IR v2
+//
+// Processes top-level Items, evaluates thunks by walking basic blocks,
+// and uses a register file for SSA-like evaluation.
 
 use crate::ir::*;
 use crate::value::*;
@@ -7,7 +10,7 @@ use std::collections::HashMap;
 use std::io::{self, Write, BufRead};
 
 enum ThunkState {
-  Suspended { body: Option<Ir> },
+  Suspended { blocks: Option<Vec<BasicBlock>>, params: Option<Vec<String>> },
   Evaluating,
   Evaluated(Value),
 }
@@ -15,13 +18,20 @@ enum ThunkState {
 pub struct Evaluator<'a> {
   env: Env,
   heap: HashMap<Label, ThunkState>,
+  thunks: HashMap<String, (Vec<BasicBlock>, Vec<String>)>,  // thunk_name → (blocks, param_names)
   struct_fields: HashMap<String, Vec<String>>,
   diag: &'a mut DiagnosticCollector,
 }
 
 impl<'a> Evaluator<'a> {
   pub fn new(diag: &'a mut DiagnosticCollector) -> Self {
-    Self { env: Env::new(), heap: HashMap::new(), struct_fields: HashMap::new(), diag }
+    Self {
+      env: Env::new(),
+      heap: HashMap::new(),
+      thunks: HashMap::new(),
+      struct_fields: HashMap::new(),
+      diag,
+    }
   }
 
   pub fn register_struct(&mut self, name: String, field_names: Vec<String>) {
@@ -29,18 +39,32 @@ impl<'a> Evaluator<'a> {
   }
 
   pub fn eval_module(&mut self, module: &Module) -> Result<(), String> {
-    for node in &module.nodes {
-      self.process_node(node)?;
+    // First pass: collect thunk definitions
+    for item in &module.items {
+      if let Item::Thunk(thunk) = item {
+        let param_names: Vec<String> = thunk.params.iter().map(|(n, _)| n.clone()).collect();
+        self.thunks.insert(thunk.name.clone(), (thunk.blocks.clone(), param_names));
+      }
+    }
+    // Second pass: process items in order
+    for item in &module.items {
+      self.process_item(item)?;
     }
     Ok(())
   }
 
   pub fn call_main(&mut self) -> Result<Value, String> {
     let main_val = self.env.get("main").cloned()
-      .ok_or_else(|| "no main definition found".to_string())?;    match main_val {
+      .ok_or_else(|| "no main definition found".to_string())?;
+    match main_val {
       Value::Closure { params, body, env } if params.is_empty() => {
         let saved = std::mem::replace(&mut self.env, env);
-        let result = self.eval_ir(&body);
+        let blocks = match body.as_str() {
+          "" => return Ok(Value::Unit),
+          name => self.thunks.get(name).map(|(b, _)| b.clone())
+            .ok_or_else(|| format!("unknown thunk: {name}"))?,
+        };
+        let result = self.eval_blocks(&blocks, &[]);
         self.env = saved;
         result
       }
@@ -48,277 +72,383 @@ impl<'a> Evaluator<'a> {
     }
   }
 
-  fn process_node(&mut self, node: &Node) -> Result<(), String> {
-    match node {
-      Node::ThunkAlloc { label } => {
-        self.heap.insert(label.clone(), ThunkState::Suspended { body: None });        Ok(())
-      }
-      Node::ThunkDef { label, body } => match self.heap.get_mut(label) {
-        Some(ThunkState::Suspended { body: b }) => { *b = Some(body.clone()); Ok(()) }
-        _ => Err(format!("ThunkDef on non-suspended thunk {label}")),
-      },
-      Node::Blackhole { label } => match self.heap.get_mut(label) {
-        Some(ThunkState::Suspended { .. }) => { *self.heap.get_mut(label).unwrap() = ThunkState::Evaluating; Ok(()) }
-        Some(ThunkState::Evaluating) => Err(format!("cyclic dependency at {label}")),
-        _ => Ok(()),
-      },
-      Node::Force { label: result, target } => {
-        let val = self.force_thunk(target)?;        self.env.insert(result.0.clone(), val);
+  fn process_item(&mut self, item: &Item) -> Result<(), String> {
+    match item {
+      Item::Alloc(label) => {
+        self.heap.insert(label.clone(), ThunkState::Suspended { blocks: None, params: None });
         Ok(())
       }
-      Node::Update { label, value } => {
+      Item::Thunk(_) => Ok(()),  // Already collected in first pass
+      Item::ThunkDef { label, thunk } => {
+        match self.heap.get_mut(label) {
+          Some(ThunkState::Suspended { blocks, params }) => {
+            if let Some((b, p)) = self.thunks.get(thunk) {
+              *blocks = Some(b.clone());
+              *params = Some(p.clone());
+            }
+            Ok(())
+          }
+          _ => Err(format!("thunk_def on non-suspended thunk {label}")),
+        }
+      }
+      Item::Force { dest, src } => {
+        let val = self.force_thunk(src)?;
+        self.env.insert(dest.0.clone(), val);
+        Ok(())
+      }
+      Item::Update { label, value } => {
         let val = match value {
           ValueRef::Lit(lit) => lit_to_value(lit),
           ValueRef::Label(l) => self.env.get(&l.0).cloned().unwrap_or(Value::Unit),
-        };        match self.heap.get_mut(label) {
+        };
+        match self.heap.get_mut(label) {
           Some(state) => { *state = ThunkState::Evaluated(val); Ok(()) }
-          None => Err(format!("Update on unknown thunk {label}")),
+          None => Err(format!("update on unknown thunk {label}")),
         }
       }
-      Node::Def { name, label } => {
-            let val = self.heap.get(label)
+      Item::Def { name, label } => {
+        let val = self.heap.get(label)
           .and_then(|s| match s { ThunkState::Evaluated(v) => Some(v.clone()), _ => None })
-          .unwrap_or(Value::Unit);        self.env.insert(name.clone(), val);
+          .unwrap_or(Value::Unit);
+        self.env.insert(name.clone(), val);
         Ok(())
       }
-      Node::StrictDef { name, value } => {
-        let val = self.eval_ir(value)?;
-        self.env.insert(name.clone(), val);
+      Item::StrictDef { name, block } => {
+        let result = self.eval_blocks(&vec![block.clone()], &[])?;
+        self.env.insert(name.clone(), result);
         Ok(())
       }
     }
   }
 
   fn force_thunk(&mut self, label: &Label) -> Result<Value, String> {
-    if let Some(ThunkState::Evaluated(v)) = self.heap.get(label) { return Ok(v.clone()); }
+    if let Some(ThunkState::Evaluated(v)) = self.heap.get(label) {
+      return Ok(v.clone());
+    }
     match self.heap.get(label) {
       Some(ThunkState::Evaluating) => return Err(format!("cyclic dependency at {label}")),
       Some(ThunkState::Suspended { .. }) => {}
       None => return Err(format!("unknown thunk {label}")),
       _ => {}
     }
-    let body = match self.heap.get(label) {
-      Some(ThunkState::Suspended { body: Some(b) }) => b.clone(),
+    let (blocks, _params) = match self.heap.get(label) {
+      Some(ThunkState::Suspended { blocks: Some(b), params: Some(p) }) => (b.clone(), p.clone()),
       _ => return Ok(Value::Unit),
     };
     self.heap.insert(label.clone(), ThunkState::Evaluating);
-    let val = self.eval_ir(&body)?;
+    let val = self.eval_blocks(&blocks, &[])?;
     self.heap.insert(label.clone(), ThunkState::Evaluated(val.clone()));
     Ok(val)
   }
 
-  fn eval_ir(&mut self, ir: &Ir) -> Result<Value, String> {
-    match ir {
-      Ir::Lit(lit) => Ok(lit_to_value(lit)),
-      Ir::Var(name) => match name.as_str() {
-        "Stdin" => Ok(Value::Builtin("Stdin".into())),
-        "Stdout" => Ok(Value::Builtin("Stdout".into())),
-        "not" => Ok(Value::Builtin("not".into())),
-        _ => self.env.get(name).cloned().ok_or_else(|| format!("unbound: {name}")),
-      },
-      Ir::Ref(label) => self.force_thunk(label),
-      Ir::Lambda { params, body } => Ok(Value::Closure {
-        params: params.clone(), body: *body.clone(), env: self.env.clone(),
-      }),
-      Ir::Apply { func, args } => self.eval_apply(func, args),
-      Ir::Let { name, value, body } => {
-        let v = self.eval_ir(value)?; self.env.insert(name.clone(), v); self.eval_ir(body)
-      }
-      Ir::If { cond, then, else_ } => {
-        match self.eval_ir(cond)? {
-          Value::Bool(true) => self.eval_ir(then),
-          Value::Bool(false) => self.eval_ir(else_),
-          _ => Err("if condition must be Bool".into()),
-        }
-      }
-      Ir::Prim { op, args } => self.eval_prim(*op, args),
-      Ir::Return(inner) => self.eval_ir(inner),
-      Ir::Match { scrutinee, arms } => {
-        let val = self.eval_ir(scrutinee)?;
-        for (pat, body) in arms {
-          if self.pattern_matches(pat, &val) {
-            return self.eval_ir(body);
+  /// Evaluate a sequence of basic blocks starting from the first block.
+  /// args: pre-bound argument values for parameter registers %0, %1, ...
+  fn eval_blocks(&mut self, blocks: &[BasicBlock], args: &[Value]) -> Result<Value, String> {
+    let mut regs: HashMap<usize, Value> = HashMap::new();
+    let mut block_map: HashMap<&str, &BasicBlock> = HashMap::new();
+    for b in blocks {
+      block_map.insert(&b.label, b);
+    }
+
+    // Bind arguments to parameter registers (positional: %0 = first arg, etc.)
+    for (i, arg) in args.iter().enumerate() {
+      regs.insert(i, arg.clone());
+    }
+
+    // Find parameter names and bind them in env
+    for (name, (b, param_names)) in &self.thunks {
+      if b.len() == blocks.len() && b.first().map(|bb| &bb.label) == blocks.first().map(|bb| &bb.label) {
+        for (i, pname) in param_names.iter().enumerate() {
+          if i < args.len() {
+            self.env.insert(pname.clone(), args[i].clone());
           }
         }
-        Err("no match arm matched".into())
+        break;
       }
-      Ir::FieldAccess { expr, field } => {
-        let val = self.eval_ir(expr)?;
+    }
+
+    let mut current_label = blocks.first().map(|b| b.label.as_str()).unwrap_or("entry");
+    let mut result = Value::Unit;
+
+    loop {
+      let block = match block_map.get(current_label) {
+        Some(b) => b,
+        None => {
+          // __unreachable or missing block — return unit
+          return Ok(result);
+        }
+      };
+
+      for instr in &block.instrs {
+        self.eval_instr(instr, &mut regs, blocks, args)?;
+      }
+
+      match &block.term {
+        Terminator::Ret(r) => {
+          result = regs.get(&r.0).cloned().unwrap_or(Value::Unit);
+          return Ok(result);
+        }
+        Terminator::Br { cond, then_label, else_label } => {
+          let c = regs.get(&cond.0).cloned().unwrap_or(Value::Bool(false));
+          current_label = match c {
+            Value::Bool(true) => then_label,
+            _ => else_label,
+          };
+        }
+        Terminator::Jmp(label) => {
+          current_label = label;
+        }
+      }
+    }
+  }
+
+  fn eval_instr(&mut self, instr: &Instr, regs: &mut HashMap<usize, Value>, _blocks: &[BasicBlock], _args: &[Value]) -> Result<(), String> {
+    match instr {
+      Instr::Lit { dest, value } => {
+        regs.insert(dest.0, lit_to_value(value));
+        Ok(())
+      }
+      Instr::Var { dest, name } => {
+        let val = match name.as_str() {
+          "Stdin" => Value::Builtin("Stdin".into()),
+          "Stdout" => Value::Builtin("Stdout".into()),
+          "not" => Value::Builtin("not".into()),
+          _ => self.env.get(name).cloned().unwrap_or(Value::Unit),
+        };
+        regs.insert(dest.0, val);
+        Ok(())
+      }
+      Instr::Ref { dest, label } => {
+        let l = Label(label.clone());
+        let val = self.force_thunk(&l).unwrap_or(Value::Unit);
+        regs.insert(dest.0, val);
+        Ok(())
+      }
+      Instr::Lambda { dest, thunk } => {
+        let params = self.thunks.get(thunk.as_str())
+          .map(|(_, p)| p.clone())
+          .unwrap_or_default();
+        regs.insert(dest.0, Value::Closure {
+          params,
+          body: thunk.clone(),
+          env: self.env.clone(),
+        });
+        Ok(())
+      }
+      Instr::Bind { name, value } => {
+        let val = regs.get(&value.0).cloned().unwrap_or(Value::Unit);
+        self.env.insert(name.clone(), val);
+        Ok(())
+      }
+      Instr::Prim { dest, op, lhs, rhs } => {
+        let l = regs.get(&lhs.0).cloned().unwrap_or(Value::Unit);
+        let r = regs.get(&rhs.0).cloned().unwrap_or(Value::Unit);
+        let result = eval_prim(*op, &l, &r)?;
+        regs.insert(dest.0, result);
+        Ok(())
+      }
+      Instr::Call { dest, func, args } => {
+        let func_val = regs.get(&func.0).cloned().unwrap_or(Value::Unit);
+        let arg_vals: Vec<Value> = args.iter()
+          .map(|a| regs.get(&a.0).cloned().unwrap_or(Value::Unit))
+          .collect();
+        let result = self.eval_call(&func_val, &arg_vals)?;
+        regs.insert(dest.0, result);
+        Ok(())
+      }
+      Instr::Field { dest, expr, field } => {
+        let val = regs.get(&expr.0).cloned().unwrap_or(Value::Unit);
         match val {
-          Value::Struct { name: _, field_names, fields } => {
-            // Search by name
-            if let Some(idx) = field_names.iter().position(|n| n == field) {
-              fields.get(idx).cloned().ok_or("field index out of bounds".into())
-            } else if let Ok(idx) = field.parse::<usize>() {
-              fields.get(idx).cloned().ok_or("field index out of bounds".into())
-            } else {
-              Err(format!("no field '{field}' in struct"))
-            }
+          Value::Struct { field_names, fields, .. } => {
+            let idx = field_names.iter().position(|n| n == field)
+              .or_else(|| field.parse::<usize>().ok().and_then(|i| if i < fields.len() { Some(i) } else { None }))
+              .ok_or_else(|| format!("no field '{field}' in struct"))?;
+            regs.insert(dest.0, fields[idx].clone());
+            Ok(())
           }
           _ => Err("field access on non-struct".into()),
         }
       }
-      Ir::StructUpdate { expr, updates } => {
-        let val = self.eval_ir(expr)?;
+      Instr::StructCons { dest, name, fields } => {
+        let field_vals: Vec<Value> = fields.iter()
+          .map(|r| regs.get(&r.0).cloned().unwrap_or(Value::Unit))
+          .collect();
+        let field_names = self.struct_fields.get(name).cloned().unwrap_or_default();
+        regs.insert(dest.0, Value::Struct { name: name.clone(), field_names, fields: field_vals });
+        Ok(())
+      }
+      Instr::EnumCons { dest, enum_name, variant, payload } => {
+        let p = payload.and_then(|r| regs.get(&r.0).cloned().map(Box::new));
+        regs.insert(dest.0, Value::EnumVariant {
+          enum_name: enum_name.clone(),
+          variant: variant.clone(),
+          payload: p,
+        });
+        Ok(())
+      }
+      Instr::ArrayLit { dest, elements } => {
+        let vals: Vec<Value> = elements.iter()
+          .map(|r| regs.get(&r.0).cloned().unwrap_or(Value::Unit))
+          .collect();
+        regs.insert(dest.0, Value::Array(vals));
+        Ok(())
+      }
+      Instr::TupleLit { dest, elements } => {
+        let vals: Vec<Value> = elements.iter()
+          .map(|r| regs.get(&r.0).cloned().unwrap_or(Value::Unit))
+          .collect();
+        regs.insert(dest.0, Value::Tuple(vals));
+        Ok(())
+      }
+      Instr::StructUpdate { dest, expr, updates } => {
+        let val = regs.get(&expr.0).cloned().unwrap_or(Value::Unit);
         match val {
-          Value::Struct { name, field_names, fields } => {
-            let mut new_fields = fields.clone();
-            for (field_name, ir_val) in updates {
+          Value::Struct { name, field_names, mut fields } => {
+            for (field_name, r) in updates {
               if let Some(idx) = field_names.iter().position(|n| n == field_name) {
-                new_fields[idx] = self.eval_ir(ir_val)?;
+                fields[idx] = regs.get(&r.0).cloned().unwrap_or(Value::Unit);
               }
             }
-            Ok(Value::Struct { name, field_names, fields: new_fields })
+            regs.insert(dest.0, Value::Struct { name, field_names, fields });
+            Ok(())
           }
           _ => Err("struct update on non-struct".into()),
         }
       }
-      Ir::Array(items) => {
-        let vals: Vec<Value> = items.iter().map(|i| self.eval_ir(i)).collect::<Result<_, _>>()?;
-        Ok(Value::Array(vals))
-      }
-      Ir::ArrayAccess { expr, index } => {
-        let arr = self.eval_ir(expr)?;
-        let idx = self.eval_ir(index)?;
+      Instr::ArrayAccess { dest, expr, index } => {
+        let arr = regs.get(&expr.0).cloned().unwrap_or(Value::Unit);
+        let idx = regs.get(&index.0).cloned().unwrap_or(Value::Unit);
         match (arr, idx) {
-          (Value::Array(mut vals), Value::Int(i)) => {
-            if i >= 0 && (i as usize) < vals.len() { Ok(vals.swap_remove(i as usize)) }
-            else { Err(format!("index {i} out of bounds")) }
+          (Value::Array(vals), Value::Int(i)) => {
+            if i >= 0 && (i as usize) < vals.len() {
+              regs.insert(dest.0, vals[i as usize].clone());
+              Ok(())
+            } else { Err(format!("index {i} out of bounds")) }
           }
           _ => Err("array access on non-array".into()),
         }
       }
-      Ir::ArrayUpdate { expr, index, value } => {
-        let arr = self.eval_ir(expr)?;
-        let idx = self.eval_ir(index)?;
-        let val = self.eval_ir(value)?;
+      Instr::ArrayUpdate { dest, expr, index, value } => {
+        let arr = regs.get(&expr.0).cloned().unwrap_or(Value::Unit);
+        let idx = regs.get(&index.0).cloned().unwrap_or(Value::Unit);
+        let val = regs.get(&value.0).cloned().unwrap_or(Value::Unit);
         match (arr, idx) {
           (Value::Array(mut vals), Value::Int(i)) => {
-            if i >= 0 && (i as usize) < vals.len() { vals[i as usize] = val; Ok(Value::Array(vals)) }
-            else { Err(format!("index {i} out of bounds")) }
+            if i >= 0 && (i as usize) < vals.len() {
+              vals[i as usize] = val;
+              regs.insert(dest.0, Value::Array(vals));
+              Ok(())
+            } else { Err(format!("index {i} out of bounds")) }
           }
           _ => Err("array update on non-array".into()),
         }
       }
-      Ir::Tuple(items) => {
-        let vals: Vec<Value> = items.iter().map(|i| self.eval_ir(i)).collect::<Result<_, _>>()?;
-        Ok(Value::Tuple(vals))
-      }
-      Ir::TupleUpdate { expr, index, value } => {
-        let tup = self.eval_ir(expr)?;
-        let val = self.eval_ir(value)?;
+      Instr::TupleUpdate { dest, expr, index, value } => {
+        let tup = regs.get(&expr.0).cloned().unwrap_or(Value::Unit);
+        let val = regs.get(&value.0).cloned().unwrap_or(Value::Unit);
         match tup {
           Value::Tuple(mut vals) => {
-            if *index < vals.len() { vals[*index] = val; Ok(Value::Tuple(vals)) }
-            else { Err(format!("tuple index {index} out of bounds")) }
+            if *index < vals.len() {
+              vals[*index] = val;
+              regs.insert(dest.0, Value::Tuple(vals));
+              Ok(())
+            } else { Err(format!("tuple index {index} out of bounds")) }
           }
           _ => Err("tuple update on non-tuple".into()),
         }
       }
-      Ir::EnumVariant { enum_name, variant, payload } => {
-        let p = match payload {
-          Some(ir) => Some(Box::new(self.eval_ir(ir)?)),
-          None => None,
-        };
-        Ok(Value::EnumVariant { enum_name: enum_name.clone(), variant: variant.clone(), payload: p })
-      }
-      _ => Ok(Value::Unit),
-    }
-  }
-
-  fn eval_apply(&mut self, func: &Ir, args: &[Ir]) -> Result<Value, String> {
-    match func {
-      Ir::Var(name) if name == "Stdin" => {
-        let stdin = io::stdin();
-        let mut line = String::new();
-        stdin.lock().read_line(&mut line).map_err(|e| format!("stdin: {e}"))?;
-        let n: i64 = line.trim().parse().unwrap_or(0);
-        if let Some(Ir::Var(vname)) = args.first() { self.env.insert(vname.clone(), Value::Int(n)); }
-        Ok(Value::Int(n))
-      }
-      Ir::Var(name) if name == "Stdout" => {
-        if let Some(arg) = args.first() { let v = self.eval_ir(arg)?; println!("{v}"); io::stdout().flush().ok(); }
-        Ok(Value::Unit)
-      }
-      Ir::Var(name) if name == "not" => {
-        let v = self.eval_ir(args.first().ok_or("not: 1 arg")?)?;
-        match v { Value::Bool(b) => Ok(Value::Bool(!b)), _ => Err("not: Bool".into()) }
-      }
-      Ir::Var(name) if name.chars().next().map_or(false, |c| c.is_uppercase()) => {
-        let fields: Vec<Value> = args.iter().map(|a| self.eval_ir(a)).collect::<Result<_, _>>()?;
-        Ok(Value::Struct { name: name.clone(), field_names: self.struct_fields.get(name).cloned().unwrap_or_default(), fields })
-      }
-      _ => {
-        let f = self.eval_ir(func)?;
-        match f {
-          Value::Closure { params, body, env } => {
-            let mut env = env;
-            for (i, arg) in args.iter().enumerate() {
-              if i < params.len() {
-                let v = self.eval_ir(arg)?;
-                env.insert(params[i].clone(), v);
-              }
-            }
-            let saved = std::mem::replace(&mut self.env, env);
-            let result = self.eval_ir(&body);
-            self.env = saved;
-            result
-          }
-          _ => Err(format!("not a function")),
+      Instr::Not { dest, arg } => {
+        let v = regs.get(&arg.0).cloned().unwrap_or(Value::Unit);
+        match v {
+          Value::Bool(b) => { regs.insert(dest.0, Value::Bool(!b)); Ok(()) }
+          _ => Err("not: expected Bool".into()),
         }
       }
     }
   }
 
-  fn pattern_matches(&self, pat: &Pattern, val: &Value) -> bool {
-    match pat {
-      Pattern::Wildcard => true,
-      Pattern::Var(_) => true,
-      Pattern::Lit(Lit::Int(n)) => matches!(val, Value::Int(x) if *x == *n),
-      Pattern::Lit(Lit::Bool(b)) => matches!(val, Value::Bool(x) if *x == *b),
-      Pattern::Lit(Lit::Char(c)) => matches!(val, Value::Char(x) if *x == *c),
-      Pattern::Lit(Lit::Unit) => matches!(val, Value::Unit),
-      Pattern::Struct(_, _) => false,
-      Pattern::EnumVariant(_, _) => false,
-      Pattern::Tuple(ps) => {
-        if let Value::Tuple(vs) = val {
-          ps.len() == vs.len() && ps.iter().zip(vs).all(|(p, v)| self.pattern_matches(p, v))
-        } else { false }
+  fn eval_call(&mut self, func: &Value, args: &[Value]) -> Result<Value, String> {
+    match func {
+      Value::Builtin(name) if name == "Stdin" => {
+        let stdin = io::stdin();
+        let mut line = String::new();
+        stdin.lock().read_line(&mut line).map_err(|e| format!("stdin: {e}"))?;
+        let n: i64 = line.trim().parse().unwrap_or(0);
+        Ok(Value::Int(n))
       }
+      Value::Builtin(name) if name == "Stdout" => {
+        if let Some(arg) = args.first() {
+          println!("{arg}");
+          io::stdout().flush().ok();
+        }
+        Ok(Value::Unit)
+      }
+      Value::Builtin(name) if name == "not" => {
+        match args.first() {
+          Some(Value::Bool(b)) => Ok(Value::Bool(!b)),
+          _ => Err("not: expected Bool".into()),
+        }
+      }
+      Value::Closure { params, body, env } => {
+        let mut env = env.clone();
+        for (i, arg) in args.iter().enumerate() {
+          if i < params.len() {
+            env.insert(params[i].clone(), arg.clone());
+          }
+        }
+        let saved = std::mem::replace(&mut self.env, env);
+        let blocks = if body.is_empty() {
+          return Ok(Value::Unit);
+        } else {
+          self.thunks.get(body.as_str()).map(|(b, _)| b.clone())
+            .unwrap_or_default()
+        };
+        let result = if blocks.is_empty() {
+          Ok(Value::Unit)
+        } else {
+          self.eval_blocks(&blocks, args)
+        };
+        self.env = saved;
+        result
+      }
+      _ => Err(format!("not a function")),
     }
   }
+}
 
-  fn eval_prim(&mut self, op: PrimOp, args: &[Ir]) -> Result<Value, String> {
-    let vals: Vec<Value> = args.iter()
-      .map(|a| self.eval_ir(a))
-      .collect::<Result<_, _>>()?;
-    if vals.len() == 2 {
-      let l = &vals[0]; let r = &vals[1];
-      return match (l, r) {
-        (Value::Int(l), Value::Int(r)) => match op {
-          PrimOp::Add => Ok(Value::Int(l + r)), PrimOp::Sub => Ok(Value::Int(l - r)),
-          PrimOp::Mul => Ok(Value::Int(l * r)), PrimOp::Div if *r != 0 => Ok(Value::Int(l / r)),
-          PrimOp::Div => Err("division by zero".into()), PrimOp::Rem => Ok(Value::Int(l % r)),
-          PrimOp::Lt => Ok(Value::Bool(l < r)), PrimOp::Gt => Ok(Value::Bool(l > r)),
-          PrimOp::Le => Ok(Value::Bool(l <= r)), PrimOp::Ge => Ok(Value::Bool(l >= r)),
-          PrimOp::Eq => Ok(Value::Bool(l == r)), PrimOp::Ne => Ok(Value::Bool(l != r)),
-          _ => Err(format!("invalid primop {op} for Int")),
-        },
-        (Value::Bool(l), Value::Bool(r)) => match op {
-          PrimOp::And => Ok(Value::Bool(*l && *r)), PrimOp::Or => Ok(Value::Bool(*l || *r)),
-          PrimOp::Eq => Ok(Value::Bool(l == r)), PrimOp::Ne => Ok(Value::Bool(l != r)),
-          _ => Err(format!("invalid primop {op} for Bool")),
-        },
-        _ => Err(format!("type mismatch in primop {op}")),
-      };
-    }
-    Err(format!("wrong arity for primop {op}"))
+fn eval_prim(op: PrimOp, l: &Value, r: &Value) -> Result<Value, String> {
+  match (l, r) {
+    (Value::Int(l), Value::Int(r)) => match op {
+      PrimOp::Add => Ok(Value::Int(l + r)),
+      PrimOp::Sub => Ok(Value::Int(l - r)),
+      PrimOp::Mul => Ok(Value::Int(l * r)),
+      PrimOp::Div if *r != 0 => Ok(Value::Int(l / r)),
+      PrimOp::Div => Err("division by zero".into()),
+      PrimOp::Rem => Ok(Value::Int(l % r)),
+      PrimOp::Lt => Ok(Value::Bool(l < r)),
+      PrimOp::Gt => Ok(Value::Bool(l > r)),
+      PrimOp::Le => Ok(Value::Bool(l <= r)),
+      PrimOp::Ge => Ok(Value::Bool(l >= r)),
+      PrimOp::Eq => Ok(Value::Bool(l == r)),
+      PrimOp::Ne => Ok(Value::Bool(l != r)),
+      _ => Err(format!("invalid primop {op} for Int")),
+    },
+    (Value::Bool(l), Value::Bool(r)) => match op {
+      PrimOp::And => Ok(Value::Bool(*l && *r)),
+      PrimOp::Or => Ok(Value::Bool(*l || *r)),
+      PrimOp::Eq => Ok(Value::Bool(l == r)),
+      PrimOp::Ne => Ok(Value::Bool(l != r)),
+      _ => Err(format!("invalid primop {op} for Bool")),
+    },
+    _ => Err(format!("type mismatch in primop {op}")),
   }
 }
 
 fn lit_to_value(lit: &Lit) -> Value {
   match lit {
-    Lit::Int(n) => Value::Int(*n), Lit::Bool(b) => Value::Bool(*b),
-    Lit::Char(c) => Value::Char(*c), Lit::Unit => Value::Unit,
+    Lit::Int(n) => Value::Int(*n),
+    Lit::Bool(b) => Value::Bool(*b),
+    Lit::Char(c) => Value::Char(*c),
+    Lit::Unit => Value::Unit,
   }
 }
