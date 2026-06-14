@@ -172,7 +172,7 @@ impl Parser {
 
   fn is_at_expr_start(&self) -> bool { matches!(self.peek(), Token::IntLit(_)|Token::True|Token::False|Token::Unit|Token::CharLit(_)|Token::StringLit(_)|Token::Ident(_)|Token::LBrace|Token::LParen|Token::LBracket|Token::If|Token::Match|Token::Fn|Token::Fix|Token::Not|Token::Bang|Token::Force|Token::Amp) }
 
-  fn parse_primary(&mut self) -> Result<Expr, String> { let s = self.span(); match self.peek().clone() { Token::IntLit(n) => { self.advance(); Ok(Expr::Int(n, s)) } Token::True => { self.advance(); Ok(Expr::Bool(true, s)) } Token::False => { self.advance(); Ok(Expr::Bool(false, s)) } Token::Unit => { self.advance(); Ok(Expr::Unit(s)) } Token::CharLit(c) => { self.advance(); Ok(Expr::Char(c, s)) } Token::StringLit(st) => { self.advance(); let cs: Vec<Expr> = st.chars().map(|c| Expr::Char(c, s)).collect(); Ok(Expr::ArrayLit { elements: cs, span: s }) } Token::Ident(n) => { self.advance(); self.parse_ident_tail(n, s) } Token::LBrace => self.parse_block(), Token::If => self.parse_if(), Token::Match => self.parse_match(), Token::Fn => self.parse_fn(), Token::Fix => self.parse_fix(), Token::LParen => { self.advance(); if self.peek() == &Token::RParen { return Err("empty `()` is not a value; use `Unit`".into()); } let f = self.parse_expr()?; if self.peek() == &Token::Comma { let mut es = vec![f]; while self.peek() == &Token::Comma { self.advance(); es.push(self.parse_expr()?); } self.expect(&Token::RParen)?; Ok(Expr::TupleLit { elements: es, span: s }) } else { self.expect(&Token::RParen)?; Ok(f) } } Token::LBracket => { self.advance(); let mut es = Vec::new(); while self.peek() != &Token::RBracket { es.push(self.parse_expr()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Expr::ArrayLit { elements: es, span: s }) } Token::Amp => { self.advance(); let n = self.expect_ident()?; if self.peek() == &Token::Eq { self.advance(); let v = self.parse_expr()?; Ok(Expr::BorrowBind { name: n, value: Box::new(v), span: s }) } else if self.peek() == &Token::LBrace { let update = self.parse_ident_tail(n.clone(), s)?; Ok(Expr::BorrowBind { name: n, value: Box::new(update), span: s }) } else { Ok(Expr::Borrow { name: n, span: s }) } } _ => Err(format!("expected expr, got {:?}", self.peek())) } }
+  fn parse_primary(&mut self) -> Result<Expr, String> { let s = self.span(); match self.peek().clone() { Token::IntLit(n) => { self.advance(); Ok(Expr::Int(n, s)) } Token::True => { self.advance(); Ok(Expr::Bool(true, s)) } Token::False => { self.advance(); Ok(Expr::Bool(false, s)) } Token::Unit => { self.advance(); Ok(Expr::Unit(s)) } Token::CharLit(c) => { self.advance(); Ok(Expr::Char(c, s)) } Token::StringLit(st) => { self.advance(); let cs: Vec<Expr> = st.chars().map(|c| Expr::Char(c, s)).collect(); Ok(Expr::ArrayLit { elements: cs, span: s }) } Token::Ident(n) => { self.advance(); self.parse_ident_tail(n, s) } Token::LBrace => self.parse_block(), Token::If => self.parse_if(), Token::Match => self.parse_match(), Token::Fn => self.parse_fn(), Token::Fix => self.parse_fix(), Token::LParen => { self.advance(); if self.peek() == &Token::RParen { return Err("empty `()` is not a value; use `Unit`".into()); } let f = self.parse_expr()?; if self.peek() == &Token::Comma { let mut es = vec![f]; while self.peek() == &Token::Comma { self.advance(); es.push(self.parse_expr()?); } self.expect(&Token::RParen)?; Ok(Expr::TupleLit { elements: es, span: s }) } else { self.expect(&Token::RParen)?; Ok(f) } } Token::LBracket => { self.advance(); let mut es = Vec::new(); while self.peek() != &Token::RBracket { es.push(self.parse_expr()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Expr::ArrayLit { elements: es, span: s }) } Token::Amp => { self.advance(); Ok(Expr::Borrow { name: self.expect_ident()?, span: s }) } _ => Err(format!("expected expr, got {:?}", self.peek())) } }
 
   fn parse_ident_tail(&mut self, name: String, span: Span) -> Result<Expr, String> {
     if self.peek() == &Token::LParen { self.advance(); let mut fs = Vec::new(); while self.peek() != &Token::RParen { fs.push(self.parse_expr()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); return Ok(Expr::StructCons { name, fields: fs, span }); }
@@ -191,6 +191,31 @@ impl Parser {
       let n = self.expect_ident()?;
       self.expect(&Token::Eq)?;
       let v = self.parse_expr()?;
+      self.expect(&Token::Semicolon)?;
+      defs.push((n, v));
+    }
+    while self.peek() == &Token::Amp {
+      self.advance();
+      let n = self.expect_ident()?;
+      let span = self.span();
+      let v = if self.peek() == &Token::Eq {
+        self.advance();
+        self.parse_expr()?
+      } else if self.peek() == &Token::LBrace {
+        self.advance(); // {
+        let mut us = Vec::new();
+        while self.peek() != &Token::RBrace {
+          let fnm = self.expect_ident()?;
+          self.expect(&Token::Eq)?;
+          let val = self.parse_expr()?;
+          us.push((fnm, val));
+          if self.peek() == &Token::Comma { self.advance(); }
+        }
+        self.advance(); // }
+        Expr::StructUpdate { expr: Box::new(Expr::Var(n.clone(), span)), updates: us, span }
+      } else {
+        return Err("expected = or { after &name".into());
+      };
       self.expect(&Token::Semicolon)?;
       defs.push((n, v));
     }

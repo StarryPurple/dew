@@ -2,5 +2,7 @@ struct Point { x: Int, y: Int }
 
 def main = fn -> Int {
   def p = Point(3, 4);
+  &p { x = 10 };       // rebind p: field update
+  &p = Point(1, 2);     // rebind p: direct assign
   p.x + p.y
 }

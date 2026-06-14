@@ -153,6 +153,21 @@ impl<'a> Evaluator<'a> {
           _ => Err("field access on non-struct".into()),
         }
       }
+      Ir::StructUpdate { expr, updates } => {
+        let val = self.eval_ir(expr)?;
+        match val {
+          Value::Struct { name, field_names, fields } => {
+            let mut new_fields = fields.clone();
+            for (field_name, ir_val) in updates {
+              if let Some(idx) = field_names.iter().position(|n| n == field_name) {
+                new_fields[idx] = self.eval_ir(ir_val)?;
+              }
+            }
+            Ok(Value::Struct { name, field_names, fields: new_fields })
+          }
+          _ => Err("struct update on non-struct".into()),
+        }
+      }
       _ => Ok(Value::Unit),
     }
   }
