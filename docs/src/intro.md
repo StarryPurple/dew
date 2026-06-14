@@ -46,7 +46,7 @@ See the [Laziness](laziness.md) chapter for the full mechanism.
 
 Dew tracks **resource affinity** at compile time. Values are classified as:
 
-- **Copyable** — freely duplicable (integers, booleans, characters, pure structs)
+- **Normal** — baseline, no restriction (integers, booleans, characters, pure structs)
 - **Affine** — used at most once (boxed values, linear resources)
 - **Persistent** — reference-counted (lists, maps)
 

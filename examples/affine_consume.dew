@@ -1,0 +1,5 @@
+def main = fn -> Int {
+  def x = Affine(99);
+  def y = Affine(1);
+  consume(x) - consume(y)
+}

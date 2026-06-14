@@ -8,13 +8,13 @@ Every type in Dew belongs to exactly one of three resource categories:
 
 | Kind | Description | Examples | Rules |
 |------|-------------|----------|-------|
-| **Copyable** | Freely duplicable, stack-allocated | `Int`, `Bool`, `Char`, `Unit`, pure structs | Unlimited use |
+| **Normal** | Baseline — no restriction | `Int`, `Bool`, `Char`, `Unit`, pure structs | Unlimited use |
 | **Affine** | Used at most once, ownership transfers | `Affine(T)` | Single use, auto-dropped at scope end |
 | **Persistent** | Reference-counted, shared access | `List(T)` | Multiple references, refcount-managed |
 
 ## The `Affine(T)` Wrapper
 
-`Affine(T)` is a **zero-cost compile-time marker**. There is no heap allocation — it wraps any value (Copyable or already-affine) and marks it as tracked:
+`Affine(T)` is a **zero-cost compile-time marker**. There is no heap allocation — it wraps any value (Normal or already-affine) and marks it as tracked:
 
 ```dew
 def x = Affine(42);      // x: Affine(Int) — the integer 42, now tracked
@@ -24,7 +24,7 @@ def z = Affine(Unit);    // z: Affine(Unit)
 
 ### Implicit Unwrap
 
-When an `Affine(T)` value appears where `T` is expected, the compiler **automatically unwraps** it and consumes the wrapper. You rarely need to write `open` explicitly:
+When an `Affine(T)` value appears where `T` is expected, the compiler **automatically unwraps** it and consumes the wrapper. You rarely need to write `consume` explicitly:
 
 ```dew
 def x = Affine(42);
@@ -45,13 +45,13 @@ The implicit unwrap applies wherever the inner type is demanded:
 | Function call matching parameter type | Unwraps if param expects inner type |
 | Condition (`if`, `match` scrutinee) | Unwraps if needed |
 
-### Explicit `open`
+### Explicit `consume`
 
-For cases where you want to explicitly consume the wrapper, use `open`:
+For cases where you want to explicitly consume the wrapper, use `consume`:
 
 ```dew
 def consume = fn(x: Affine(Int)) -> Int {
-  open(x)   // explicit: consume the Affine wrapper, yield the inner Int
+  consume(x)   // explicit: consume the Affine wrapper, yield the inner Int
 }
 
 def a = Affine(42);
@@ -62,7 +62,7 @@ consume(a)   // a is consumed — transferred into the function, then opened
 
 ```dew
 def x = 42;
-open(x)    // runtime error: open: expected Affine value
+consume(x)    // runtime error: consume: expected Affine value
 ```
 
 ### No Implicit Wrapping
@@ -70,7 +70,7 @@ open(x)    // runtime error: open: expected Affine value
 The compiler **never** implicitly wraps a value in `Affine`. This must be explicit:
 
 ```dew
-def f = fn(x: Affine(Int)) -> Int { open(x) }
+def f = fn(x: Affine(Int)) -> Int { consume(x) }
 def a = 42;
 // f(a);         // ERROR: Int where Affine(Int) expected
 f(Affine(a));     // OK: explicit opt-in to tracking
@@ -91,7 +91,7 @@ The affinity of a type is determined structurally:
 
 ### Primitives
 ```
-Int, Bool, Char, Unit → Copyable
+Int, Bool, Char, Unit → Normal
 ```
 
 ### Affine Wrapper
@@ -101,30 +101,30 @@ Affine(T) → Affine (regardless of T)
 
 ### Structs
 ```
-All fields Copyable → Copyable
+All fields Normal → Normal
 Any field Affine   → Affine
 ```
 
 ### Enums
 ```
-Same as structs — all variants Copyable → Copyable; any Affine variant → Affine
+Same as structs — all variants Normal → Normal; any Affine variant → Affine
 ```
 
 ### Tuples
 ```
 Any element Affine → Affine
-All elements Copyable → Copyable
+All elements Normal → Normal
 ```
 
 ### Closures
 ```
-All captured values Copyable → Copyable (unrestricted Fn)
+All captured values Normal → Normal (unrestricted Fn)
 Any captured value Affine   → Affine (FnOnce — callable once)
 ```
 
 ### Arrays
 ```
-Arrays are always Copyable (elements must be Copyable)
+Arrays are always Normal (elements must be Normal)
 ```
 
 ## Ownership Transfer
@@ -191,13 +191,13 @@ def x = f(x, ...)
 Closures automatically derive their affinity from captured variables:
 
 ```dew
-def x = 42;                        // x: Int (Copyable)
-def f = fn() -> Int { x };         // captures Copyable → Copyable closure
+def x = 42;                        // x: Int (Normal)
+def f = fn() -> Int { x };         // captures Normal → Normal closure
 f();                               // can call multiple times
 f();                               // OK
 
 def y = Affine(42);                // y: Affine(Int)
-def g = fn() -> Int { open(y) };   // captures Affine → Affine closure (FnOnce)
+def g = fn() -> Int { consume(y) }; // captures Affine → Affine closure (FnOnce)
 g();                               // OK — first call
 // g();                            // ERROR: closure already consumed
 ```
@@ -239,7 +239,7 @@ These are `Type::App(name, [T])` in the parser — no new syntax needed. Each re
 
 | Kind | Allocation | Deallocation |
 |------|-----------|--------------|
-| Copyable | Stack | Stack unwind |
+| Normal | Stack | Stack unwind |
 | Affine | Determined by containing type | Compiler-inserted `drop` |
 | Persistent | Heap, reference-counted | Last reference dropped → deallocation |
 
@@ -249,7 +249,7 @@ These are `Type::App(name, [T])` in the parser — no new syntax needed. Each re
 
 - **Phase 2** of implementation adds the full affine type system, `Affine(T)`, and `&` sugar
 - **No explicit lifetime annotations** — lifetimes are always inferred
-- **No `const`** — immutability is the default, and Copyable values are inherently constant-like
+- **No `const`** — immutability is the default, and Normal values are inherently constant-like
 - **No `mut`** — there is no mutation at all, only rebinding via `def`
 
 ## Next

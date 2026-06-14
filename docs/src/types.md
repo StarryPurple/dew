@@ -15,12 +15,12 @@ Dew provides four built-in primitive types:
 
 ### Why `Int` is 64-bit
 
-`Int` is a **fixed-size, stack-allocated, Copyable** type. This is a deliberate design choice:
+`Int` is a **fixed-size, stack-allocated, Normal** type. This is a deliberate design choice:
 
 | Choice | Allocation | Affinity | Everyday usability |
 |--------|-----------|----------|-------------------|
-| **`i64` (chosen)** | Stack, 8 bytes | Copyable | Arithmetic just works |
-| `i128` | Stack, 16 bytes | Copyable | No practical benefit on 64-bit hardware |
+| **`i64` (chosen)** | Stack, 8 bytes | Normal | Arithmetic just works |
+| `i128` | Stack, 16 bytes | Normal | No practical benefit on 64-bit hardware |
 | Big integer | Heap | Affine or Persistent | Every `+` would consume its operands |
 
 If `Int` were heap-allocated (affine), the simplest expressions would break:
@@ -31,7 +31,7 @@ def y = x + 1;  // x consumed — gone
 def z = x + 2;  // ERROR: x already moved
 ```
 
-`Int` as Copyable is essential to the language's usability. A 64-bit signed integer matches the machine word on modern hardware, provides clean C interop (`int64_t`), and offers sufficient range for virtually all numeric programs (factorial of 20 is ~2.4 × 10¹⁸, still within `i64`).
+`Int` as Normal is essential to the language's usability. A 64-bit signed integer matches the machine word on modern hardware, provides clean C interop (`int64_t`), and offers sufficient range for virtually all numeric programs (factorial of 20 is ~2.4 × 10¹⁸, still within `i64`).
 
 **Arbitrary-precision integers** are planned as a separate `BigInt` type with Affine or Persistent affinity — opt-in for the rare cases that need them.
 
@@ -171,7 +171,7 @@ Every type has an associated **affinity** determining how values of that type ma
 
 | Affinity | Types | Rules |
 |----------|-------|-------|
-| **Copyable** | `Int`, `Bool`, `Char`, `Unit`, pure structs, tuples of copyable | Freely duplicated |
+| **Normal** | `Int`, `Bool`, `Char`, `Unit`, pure structs, tuples of Normal | Baseline — no restriction |
 | **Affine** | `Affine(T)` | Used at most once |
 | **Persistent** | `List(T)` | Reference-counted, shared |
 

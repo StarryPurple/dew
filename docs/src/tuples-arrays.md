@@ -156,7 +156,7 @@ Value::Tuple(Vec<Value>)  // Tuple runtime value
 
 ### Affinity
 
-Arrays and tuples of Copyable types are themselves Copyable. If any element type is Affine, the compound type inherits Affine affinity.
+Arrays and tuples of Normal types are themselves Normal. If any element type is Affine, the compound type inherits Affine affinity.
 
 ## Design Notes (from `initial-design.md`)
 
