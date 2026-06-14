@@ -12,10 +12,10 @@ pub enum Value {
     Char(char),
     Unit,
 
-    /// Closure: captures its environment by value, body is a thunk name
+    /// Closure: captures its environment by value, body is basic blocks
     Closure {
         params: Vec<String>,
-        body: String,
+        blocks: Vec<crate::ir::BasicBlock>,
         env: Env,
     },
 

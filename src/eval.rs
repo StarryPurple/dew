@@ -57,13 +57,8 @@ impl<'a> Evaluator<'a> {
     let main_val = self.env.get("main").cloned()
       .ok_or_else(|| "no main definition found".to_string())?;
     match main_val {
-      Value::Closure { params, body, env } if params.is_empty() => {
+      Value::Closure { params, blocks, env } if params.is_empty() => {
         let saved = std::mem::replace(&mut self.env, env);
-        let blocks = match body.as_str() {
-          "" => return Ok(Value::Unit),
-          name => self.thunks.get(name).map(|(b, _)| b.clone())
-            .ok_or_else(|| format!("unknown thunk: {name}"))?,
-        };
         let result = self.eval_blocks(&blocks, &[]);
         self.env = saved;
         result
@@ -225,12 +220,16 @@ impl<'a> Evaluator<'a> {
         Ok(())
       }
       Instr::Lambda { dest, thunk } => {
-        let params = self.thunks.get(thunk.as_str())
-          .map(|(_, p)| p.clone())
+        let (blocks, params) = self.thunks.get(thunk.as_str())
+          .map(|(b, p)| (b.clone(), p.clone()))
           .unwrap_or_default();
+        regs.insert(dest.0, Value::Closure { params, blocks, env: self.env.clone() });
+        Ok(())
+      }
+      Instr::LambdaBlock { dest, params, blocks } => {
         regs.insert(dest.0, Value::Closure {
-          params,
-          body: thunk.clone(),
+          params: params.clone(),
+          blocks: blocks.clone(),
           env: self.env.clone(),
         });
         Ok(())
@@ -389,7 +388,7 @@ impl<'a> Evaluator<'a> {
           _ => Err("not: expected Bool".into()),
         }
       }
-      Value::Closure { params, body, env } => {
+      Value::Closure { params, blocks, env } => {
         let mut env = env.clone();
         for (i, arg) in args.iter().enumerate() {
           if i < params.len() {
@@ -397,16 +396,10 @@ impl<'a> Evaluator<'a> {
           }
         }
         let saved = std::mem::replace(&mut self.env, env);
-        let blocks = if body.is_empty() {
-          return Ok(Value::Unit);
-        } else {
-          self.thunks.get(body.as_str()).map(|(b, _)| b.clone())
-            .unwrap_or_default()
-        };
         let result = if blocks.is_empty() {
           Ok(Value::Unit)
         } else {
-          self.eval_blocks(&blocks, args)
+          self.eval_blocks(blocks, args)
         };
         self.env = saved;
         result

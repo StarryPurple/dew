@@ -123,16 +123,9 @@ impl Compiler {
         let (body_block, _body_ret) = self.compile_expr_to_block("entry", body);
         let mut blocks = vec![body_block];
         blocks.append(&mut self.extra_blocks);
-        let thunk_name = format!("__lambda_{}", self.ctx.next_label);
-        self.ctx.next_label += 1;
-        let thunk = Thunk {
-          name: thunk_name.clone(),
-          params: params.iter().map(|(n, t)| (n.clone(), type_to_str(t))).collect(),
-          blocks,
-        };
-        self.pending_thunks.push(thunk);
+        let param_names: Vec<String> = params.iter().map(|(n, _)| n.clone()).collect();
         let r = self.ctx.fresh_reg();
-        block.instrs.push(Instr::Lambda { dest: r, thunk: thunk_name });
+        block.instrs.push(Instr::LambdaBlock { dest: r, params: param_names, blocks });
         r
       }
 

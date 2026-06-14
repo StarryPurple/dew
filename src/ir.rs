@@ -86,6 +86,7 @@ pub enum Instr {
   Var { dest: Reg, name: String },
   Ref { dest: Reg, label: String },
   Lambda { dest: Reg, thunk: String },
+  LambdaBlock { dest: Reg, params: Vec<String>, blocks: Vec<BasicBlock> },
   Bind { name: String, value: Reg },
   Prim { dest: Reg, op: PrimOp, lhs: Reg, rhs: Reg },
   Call { dest: Reg, func: Reg, args: Vec<Reg> },
@@ -242,6 +243,10 @@ impl fmt::Display for Instr {
       Instr::Var { dest, name } => write!(f, "{dest} = var @{name}"),
       Instr::Ref { dest, label } => write!(f, "{dest} = ref %{label}"),
       Instr::Lambda { dest, thunk } => write!(f, "{dest} = lambda @{thunk}"),
+      Instr::LambdaBlock { dest, params, .. } => {
+        let pstr = params.join(", ");
+        write!(f, "{dest} = lambda({pstr}) {{ ... }}")
+      }
       Instr::Bind { name, value } => write!(f, "{} = bind @{name}", value),
       Instr::Prim { dest, op, lhs, rhs } => write!(f, "{dest} = prim {op} {lhs} {rhs}"),
       Instr::Call { dest, func, args } => {
