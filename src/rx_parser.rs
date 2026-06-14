@@ -517,6 +517,12 @@ impl Parser {
             let right = self.parse_unary()?;
             left = Expr::Binary(Box::new(left), op, Box::new(right));
         }
+        // Handle 'as' cast: expr as Type
+        while matches!(&self.current, Token::Ident(s) if s == "as") {
+            self.advance();
+            let ty = self.parse_type()?;
+            left = Expr::Cast(Box::new(left), ty);
+        }
         Ok(left)
     }
 
