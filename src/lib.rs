@@ -13,3 +13,4 @@ pub mod typeck;
 pub mod types;
 pub mod value;
 pub mod lsp;
+pub mod rx_parser;
