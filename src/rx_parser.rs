@@ -294,6 +294,9 @@ impl Parser {
             self.advance();
             if matches!(self.current, Token::KwMut) { self.advance(); ty.push_str("&mut "); }
             else { ty.push_str("&"); }
+        } else if matches!(self.current, Token::KwRefSelf) {
+            self.advance();
+            ty.push_str("&mut ");
         }
         // Handle [T; N]
         if matches!(self.current, Token::LBracket) {
@@ -364,6 +367,15 @@ impl Parser {
                 self.advance();
                 continue;
             }
+            if matches!(self.current, Token::Amp) {
+                self.advance();
+                if matches!(self.current, Token::KwSelf) {
+                    params.push(("self".into(), "&Self".into()));
+                    self.advance();
+                    continue;
+                }
+                return Err("expected 'self' after '&'".into());
+            }
             let pname = self.expect_ident()?;
             self.expect(&Token::Colon)?;
             let ptype = self.parse_type()?;
@@ -411,7 +423,9 @@ impl Parser {
                     self.expect(&Token::Semi)?;
                     Ok(Stmt::Assign { lhs: expr, op, rhs })
                 } else {
-                    self.expect(&Token::Semi)?;
+                    if !matches!(self.current, Token::RBrace) {
+                        self.expect(&Token::Semi)?;
+                    }
                     Ok(Stmt::Expr(expr))
                 }
             }
