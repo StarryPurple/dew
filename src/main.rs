@@ -1,5 +1,6 @@
 // Dew CLI
 use clap::{Parser, Subcommand};
+use std::collections::HashSet;
 use std::{fs, process};
 use dew::parser::parse_program;
 use dew::ir_gen::Compiler;
@@ -33,12 +34,16 @@ fn main() {
   let source = fs::read_to_string(&file).unwrap_or_else(|e| { eprintln!("[E001] cannot read {file}: {e}"); process::exit(1); });
   let decls = parse_program(&source).unwrap_or_else(|e| { eprintln!("[E002] parse error: {e}"); process::exit(1); });
 
-  // Warn on redefining builtins
+  // Warn on redefining builtins and shadowing top-level names
+  let mut seen: HashSet<&str> = HashSet::new();
   for decl in &decls {
     if let dew::ast::Decl::Def { name, .. } = decl {
       match name.as_str() {
         "Stdin" | "Stdout" | "not" => eprintln!("[W001] redefining builtin '{name}' has no effect"),
         _ => {}
+      }
+      if !seen.insert(name) {
+        eprintln!("[W002] '{name}' shadows previous definition");
       }
     }
   }
