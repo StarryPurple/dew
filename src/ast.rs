@@ -26,15 +26,23 @@ pub enum Decl {
     },
     Struct {
         name: String,
-        fields: Vec<(String, Type)>,
+        fields: Vec<(String, Type, bool)>,  // (name, type, is_affine)
+        attrs: Vec<Attr>,
     },
     Enum {
         name: String,
         variants: Vec<Variant>,
+        attrs: Vec<Attr>,
     },
     Import {
         path: String,
     },
+}
+
+/// Attribute: #[name] or #[name(value)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Attr {
+    Affine,
 }
 
 /// Enum variant
@@ -184,16 +192,9 @@ pub enum Expr {
         span: Span,
     },
 
-    // Borrow sugar: &x in patterns
+    // Borrow sugar: &x in patterns / call sites
     Borrow {
         name: String,
-        span: Span,
-    },
-
-    // Borrow re-bind in body: &x = expr
-    BorrowBind {
-        name: String,
-        value: Box<Expr>,
         span: Span,
     },
 

@@ -10,7 +10,7 @@ pub enum Token {
   Plus, Minus, Star, Slash, Percent,
   Lt, Gt, Le, Ge, EqEq, Ne,
   AndAnd, OrOr,
-  Arrow, FatArrow, Dot, Amp, Bang,
+  Arrow, FatArrow, Dot, Amp, Bang, Hash,
   LParen, RParen, LBrace, RBrace, LBracket, RBracket,
   Comma, Semicolon, Colon, Underscore, Eq,
   Eof,
@@ -55,7 +55,7 @@ fn tokenize(source: &str) -> Result<Vec<Token>, String> {
       '<' => Token::Lt, '>' => Token::Gt, '!' => Token::Bang, '&' => Token::Amp, '.' => Token::Dot,
       ':' => Token::Colon, ';' => Token::Semicolon, ',' => Token::Comma,
       '(' => Token::LParen, ')' => Token::RParen, '{' => Token::LBrace, '}' => Token::RBrace,
-      '[' => Token::LBracket, ']' => Token::RBracket, '_' => Token::Underscore, '=' => Token::Eq,
+      '[' => Token::LBracket, ']' => Token::RBracket, '_' => Token::Underscore, '=' => Token::Eq, '#' => Token::Hash,
       ch if ch.is_alphabetic() || ch == '_' => {
         let start = i; while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') { i += 1; }
         let word: String = chars[start..i].iter().collect(); i -= 1;
@@ -85,12 +85,38 @@ impl Parser {
   fn span(&self) -> Span { Span::new(0, 0) }
 
   fn parse_decls(&mut self) -> Result<Vec<Decl>, String> { let mut v = Vec::new(); while self.peek() != &Token::Eof { v.push(self.parse_decl()?); } Ok(v) }
-  fn parse_decl(&mut self) -> Result<Decl, String> { match self.peek() { Token::Def => self.parse_def(), Token::Struct => self.parse_struct_decl(), Token::Enum => self.parse_enum_decl(), Token::Import => self.parse_import(), _ => Err(format!("expected decl, got {:?}", self.peek())) } }
+  fn parse_decl(&mut self) -> Result<Decl, String> {
+    let attrs = self.parse_attrs()?;
+    match self.peek() {
+      Token::Def => self.parse_def(),
+      Token::Struct => self.parse_struct_decl(attrs),
+      Token::Enum => self.parse_enum_decl(attrs),
+      Token::Import => self.parse_import(),
+      _ => Err(format!("expected decl, got {:?}", self.peek()))
+    }
+  }
 
   fn parse_def(&mut self) -> Result<Decl, String> { self.advance(); let n = self.expect_ident()?; self.expect(&Token::Eq)?; let v = self.parse_expr()?; let _ = self.check(&Token::Semicolon).then(|| self.advance()); Ok(Decl::Def { name: n, type_ann: None, value: v }) }
-  fn parse_struct_decl(&mut self) -> Result<Decl, String> { self.advance(); let n = self.expect_ident()?; self.expect(&Token::LBrace)?; let mut fs = Vec::new(); while self.peek() != &Token::RBrace { let f = self.expect_ident()?; self.expect(&Token::Colon)?; let t = self.parse_type()?; fs.push((f, t)); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Decl::Struct { name: n, fields: fs }) }
-  fn parse_enum_decl(&mut self) -> Result<Decl, String> { self.advance(); let n = self.expect_ident()?; self.expect(&Token::LBrace)?; let mut vs = Vec::new(); while self.peek() != &Token::RBrace { let vn = self.expect_ident()?; let p = if self.peek() == &Token::LParen { self.advance(); let t = self.parse_type()?; self.expect(&Token::RParen)?; Some(t) } else { None }; vs.push(Variant { name: vn, payload: p }); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Decl::Enum { name: n, variants: vs }) }
+  fn parse_struct_decl(&mut self, attrs: Vec<Attr>) -> Result<Decl, String> { self.advance(); let n = self.expect_ident()?; self.expect(&Token::LBrace)?; let mut fs = Vec::new(); while self.peek() != &Token::RBrace { let affine = self.peek() == &Token::Hash; if affine { self.parse_attr()?; } let f = self.expect_ident()?; self.expect(&Token::Colon)?; let t = self.parse_type()?; fs.push((f, t, affine)); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Decl::Struct { name: n, fields: fs, attrs }) }
+  fn parse_enum_decl(&mut self, attrs: Vec<Attr>) -> Result<Decl, String> { self.advance(); let n = self.expect_ident()?; self.expect(&Token::LBrace)?; let mut vs = Vec::new(); while self.peek() != &Token::RBrace { let vn = self.expect_ident()?; let p = if self.peek() == &Token::LParen { self.advance(); let t = self.parse_type()?; self.expect(&Token::RParen)?; Some(t) } else { None }; vs.push(Variant { name: vn, payload: p }); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Decl::Enum { name: n, variants: vs, attrs }) }
   fn parse_import(&mut self) -> Result<Decl, String> { self.advance(); let p = match self.advance() { Token::StringLit(s) => s.clone(), t => return Err(format!("expected string, got {t:?}")) }; let _ = self.check(&Token::Semicolon).then(|| self.advance()); Ok(Decl::Import { path: p }) }
+
+  fn parse_attrs(&mut self) -> Result<Vec<Attr>, String> {
+    let mut attrs = Vec::new();
+    while self.peek() == &Token::Hash { attrs.push(self.parse_attr()?); }
+    Ok(attrs)
+  }
+
+  fn parse_attr(&mut self) -> Result<Attr, String> {
+    self.advance(); // #
+    self.expect(&Token::LBracket)?; // [
+    let name = self.expect_ident()?;
+    self.expect(&Token::RBracket)?; // ]
+    match name.as_str() {
+      "Affine" => Ok(Attr::Affine),
+      _ => Err(format!("unknown attribute: #[{name}]")),
+    }
+  }
 
   fn parse_type(&mut self) -> Result<Type, String> {
     let mut ty = self.parse_type_atom()?;

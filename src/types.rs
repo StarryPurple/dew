@@ -17,10 +17,6 @@ pub enum Ty {
     Tuple(Vec<Ty>),
     /// Array type
     Array(Box<Ty>, usize),
-    /// List type
-    List(Box<Ty>),
-    /// Affine resource wrapper (zero-cost compile-time marker)
-    Affine(Box<Ty>),
     /// Hole (for type inference gaps)
     Hole(usize),
 }
@@ -48,32 +44,35 @@ impl fmt::Display for PrimTy {
 /// Resource affinity
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Affinity {
-    /// Normal: default, no special semantics (Int, Bool, Char, Unit, pure structs)
+    /// Normal: default, no special semantics
     Normal,
-    /// Affine: use at most once (Affine(T))
+    /// Affine: use at most once
     Affine,
-    /// Persistent: reference-counted (List, Map, Set)
-    Persistent,
 }
 
 impl Ty {
-    /// Compute the affinity of a type
-    pub fn affinity(&self) -> Affinity {
+    /// Compute the affinity of a type.
+    /// For ADTs, checks if the struct/enum is marked #[Affine].
+    pub fn affinity(&self, affine_adts: &std::collections::HashSet<String>) -> Affinity {
         match self {
             Ty::Prim(_) => Affinity::Normal,
-            Ty::Affine(_) => Affinity::Affine,
-            Ty::List(_) => Affinity::Persistent,
             Ty::Var(_) | Ty::Hole(_) => Affinity::Normal,
             Ty::Fun(_, _) => Affinity::Normal,
             Ty::Tuple(ts) => {
-                if ts.iter().any(|t| t.affinity() == Affinity::Affine) {
+                if ts.iter().any(|t| t.affinity(affine_adts) == Affinity::Affine) {
                     Affinity::Affine
                 } else {
                     Affinity::Normal
                 }
             }
             Ty::Array(_, _) => Affinity::Normal,
-            Ty::Adt(_, _) => Affinity::Normal,
+            Ty::Adt(name, _) => {
+                if affine_adts.contains(name.as_str()) {
+                    Affinity::Affine
+                } else {
+                    Affinity::Normal
+                }
+            }
         }
     }
 }

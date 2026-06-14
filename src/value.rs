@@ -44,9 +44,6 @@ pub enum Value {
 
     /// Array
     Array(Vec<Value>),
-
-    /// Affine wrapper: zero-cost compile-time resource marker
-    Affine(Box<Value>),
 }
 
 /// Runtime environment: maps variable names to values
@@ -116,7 +113,6 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             }
-            Value::Affine(inner) => write!(f, "Affine({inner})"),
         }
     }
 }

@@ -190,14 +190,6 @@ impl<'a> Evaluator<'a> {
         let v = self.eval_ir(args.first().ok_or("not: 1 arg")?)?;
         match v { Value::Bool(b) => Ok(Value::Bool(!b)), _ => Err("not: Bool".into()) }
       }
-      Ir::Var(name) if name == "Affine" => {
-        let v = self.eval_ir(args.first().ok_or("Affine: 1 arg")?)?;
-        Ok(Value::Affine(Box::new(v)))
-      }
-      Ir::Var(name) if name == "consume" => {
-        let v = self.eval_ir(args.first().ok_or("consume: 1 arg")?)?;
-        match v { Value::Affine(inner) => Ok(*inner), _ => Err("consume: expected Affine value".into()) }
-      }
       Ir::Var(name) if name.chars().next().map_or(false, |c| c.is_uppercase()) => {
         let fields: Vec<Value> = args.iter().map(|a| self.eval_ir(a)).collect::<Result<_, _>>()?;
         Ok(Value::Struct { name: name.clone(), field_names: self.struct_fields.get(name).cloned().unwrap_or_default(), fields })
@@ -210,7 +202,7 @@ impl<'a> Evaluator<'a> {
             for (i, arg) in args.iter().enumerate() {
               if i < params.len() {
                 let v = self.eval_ir(arg)?;
-                env.insert(params[i].clone(), unwrap_affine(v));
+                env.insert(params[i].clone(), v);
               }
             }
             let saved = std::mem::replace(&mut self.env, env);
@@ -244,7 +236,7 @@ impl<'a> Evaluator<'a> {
 
   fn eval_prim(&mut self, op: PrimOp, args: &[Ir]) -> Result<Value, String> {
     let vals: Vec<Value> = args.iter()
-      .map(|a| self.eval_ir(a).map(unwrap_affine))
+      .map(|a| self.eval_ir(a))
       .collect::<Result<_, _>>()?;
     if vals.len() == 2 {
       let l = &vals[0]; let r = &vals[1];
@@ -274,12 +266,5 @@ fn lit_to_value(lit: &Lit) -> Value {
   match lit {
     Lit::Int(n) => Value::Int(*n), Lit::Bool(b) => Value::Bool(*b),
     Lit::Char(c) => Value::Char(*c), Lit::Unit => Value::Unit,
-  }
-}
-
-fn unwrap_affine(v: Value) -> Value {
-  match v {
-    Value::Affine(inner) => *inner,
-    other => other,
   }
 }

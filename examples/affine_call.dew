@@ -2,5 +2,5 @@ def id = fn(x: Int) -> Int { x }
 
 def main = fn -> Int {
   def x = Affine(42);
-  id(x)
+  id(x.data)
 }

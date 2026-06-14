@@ -2,5 +2,5 @@ def main = fn -> Int {
   def a = Affine(10);
   def b = Affine(20);
   def c = Affine(30);
-  a + b + c
+  a.data + b.data + c.data
 }
