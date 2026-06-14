@@ -1,0 +1,17 @@
+[book]
+authors = ["Dew Contributors"]
+language = "en"
+multilingual = false
+src = "src"
+title = "The Dew Language Book"
+build-dir = "book"
+description = "A minimal functional language with affine types, implicit lazy evaluation, and first-class closures."
+
+[output.html]
+site-url = "/dew/book/"
+git-repository-url = "https://github.com/ACM-Class-2026-Spring/dew"
+edit-url-template = "https://github.com/ACM-Class-2026-Spring/dew/edit/main/docs/{path}"
+
+[output.html.fold]
+enable = true
+level = 1

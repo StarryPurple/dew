@@ -4,7 +4,7 @@ use crate::ast::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-  Def, Fn, Struct, Enum, Match, If, Else, Return, Fix, Import, Force, True, False, Not,
+  Def, Fn, Struct, Enum, Match, If, Else, Return, Fix, Import, Force, True, False, Unit, Not,
   IntLit(i64), BoolLit(bool), CharLit(char), StringLit(String),
   Ident(String),
   Plus, Minus, Star, Slash, Percent,
@@ -59,7 +59,7 @@ fn tokenize(source: &str) -> Result<Vec<Token>, String> {
       ch if ch.is_alphabetic() || ch == '_' => {
         let start = i; while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') { i += 1; }
         let word: String = chars[start..i].iter().collect(); i -= 1;
-        match word.as_str() { "def" => Token::Def, "fn" => Token::Fn, "struct" => Token::Struct, "enum" => Token::Enum, "match" => Token::Match, "if" => Token::If, "else" => Token::Else, "return" => Token::Return, "fix" => Token::Fix, "import" => Token::Import, "force" => Token::Force, "true" => Token::True, "false" => Token::False, "not" => Token::Not, _ => Token::Ident(word) }
+        match word.as_str() { "def" => Token::Def, "fn" => Token::Fn, "struct" => Token::Struct, "enum" => Token::Enum, "match" => Token::Match, "if" => Token::If, "else" => Token::Else, "return" => Token::Return, "fix" => Token::Fix, "import" => Token::Import, "force" => Token::Force, "true" => Token::True, "false" => Token::False, "Unit" => Token::Unit, "not" => Token::Not, _ => Token::Ident(word) }
       }
       _ => return Err(format!("unexpected character: '{c}'")),
     };
@@ -92,7 +92,69 @@ impl Parser {
   fn parse_enum_decl(&mut self) -> Result<Decl, String> { self.advance(); let n = self.expect_ident()?; self.expect(&Token::LBrace)?; let mut vs = Vec::new(); while self.peek() != &Token::RBrace { let vn = self.expect_ident()?; let p = if self.peek() == &Token::LParen { self.advance(); let t = self.parse_type()?; self.expect(&Token::RParen)?; Some(t) } else { None }; vs.push(Variant { name: vn, payload: p }); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Decl::Enum { name: n, variants: vs }) }
   fn parse_import(&mut self) -> Result<Decl, String> { self.advance(); let p = match self.advance() { Token::StringLit(s) => s.clone(), t => return Err(format!("expected string, got {t:?}")) }; let _ = self.check(&Token::Semicolon).then(|| self.advance()); Ok(Decl::Import { path: p }) }
 
-  fn parse_type(&mut self) -> Result<Type, String> { match self.peek() { Token::Fn => { self.advance(); self.expect(&Token::LParen)?; let mut params = Vec::new(); while self.peek() != &Token::RParen { params.push(self.parse_type()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); self.expect(&Token::Arrow)?; let ret = self.parse_type()?; Ok(Type::Fun(Box::new(Type::Tuple(params)), Box::new(ret))) } Token::Ident(_) => { let n = self.expect_ident()?; if self.peek() == &Token::LParen { self.advance(); let mut a = Vec::new(); while self.peek() != &Token::RParen { a.push(self.parse_type()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Type::App(n, a)) } else { match n.as_str() { "Int" => Ok(Type::Prim(PrimType::Int)), "Bool" => Ok(Type::Prim(PrimType::Bool)), "Char" => Ok(Type::Prim(PrimType::Char)), "Unit" => Ok(Type::Prim(PrimType::Unit)), _ => Ok(Type::Named(n)) } } } Token::LParen => { self.advance(); let mut ts = Vec::new(); while self.peek() != &Token::RParen { ts.push(self.parse_type()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Type::Tuple(ts)) } _ => Err(format!("expected type, got {:?}", self.peek())) } }
+  fn parse_type(&mut self) -> Result<Type, String> {
+    let mut ty = self.parse_type_atom()?;
+    while self.peek() == &Token::Arrow {
+      self.advance();
+      let ret = self.parse_type()?;
+      ty = Type::Fun(Box::new(ty), Box::new(ret));
+    }
+    Ok(ty)
+  }
+
+  fn parse_type_atom(&mut self) -> Result<Type, String> {
+    match self.peek() {
+      Token::Fn => {
+        self.advance();
+        self.expect(&Token::LParen)?;
+        let mut params = Vec::new();
+        while self.peek() != &Token::RParen {
+          params.push(self.parse_type()?);
+          if self.peek() == &Token::Comma { self.advance(); }
+        }
+        self.advance();
+        self.expect(&Token::Arrow)?;
+        let ret = self.parse_type()?;
+        Ok(Type::Fun(Box::new(Type::Tuple(params)), Box::new(ret)))
+      }
+      Token::Unit => { self.advance(); Ok(Type::Prim(PrimType::Unit)) }
+      Token::Ident(_) => {
+        let n = self.expect_ident()?;
+        if self.peek() == &Token::LParen {
+          self.advance();
+          let mut a = Vec::new();
+          while self.peek() != &Token::RParen {
+            a.push(self.parse_type()?);
+            if self.peek() == &Token::Comma { self.advance(); }
+          }
+          self.advance();
+          Ok(Type::App(n, a))
+        } else {
+          match n.as_str() {
+            "Int" => Ok(Type::Prim(PrimType::Int)),
+            "Bool" => Ok(Type::Prim(PrimType::Bool)),
+            "Char" => Ok(Type::Prim(PrimType::Char)),
+            "Unit" => Ok(Type::Prim(PrimType::Unit)),
+            _ => Ok(Type::Named(n)),
+          }
+        }
+      }
+      Token::LParen => {
+        self.advance();
+        let mut ts = Vec::new();
+        let mut saw_comma = false;
+        while self.peek() != &Token::RParen {
+          ts.push(self.parse_type()?);
+          if self.peek() == &Token::Comma { saw_comma = true; self.advance(); }
+        }
+        self.advance();
+        if ts.is_empty() { return Err("empty tuple `()` is not a type; use `Unit`".into()); }
+        if ts.len() == 1 && !saw_comma { Ok(ts.into_iter().next().unwrap()) }
+        else { Ok(Type::Tuple(ts)) }
+      }
+      _ => Err(format!("expected type, got {:?}", self.peek())),
+    }
+  }
 
   fn parse_expr(&mut self) -> Result<Expr, String> { self.parse_pipe() }
 
@@ -108,9 +170,9 @@ impl Parser {
 
   fn parse_unary(&mut self) -> Result<Expr, String> { match self.peek() { Token::Not => { self.advance(); let e = self.parse_unary()?; Ok(Expr::App { func: Box::new(Expr::Var("not".into(), self.span())), args: vec![e], span: self.span() }) } Token::Bang => { self.advance(); let e = self.parse_unary()?; Ok(Expr::Force { expr: Box::new(e), span: self.span() }) } Token::Minus => { self.advance(); let e = self.parse_unary()?; Ok(Expr::BinOp { op: BinOpKind::Sub, left: Box::new(Expr::Int(0, self.span())), right: Box::new(e), span: self.span() }) } Token::Force => { self.advance(); self.expect(&Token::LParen)?; let e = self.parse_expr()?; self.expect(&Token::RParen)?; Ok(Expr::Force { expr: Box::new(e), span: self.span() }) } _ => self.parse_primary() } }
 
-  fn is_at_expr_start(&self) -> bool { matches!(self.peek(), Token::IntLit(_)|Token::True|Token::False|Token::CharLit(_)|Token::StringLit(_)|Token::Ident(_)|Token::LBrace|Token::LParen|Token::LBracket|Token::If|Token::Match|Token::Fn|Token::Fix|Token::Not|Token::Bang|Token::Force|Token::Amp) }
+  fn is_at_expr_start(&self) -> bool { matches!(self.peek(), Token::IntLit(_)|Token::True|Token::False|Token::Unit|Token::CharLit(_)|Token::StringLit(_)|Token::Ident(_)|Token::LBrace|Token::LParen|Token::LBracket|Token::If|Token::Match|Token::Fn|Token::Fix|Token::Not|Token::Bang|Token::Force|Token::Amp) }
 
-  fn parse_primary(&mut self) -> Result<Expr, String> { let s = self.span(); match self.peek().clone() { Token::IntLit(n) => { self.advance(); Ok(Expr::Int(n, s)) } Token::True => { self.advance(); Ok(Expr::Bool(true, s)) } Token::False => { self.advance(); Ok(Expr::Bool(false, s)) } Token::CharLit(c) => { self.advance(); Ok(Expr::Char(c, s)) } Token::StringLit(st) => { self.advance(); let cs: Vec<Expr> = st.chars().map(|c| Expr::Char(c, s)).collect(); Ok(Expr::ArrayLit { elements: cs, span: s }) } Token::Ident(n) => { self.advance(); self.parse_ident_tail(n, s) } Token::LBrace => self.parse_block(), Token::If => self.parse_if(), Token::Match => self.parse_match(), Token::Fn => self.parse_fn(), Token::Fix => self.parse_fix(), Token::LParen => { self.advance(); let f = self.parse_expr()?; if self.peek() == &Token::Comma { let mut es = vec![f]; while self.peek() == &Token::Comma { self.advance(); es.push(self.parse_expr()?); } self.expect(&Token::RParen)?; Ok(Expr::TupleLit { elements: es, span: s }) } else { self.expect(&Token::RParen)?; Ok(f) } } Token::LBracket => { self.advance(); let mut es = Vec::new(); while self.peek() != &Token::RBracket { es.push(self.parse_expr()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Expr::ArrayLit { elements: es, span: s }) } Token::Amp => { self.advance(); let n = self.expect_ident()?; if self.peek() == &Token::Eq { self.advance(); let v = self.parse_expr()?; Ok(Expr::BorrowBind { name: n, value: Box::new(v), span: s }) } else { Ok(Expr::Borrow { name: n, span: s }) } } _ => Err(format!("expected expr, got {:?}", self.peek())) } }
+  fn parse_primary(&mut self) -> Result<Expr, String> { let s = self.span(); match self.peek().clone() { Token::IntLit(n) => { self.advance(); Ok(Expr::Int(n, s)) } Token::True => { self.advance(); Ok(Expr::Bool(true, s)) } Token::False => { self.advance(); Ok(Expr::Bool(false, s)) } Token::Unit => { self.advance(); Ok(Expr::Unit(s)) } Token::CharLit(c) => { self.advance(); Ok(Expr::Char(c, s)) } Token::StringLit(st) => { self.advance(); let cs: Vec<Expr> = st.chars().map(|c| Expr::Char(c, s)).collect(); Ok(Expr::ArrayLit { elements: cs, span: s }) } Token::Ident(n) => { self.advance(); self.parse_ident_tail(n, s) } Token::LBrace => self.parse_block(), Token::If => self.parse_if(), Token::Match => self.parse_match(), Token::Fn => self.parse_fn(), Token::Fix => self.parse_fix(), Token::LParen => { self.advance(); if self.peek() == &Token::RParen { return Err("empty `()` is not a value; use `Unit`".into()); } let f = self.parse_expr()?; if self.peek() == &Token::Comma { let mut es = vec![f]; while self.peek() == &Token::Comma { self.advance(); es.push(self.parse_expr()?); } self.expect(&Token::RParen)?; Ok(Expr::TupleLit { elements: es, span: s }) } else { self.expect(&Token::RParen)?; Ok(f) } } Token::LBracket => { self.advance(); let mut es = Vec::new(); while self.peek() != &Token::RBracket { es.push(self.parse_expr()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Expr::ArrayLit { elements: es, span: s }) } Token::Amp => { self.advance(); let n = self.expect_ident()?; if self.peek() == &Token::Eq { self.advance(); let v = self.parse_expr()?; Ok(Expr::BorrowBind { name: n, value: Box::new(v), span: s }) } else { Ok(Expr::Borrow { name: n, span: s }) } } _ => Err(format!("expected expr, got {:?}", self.peek())) } }
 
   fn parse_ident_tail(&mut self, name: String, span: Span) -> Result<Expr, String> {
     if self.peek() == &Token::LParen { self.advance(); let mut fs = Vec::new(); while self.peek() != &Token::RParen { fs.push(self.parse_expr()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); return Ok(Expr::StructCons { name, fields: fs, span }); }
@@ -156,5 +218,97 @@ impl Parser {
   fn parse_fn(&mut self) -> Result<Expr, String> { self.advance(); let mut ps = Vec::new(); if self.peek() != &Token::Arrow && self.peek() == &Token::LParen { self.advance(); while self.peek() != &Token::RParen { let borrow = self.peek() == &Token::Amp; if borrow { self.advance(); } let n = self.expect_ident()?; let t = if self.peek() == &Token::Colon { self.advance(); self.parse_type()? } else { Type::Var("_".into()) }; ps.push((n, t)); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); } let rt = if self.peek() == &Token::Arrow { self.advance(); Some(self.parse_type()?) } else { None }; let b = self.parse_block()?; Ok(Expr::Fn { params: ps, ret_ty: rt, body: Box::new(b), span: self.span() }) }
   fn parse_fix(&mut self) -> Result<Expr, String> { self.advance(); let n = self.expect_ident()?; let b = self.parse_block()?; Ok(Expr::Fix { name: n, body: Box::new(b), span: self.span() }) }
 
-  fn parse_pattern(&mut self) -> Result<Pattern, String> { match self.peek() { Token::Underscore => { self.advance(); Ok(Pattern::Wildcard) } Token::Ident(name) => { let n = name.clone(); self.advance(); if self.peek() == &Token::LParen { self.advance(); let mut fs = Vec::new(); while self.peek() != &Token::RParen { fs.push(self.parse_pattern()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Pattern::EnumVariant(n, Some(Box::new(Pattern::Tuple(fs))))) } else { Ok(Pattern::Var(n)) } } Token::IntLit(n) => { let n = *n; self.advance(); Ok(Pattern::Lit(Expr::Int(n, self.span()))) } Token::True => { self.advance(); Ok(Pattern::Lit(Expr::Bool(true, self.span()))) } Token::False => { self.advance(); Ok(Pattern::Lit(Expr::Bool(false, self.span()))) } Token::CharLit(c) => { let c = *c; self.advance(); Ok(Pattern::Lit(Expr::Char(c, self.span()))) } Token::LParen => { self.advance(); let mut is = Vec::new(); while self.peek() != &Token::RParen { is.push(self.parse_pattern()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Pattern::Tuple(is)) } _ => Err(format!("expected pattern, got {:?}", self.peek())) } }
+  fn parse_pattern(&mut self) -> Result<Pattern, String> { match self.peek() { Token::Underscore => { self.advance(); Ok(Pattern::Wildcard) } Token::Ident(name) => { let n = name.clone(); self.advance(); if self.peek() == &Token::LParen { self.advance(); let mut fs = Vec::new(); while self.peek() != &Token::RParen { fs.push(self.parse_pattern()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Pattern::EnumVariant(n, Some(Box::new(Pattern::Tuple(fs))))) } else { Ok(Pattern::Var(n)) } } Token::IntLit(n) => { let n = *n; self.advance(); Ok(Pattern::Lit(Expr::Int(n, self.span()))) } Token::True => { self.advance(); Ok(Pattern::Lit(Expr::Bool(true, self.span()))) } Token::False => { self.advance(); Ok(Pattern::Lit(Expr::Bool(false, self.span()))) } Token::Unit => { self.advance(); Ok(Pattern::Lit(Expr::Unit(self.span()))) } Token::CharLit(c) => { let c = *c; self.advance(); Ok(Pattern::Lit(Expr::Char(c, self.span()))) } Token::LParen => { self.advance(); let mut is = Vec::new(); while self.peek() != &Token::RParen { is.push(self.parse_pattern()?); if self.peek() == &Token::Comma { self.advance(); } } self.advance(); Ok(Pattern::Tuple(is)) } _ => Err(format!("expected pattern, got {:?}", self.peek())) } }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn parse_type_str(s: &str) -> Result<Type, String> {
+    let tokens = tokenize(s)?;
+    let mut p = Parser { tokens, pos: 0 };
+    p.parse_type()
+  }
+
+  #[test]
+  fn simple_arrow() {
+    let ty = parse_type_str("Int -> Bool").unwrap();
+    assert_eq!(ty, Type::Fun(
+      Box::new(Type::Prim(PrimType::Int)),
+      Box::new(Type::Prim(PrimType::Bool)),
+    ));
+  }
+
+  #[test]
+  fn curried_arrow_right_assoc() {
+    let ty = parse_type_str("Int -> Bool -> Char").unwrap();
+    assert_eq!(ty, Type::Fun(
+      Box::new(Type::Prim(PrimType::Int)),
+      Box::new(Type::Fun(
+        Box::new(Type::Prim(PrimType::Bool)),
+        Box::new(Type::Prim(PrimType::Char)),
+      )),
+    ));
+  }
+
+  #[test]
+  fn tuple_param_arrow() {
+    let ty = parse_type_str("(Int, Bool) -> Char").unwrap();
+    assert_eq!(ty, Type::Fun(
+      Box::new(Type::Tuple(vec![Type::Prim(PrimType::Int), Type::Prim(PrimType::Bool)])),
+      Box::new(Type::Prim(PrimType::Char)),
+    ));
+  }
+
+  #[test]
+  fn hof_arrow() {
+    let ty = parse_type_str("(Int -> Bool) -> Char").unwrap();
+    assert_eq!(ty, Type::Fun(
+      Box::new(Type::Fun(
+        Box::new(Type::Prim(PrimType::Int)),
+        Box::new(Type::Prim(PrimType::Bool)),
+      )),
+      Box::new(Type::Prim(PrimType::Char)),
+    ));
+  }
+
+  #[test]
+  fn legacy_fn_form() {
+    let ty = parse_type_str("fn(Int, Bool) -> Char").unwrap();
+    assert_eq!(ty, Type::Fun(
+      Box::new(Type::Tuple(vec![Type::Prim(PrimType::Int), Type::Prim(PrimType::Bool)])),
+      Box::new(Type::Prim(PrimType::Char)),
+    ));
+  }
+
+  #[test]
+  fn just_int() {
+    let ty = parse_type_str("Int").unwrap();
+    assert_eq!(ty, Type::Prim(PrimType::Int));
+  }
+
+  #[test]
+  fn unit_type() {
+    let ty = parse_type_str("Unit").unwrap();
+    assert_eq!(ty, Type::Prim(PrimType::Unit));
+  }
+
+  #[test]
+  fn unit_value_parses() {
+    let src = "def main = fn -> Unit { Unit }";
+    let decls = parse_program(src).unwrap();
+    assert_eq!(decls.len(), 1);
+  }
+
+  #[test]
+  fn empty_parens_rejected() {
+    let src = "def main = fn -> Unit { () }";
+    assert!(parse_program(src).is_err());
+  }
+
+  #[test]
+  fn empty_parens_type_rejected() {
+    assert!(parse_type_str("()").is_err());
+  }
 }

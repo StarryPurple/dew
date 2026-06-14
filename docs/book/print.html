@@ -1,0 +1,1521 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>The Dew Language Book</title>
+        <meta name="robots" content="noindex">
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="A minimal functional language with affine types, implicit lazy evaluation, and first-class closures.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Dew Language Book</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/ACM-Class-2026-Spring/dew" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
+<p>Dew is a purely functional, statically-typed programming language with <strong>implicit lazy evaluation</strong>, <strong>affine types</strong>, and <strong>first-class closures</strong>. It is implemented as a single-pass compiler + evaluator written in Rust.</p>
+<h2 id="hello-dew"><a class="header" href="#hello-dew">Hello, Dew</a></h2>
+<pre><code class="language-dew">def main = fn -&gt; Int { 40 + 2 }
+</code></pre>
+<p>Save this as <code>hello.dew</code> and run:</p>
+<pre><code class="language-bash">cargo run -- hello.dew
+# =&gt; 42
+</code></pre>
+<p>The program defines <code>main</code> as a function returning <code>Int</code>. The expression <code>40 + 2</code> is evaluated, and its value becomes the process exit code.</p>
+<h2 id="language-philosophy"><a class="header" href="#language-philosophy">Language Philosophy</a></h2>
+<p>Dew is designed around four core principles:</p>
+<h3 id="1-immutability"><a class="header" href="#1-immutability">1. Immutability</a></h3>
+<p>All values are immutable. Once bound, a value cannot be mutated in-place. Instead of assignment, Dew uses <code>def</code> bindings to introduce new names.</p>
+<pre><code class="language-dew">def x = 5;      // bind x to 5
+def y = x + 3;  // bind y to x + 3 (8)
+// x is still 5 — values never change
+</code></pre>
+<h3 id="2-implicit-lazy-evaluation"><a class="header" href="#2-implicit-lazy-evaluation">2. Implicit Lazy Evaluation</a></h3>
+<p>Dew evaluates expressions <strong>lazily by default</strong>. The compiler performs strictness analysis to determine which expressions truly need evaluation and which can be suspended. Programmers never annotate laziness — the compiler inserts <code>Suspend</code> and <code>Force</code> operations automatically.</p>
+<pre><code class="language-dew">def expensive = heavy_computation();  // NOT evaluated here — suspended
+expensive + 1                         // forced here, when actually needed
+</code></pre>
+<p>See the <a href="laziness.html">Laziness</a> chapter for the full mechanism.</p>
+<h3 id="3-affine-resource-types"><a class="header" href="#3-affine-resource-types">3. Affine Resource Types</a></h3>
+<p>Dew tracks <strong>resource affinity</strong> at compile time. Values are classified as:</p>
+<ul>
+<li><strong>Copyable</strong> — freely duplicable (integers, booleans, characters, pure structs)</li>
+<li><strong>Affine</strong> — used at most once (boxed values, linear resources)</li>
+<li><strong>Persistent</strong> — reference-counted (lists, maps)</li>
+</ul>
+<p>Using an affine value more than once is a compile-time error. See <a href="affine.html">Affine Types</a>.</p>
+<h3 id="4-first-class-closures"><a class="header" href="#4-first-class-closures">4. First-Class Closures</a></h3>
+<p>Functions are values. They capture their environment by value and can be passed to other functions, stored in data structures, and returned.</p>
+<pre><code class="language-dew">def apply_twice = fn(f: Int -&gt; Int, x: Int) -&gt; Int { f(f(x)) }
+</code></pre>
+<p>Closure affinity is inferred automatically: capturing an affine variable produces <code>FnOnce</code>; pure captures produce unrestricted <code>Fn</code>.</p>
+<h2 id="a-quick-tour"><a class="header" href="#a-quick-tour">A Quick Tour</a></h2>
+<p>Here is a program demonstrating several Dew features at once:</p>
+<pre><code class="language-dew">// Struct definition
+struct Point { x: Int, y: Int }
+
+// Recursive function
+def dist_sq = fn(p: Point) -&gt; Int {
+  p.x * p.x + p.y * p.y
+}
+
+// Match expression
+def abs = fn(n: Int) -&gt; Int {
+  match n &lt; 0 {
+    true =&gt; 0 - n,
+    false =&gt; n,
+  }
+}
+
+// Higher-order function
+def apply5 = fn(f: Int -&gt; Int) -&gt; Int { f(5) }
+
+// Entry point
+def main = fn -&gt; Int {
+  def p = Point(3, 4);
+  dist_sq(p) -&gt; Stdout;   // print via pipe
+  apply5(fn(x) { x + 1 }) // returns 6
+}
+</code></pre>
+<h2 id="key-concepts"><a class="header" href="#key-concepts">Key Concepts</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Concept</th><th>Description</th></tr></thead><tbody>
+<tr><td><strong><code>def</code></strong></td><td>Top-level and local bindings (immutable)</td></tr>
+<tr><td><strong><code>fn</code></strong></td><td>Anonymous function expressions</td></tr>
+<tr><td><strong><code>struct</code></strong></td><td>Named record types with positional fields</td></tr>
+<tr><td><strong><code>enum</code></strong></td><td>Tagged union types with optional payloads</td></tr>
+<tr><td><strong><code>match</code></strong></td><td>Pattern-matching expression with exhaustiveness</td></tr>
+<tr><td><strong><code>if</code>/<code>else</code></strong></td><td>Conditional expression (not statement)</td></tr>
+<tr><td><strong><code>-&gt;</code></strong></td><td>Pipe operator for I/O and forward application</td></tr>
+<tr><td><strong><code>force</code></strong></td><td>Explicit strict evaluation (rarely needed)</td></tr>
+<tr><td><strong><code>fix</code></strong></td><td>Explicit fixed-point recursion combinator</td></tr>
+<tr><td><strong><code>import</code></strong></td><td>Module import from external Dew files</td></tr>
+</tbody></table>
+</div>
+<h2 id="design-document"><a class="header" href="#design-document">Design Document</a></h2>
+<p>For the formal specification, see the <a href="../"><code>docs/</code></a> directory containing both English and Chinese versions of the language book. The current document is the English edition covering all implemented features as of version 0.1.0.</p>
+<h2 id="next-steps"><a class="header" href="#next-steps">Next Steps</a></h2>
+<ul>
+<li><a href="types.html"><strong>Types</strong></a> — learn about the primitive and compound type system</li>
+<li><a href="functions.html"><strong>Functions</strong></a> — closures, recursion, higher-order patterns</li>
+<li><a href="control-flow.html"><strong>Control Flow</strong></a> — <code>if</code>, <code>match</code>, blocks, and the pipe operator</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="types"><a class="header" href="#types">Types</a></h1>
+<p>Dew is statically typed. Every expression has a type known at compile time, enforced by Hindley-Milner type inference with affine resource tracking. Type annotations are optional in most positions — the compiler infers them.</p>
+<h2 id="primitive-types"><a class="header" href="#primitive-types">Primitive Types</a></h2>
+<p>Dew provides four built-in primitive types:</p>
+<div class="table-wrapper"><table><thead><tr><th>Type</th><th>Description</th><th>Example</th></tr></thead><tbody>
+<tr><td><code>Int</code></td><td>64-bit signed integer</td><td><code>42</code>, <code>-7</code>, <code>0</code></td></tr>
+<tr><td><code>Bool</code></td><td>Boolean value</td><td><code>true</code>, <code>false</code></td></tr>
+<tr><td><code>Char</code></td><td>Unicode scalar value</td><td><code>'a'</code>, <code>'\n'</code>, <code>'λ'</code></td></tr>
+<tr><td><code>Unit</code></td><td>The unit type (single value)</td><td><code>Unit</code></td></tr>
+</tbody></table>
+</div>
+<h3 id="why-int-is-64-bit"><a class="header" href="#why-int-is-64-bit">Why <code>Int</code> is 64-bit</a></h3>
+<p><code>Int</code> is a <strong>fixed-size, stack-allocated, Copyable</strong> type. This is a deliberate design choice:</p>
+<div class="table-wrapper"><table><thead><tr><th>Choice</th><th>Allocation</th><th>Affinity</th><th>Everyday usability</th></tr></thead><tbody>
+<tr><td><strong><code>i64</code> (chosen)</strong></td><td>Stack, 8 bytes</td><td>Copyable</td><td>Arithmetic just works</td></tr>
+<tr><td><code>i128</code></td><td>Stack, 16 bytes</td><td>Copyable</td><td>No practical benefit on 64-bit hardware</td></tr>
+<tr><td>Big integer</td><td>Heap</td><td>Affine or Persistent</td><td>Every <code>+</code> would consume its operands</td></tr>
+</tbody></table>
+</div>
+<p>If <code>Int</code> were heap-allocated (affine), the simplest expressions would break:</p>
+<pre><code class="language-dew">def x = 42;
+def y = x + 1;  // x consumed — gone
+def z = x + 2;  // ERROR: x already moved
+</code></pre>
+<p><code>Int</code> as Copyable is essential to the language's usability. A 64-bit signed integer matches the machine word on modern hardware, provides clean C interop (<code>int64_t</code>), and offers sufficient range for virtually all numeric programs (factorial of 20 is ~2.4 × 10¹⁸, still within <code>i64</code>).</p>
+<p><strong>Arbitrary-precision integers</strong> are planned as a separate <code>BigInt</code> type with Affine or Persistent affinity — opt-in for the rare cases that need them.</p>
+<pre><code class="language-dew">def meaning: Int = 42;
+def flag: Bool = true;
+def letter: Char = 'z';
+def nothing: Unit = Unit;
+</code></pre>
+<h2 id="type-annotations"><a class="header" href="#type-annotations">Type Annotations</a></h2>
+<p>Type annotations use a colon after the name:</p>
+<pre><code class="language-dew">def name: Type = expression;
+</code></pre>
+<p>In function parameters, annotations are required for the parameter types. The return type annotation is optional:</p>
+<pre><code class="language-dew">def add = fn(x: Int, y: Int) -&gt; Int { x + y }
+//        ^^^^^^^^^^^^^^^^^^ params        ^^^ return type
+</code></pre>
+<p>For multi-parameter functions, all parameter types must be annotated. The return type defaults to a fresh type variable if omitted:</p>
+<pre><code class="language-dew">def id = fn(x: Int) { x }  // return type inferred as Int
+</code></pre>
+<h2 id="function-types"><a class="header" href="#function-types">Function Types</a></h2>
+<p>Function types use the arrow syntax <code>T -&gt; U</code>:</p>
+<pre><code class="language-dew">Int -&gt; Bool                  // function from Int to Bool
+(Int -&gt; Bool) -&gt; Char        // function taking a function, returning Char
+Int -&gt; Bool -&gt; Char          // curried: Int -&gt; (Bool -&gt; Char)
+</code></pre>
+<p>The arrow is right-associative, so <code>T1 -&gt; T2 -&gt; T3</code> means <code>T1 -&gt; (T2 -&gt; T3)</code> — a function returning a function. Parentheses group: <code>(T1 -&gt; T2) -&gt; T3</code> is a function taking a function.</p>
+<p>In type annotations, write:</p>
+<pre><code class="language-dew">def apply = fn(f: Int -&gt; Int, x: Int) -&gt; Int { f(x) }
+</code></pre>
+<p>Here <code>Int -&gt; Int</code> is the type of parameter <code>f</code>.</p>
+<p>For multi-parameter types, use a tuple:</p>
+<pre><code class="language-dew">def add = fn(x: Int, y: Int) -&gt; Int { x + y }
+// add : (Int, Int) -&gt; Int
+</code></pre>
+<p>The legacy <code>fn(...) -&gt; ...</code> keyword form (<code>fn(Int) -&gt; Int</code>) is still accepted for backward compatibility.</p>
+<h2 id="named-types"><a class="header" href="#named-types">Named Types</a></h2>
+<p>User-defined structs and enums become named types:</p>
+<pre><code class="language-dew">struct Point { x: Int, y: Int }   // type: Point
+enum Option { Some(Int), None }   // type: Option
+</code></pre>
+<p>See <a href="structs-enums.html">Structs and Enums</a> for full details.</p>
+<h2 id="compound-types"><a class="header" href="#compound-types">Compound Types</a></h2>
+<h3 id="tuple-types"><a class="header" href="#tuple-types">Tuple Types</a></h3>
+<p>Tuples are written as comma-separated types in parentheses:</p>
+<pre><code class="language-dew">(Int, Bool)       // pair type
+(Int, Int, Char)  // triple type
+</code></pre>
+<p>Example:</p>
+<pre><code class="language-dew">def pair: (Int, Bool) = (42, true);
+</code></pre>
+<h3 id="array-types"><a class="header" href="#array-types">Array Types</a></h3>
+<p>Arrays have a fixed size known at compile time. In type annotations, arrays use the parameterized syntax:</p>
+<pre><code>Array(T, N)
+</code></pre>
+<p>where <code>T</code> is the element type and <code>N</code> is the compile-time constant size.</p>
+<pre><code class="language-dew">def digits: Array(Int, 3) = [1, 2, 3];
+</code></pre>
+<h3 id="list-types"><a class="header" href="#list-types">List Types</a></h3>
+<p>The internal type system supports <code>List(T)</code> as a parameterized persistent collection, though the surface syntax currently treats them through library definitions.</p>
+<h2 id="the-internal-type-system"><a class="header" href="#the-internal-type-system">The Internal Type System</a></h2>
+<p>Under the hood, Dew's type checker uses the following internal representation (see <code>types.rs</code>):</p>
+<pre><code class="language-rust ignore">enum Ty {
+    Prim(PrimTy),      // Int, Bool, Char, Unit
+    Var(usize),        // HM type variable
+    Fun(Box&lt;Ty&gt;, Box&lt;Ty&gt;),  // function type
+    Adt(String, Vec&lt;Ty&gt;),   // named ADT (struct/enum)
+    Tuple(Vec&lt;Ty&gt;),          // tuple type
+    Array(Box&lt;Ty&gt;, usize),   // fixed-size array
+    List(Box&lt;Ty&gt;),           // persistent list
+    Affine(Box&lt;Ty&gt;),         // affine resource wrapper
+    Hole(usize),             // inference gap
+}</code></pre>
+<h2 id="type-inference"><a class="header" href="#type-inference">Type Inference</a></h2>
+<p>Dew uses a <strong>Hindley-Milner</strong> type inference engine (WIP in v0.1.0). Currently, the following types are fully inferred:</p>
+<ul>
+<li>Literals: <code>Int</code>, <code>Bool</code>, <code>Char</code>, <code>Unit</code></li>
+<li>Variable references: looked up from the environment</li>
+<li>All other expression forms: assigned fresh type variables (to be unified in later passes)</li>
+</ul>
+<p>The type checker stores inferred types in a <code>TypeEnv</code> — a map from variable names to their resolved types. This environment is used by downstream passes for code generation.</p>
+<h2 id="resource-affinity"><a class="header" href="#resource-affinity">Resource Affinity</a></h2>
+<p>Every type has an associated <strong>affinity</strong> determining how values of that type may be used:</p>
+<div class="table-wrapper"><table><thead><tr><th>Affinity</th><th>Types</th><th>Rules</th></tr></thead><tbody>
+<tr><td><strong>Copyable</strong></td><td><code>Int</code>, <code>Bool</code>, <code>Char</code>, <code>Unit</code>, pure structs, tuples of copyable</td><td>Freely duplicated</td></tr>
+<tr><td><strong>Affine</strong></td><td><code>Affine(T)</code></td><td>Used at most once</td></tr>
+<tr><td><strong>Persistent</strong></td><td><code>List(T)</code></td><td>Reference-counted, shared</td></tr>
+</tbody></table>
+</div>
+<p>The affine type system ensures that resources are never silently duplicated. <code>Affine(T)</code> is a zero-cost compile-time marker — using an affine value more than once produces a compile-time error.</p>
+<p>See the <a href="affine.html">Affine Types</a> chapter for the full resource-tracking model.</p>
+<h2 id="next"><a class="header" href="#next">Next</a></h2>
+<ul>
+<li><a href="functions.html"><strong>Functions</strong></a> — <code>def</code>, <code>fn</code>, closures, and recursion</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="functions"><a class="header" href="#functions">Functions</a></h1>
+<p>Functions are the central abstraction in Dew. They are first-class values, capture their environment by value, and support recursion, partial application, and higher-order patterns.</p>
+<h2 id="defining-functions"><a class="header" href="#defining-functions">Defining Functions</a></h2>
+<h3 id="top-level-definitions-def"><a class="header" href="#top-level-definitions-def">Top-Level Definitions (<code>def</code>)</a></h3>
+<p>Every named binding in Dew uses <code>def</code>:</p>
+<pre><code class="language-dew">def add = fn(x: Int, y: Int) -&gt; Int { x + y }
+</code></pre>
+<p>The general form is:</p>
+<pre><code>def name = expression
+</code></pre>
+<p>The expression can be any value, but producing a function is the most common case.</p>
+<h3 id="anonymous-functions-fn"><a class="header" href="#anonymous-functions-fn">Anonymous Functions (<code>fn</code>)</a></h3>
+<p>The <code>fn</code> keyword creates an anonymous function value:</p>
+<pre><code>fn(params...) -&gt; RetType { body }
+</code></pre>
+<p>Parameters are written as <code>name: Type</code> pairs separated by commas. The return type annotation is optional — if omitted, it is inferred.</p>
+<pre><code class="language-dew">// With explicit return type
+def inc = fn(x: Int) -&gt; Int { x + 1 }
+
+// Inferred return type
+def id = fn(x: Int) { x }
+
+// Multi-parameter
+def hypot = fn(a: Int, b: Int) -&gt; Int { a * b }
+</code></pre>
+<h3 id="closures"><a class="header" href="#closures">Closures</a></h3>
+<p>Functions capture their environment by value. The captured variables become part of the closure:</p>
+<pre><code class="language-dew">def make_adder = fn(n: Int) -&gt; Int -&gt; Int {
+  fn(x: Int) -&gt; Int { x + n }  // captures n by value
+}
+def add_5 = make_adder(5);
+add_5(10)  // 15
+</code></pre>
+<p><strong>Closure affinity</strong> is inferred automatically. If a closure captures an affine variable, it is marked <code>FnOnce</code>; otherwise, it is unrestricted <code>Fn</code>.</p>
+<h2 id="calling-functions"><a class="header" href="#calling-functions">Calling Functions</a></h2>
+<p>Function application uses juxtaposition — write the function followed by its arguments:</p>
+<pre><code class="language-dew">inc(5)          // 6
+add(3, 4)       // 7
+hypot(3, 4)     // 12
+</code></pre>
+<p>Arguments are separated by commas. This is syntactic sugar for the <code>App</code> AST node.</p>
+<h3 id="partial-application"><a class="header" href="#partial-application">Partial Application</a></h3>
+<p>Dew supports partial application naturally. A function with multiple parameters can be called with fewer arguments, producing a new function:</p>
+<pre><code class="language-dew">def add = fn(x: Int, y: Int) -&gt; Int { x + y }
+def add_3 = add(3);    // fn(y: Int) -&gt; Int { 3 + y }
+add_3(7)                // 10
+</code></pre>
+<h2 id="recursion"><a class="header" href="#recursion">Recursion</a></h2>
+<p>Dew supports direct recursion through self-reference in <code>def</code> bodies. Inside a function definition, the function's own name refers to itself:</p>
+<pre><code class="language-dew">def fact = fn(n: Int) -&gt; Int {
+  if n == 0 { 1 } else { n * fact(n - 1) }
+}
+def main = fn -&gt; Int { fact(5) }
+</code></pre>
+<p>For mutual recursion or more complex recursive patterns, use the <code>fix</code> combinator:</p>
+<pre><code>fix name { body }
+</code></pre>
+<p>The <code>fix</code> combinator makes <code>name</code> available as a self-reference within <code>body</code>, implementing the standard fixed-point operator.</p>
+<h3 id="how-recursion-works-internally"><a class="header" href="#how-recursion-works-internally">How Recursion Works Internally</a></h3>
+<p>The IR generator detects self-references during compilation. When a <code>Var(name)</code> expression appears inside a <code>def</code> block where <code>name</code> matches the current definition, the compiler converts it to a <code>Ref(label)</code> node pointing to the thunk's own label. This enables the evaluator's 3-state FSM to handle recursion without infinite loops.</p>
+<h2 id="higher-order-functions"><a class="header" href="#higher-order-functions">Higher-Order Functions</a></h2>
+<p>Functions can accept other functions as arguments and return functions as results:</p>
+<pre><code class="language-dew">def apply5 = fn(f: Int -&gt; Int) -&gt; Int { f(5) }
+def inc = fn(x: Int) -&gt; Int { x + 1 }
+def main = fn -&gt; Int { apply5(inc) }
+</code></pre>
+<p>Common higher-order patterns:</p>
+<pre><code class="language-dew">// Map-like: apply function to argument
+def apply_to = fn(f: Int -&gt; Int, x: Int) -&gt; Int { f(x) }
+
+// Compose: apply g after f
+def compose = fn(f: Int -&gt; Int, g: Int -&gt; Int) -&gt; Int -&gt; Int {
+  fn(x: Int) -&gt; Int { g(f(x)) }
+}
+</code></pre>
+<h2 id="the-pipe-operator--"><a class="header" href="#the-pipe-operator--">The Pipe Operator (<code>-&gt;</code>)</a></h2>
+<p>The pipe operator <code>-&gt;</code> feeds the left-hand expression as an argument to the right-hand function:</p>
+<pre><code class="language-dew">expr -&gt; func
+// equivalent to: func(expr)
+</code></pre>
+<p>This is especially useful for chaining operations and for I/O:</p>
+<pre><code class="language-dew">42 -&gt; Stdout;          // print 42
+a + b -&gt; Stdout;        // print sum of a and b
+some_value -&gt; process;  // equivalent to process(some_value)
+</code></pre>
+<p>The pipe is left-associative and has the lowest precedence of all binary operators. See <a href="io.html">Input/Output</a> for I/O-specific pipe usage.</p>
+<h2 id="built-in-functions"><a class="header" href="#built-in-functions">Built-in Functions</a></h2>
+<p>Dew provides a few built-in function-like values in the initial environment:</p>
+<div class="table-wrapper"><table><thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>Stdin</code></td><td>builtin</td><td>Reads an integer from stdin</td></tr>
+<tr><td><code>Stdout</code></td><td>builtin</td><td>Prints a value to stdout</td></tr>
+<tr><td><code>not</code></td><td>builtin</td><td>Boolean negation: <code>not(true)</code> → <code>false</code></td></tr>
+</tbody></table>
+</div>
+<p>These are not ordinary functions — they are recognized by the evaluator as special builtin values and dispatched accordingly.</p>
+<h2 id="ast-representation"><a class="header" href="#ast-representation">AST Representation</a></h2>
+<p>Functions in the parsed AST are represented by two node types:</p>
+<ul>
+<li><strong><code>Fn</code></strong>: Anonymous function expression with parameters, optional return type, and body</li>
+<li><strong><code>Fix</code></strong>: Fixed-point combinator for explicit recursion <code>fix name { body }</code></li>
+</ul>
+<p>During IR generation, <code>Fn</code> becomes <code>Ir::Lambda</code> and <code>Fix</code> becomes <code>Ir::Fix</code>.</p>
+<h2 id="next-1"><a class="header" href="#next-1">Next</a></h2>
+<ul>
+<li><a href="control-flow.html"><strong>Control Flow</strong></a> — <code>if</code>, <code>match</code>, blocks, and pipes</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="control-flow"><a class="header" href="#control-flow">Control Flow</a></h1>
+<p>Dew provides expression-based control flow. Every control construct produces a value.</p>
+<h2 id="if--else-expressions"><a class="header" href="#if--else-expressions"><code>if</code> / <code>else</code> Expressions</a></h2>
+<p>The <code>if</code> expression evaluates a condition (which must be <code>Bool</code>) and selects one of two branches:</p>
+<pre><code class="language-dew">if condition { then_expr } else { else_expr }
+</code></pre>
+<p>Each branch is a block expression. The <code>else</code> clause is optional — if omitted, it defaults to <code>Unit</code>:</p>
+<pre><code class="language-dew">def main = fn -&gt; Int {
+  if 10 &lt; 20 { 99 } else { 0 }   // returns 99
+}
+</code></pre>
+<p><code>if</code> expressions can be chained (else-if):</p>
+<pre><code class="language-dew">def sign = fn(n: Int) -&gt; Int {
+  if n &gt; 0 { 1 }
+  else {
+    if n &lt; 0 { -1 }
+    else { 0 }
+  }
+}
+</code></pre>
+<h3 id="strictness"><a class="header" href="#strictness">Strictness</a></h3>
+<p>The condition is always evaluated strictly. The branches are evaluated in the ambient context (lazy if the result is not immediately demanded).</p>
+<h2 id="match-expressions"><a class="header" href="#match-expressions"><code>match</code> Expressions</a></h2>
+<p>Pattern matching is the primary way to destructure values and branch on structure:</p>
+<pre><code class="language-dew">match scrutinee {
+  pattern1 =&gt; body1,
+  pattern2 =&gt; body2,
+}
+</code></pre>
+<h3 id="boolean-matching"><a class="header" href="#boolean-matching">Boolean Matching</a></h3>
+<p>The simplest use matches on <code>Bool</code>:</p>
+<pre><code class="language-dew">def abs = fn(n: Int) -&gt; Int {
+  match n &lt; 0 {
+    true =&gt; 0 - n,
+    false =&gt; n,
+  }
+}
+def main = fn -&gt; Int { abs(-42) }
+</code></pre>
+<h3 id="integer-literal-matching"><a class="header" href="#integer-literal-matching">Integer Literal Matching</a></h3>
+<p>Match on specific integer values:</p>
+<pre><code class="language-dew">def fizzbuzz = fn(n: Int) -&gt; Int {
+  match n % 15 {
+    0 =&gt; 0,
+    3 =&gt; 1,
+    5 =&gt; 1,
+    6 =&gt; 1,
+    9 =&gt; 1,
+    10 =&gt; 1,
+    12 =&gt; 1,
+    _ =&gt; n,
+  }
+}
+def main = fn -&gt; Int { fizzbuzz(33) }
+</code></pre>
+<h3 id="pattern-variables"><a class="header" href="#pattern-variables">Pattern Variables</a></h3>
+<p>Patterns can bind variables. A variable pattern matches any value and binds it to a name:</p>
+<pre><code class="language-dew">def describe = fn(n: Int) -&gt; Int {
+  match n {
+    0 =&gt; 0,
+    n =&gt; n,  // binds n (shadows outer n in this arm)
+  }
+}
+</code></pre>
+<h3 id="wildcard-pattern"><a class="header" href="#wildcard-pattern">Wildcard Pattern</a></h3>
+<p>The underscore <code>_</code> matches any value and discards it:</p>
+<pre><code class="language-dew">match x {
+  0 =&gt; "zero",
+  _ =&gt; "non-zero",
+}
+</code></pre>
+<h3 id="struct-patterns"><a class="header" href="#struct-patterns">Struct Patterns</a></h3>
+<p>Destructure struct values by field position:</p>
+<pre><code class="language-dew">struct Point { x: Int, y: Int }
+match p {
+  Point(x, y) =&gt; x + y,
+}
+</code></pre>
+<h3 id="enum-patterns"><a class="header" href="#enum-patterns">Enum Patterns</a></h3>
+<p>Match on enum variants:</p>
+<pre><code class="language-dew">enum Option { Some(Int), None }
+match opt {
+  Some(val) =&gt; val,
+  None =&gt; 0,
+}
+</code></pre>
+<h3 id="tuple-patterns"><a class="header" href="#tuple-patterns">Tuple Patterns</a></h3>
+<p>Destructure tuples:</p>
+<pre><code class="language-dew">match pair {
+  (x, y) =&gt; x + y,
+}
+</code></pre>
+<h2 id="blocks"><a class="header" href="#blocks">Blocks</a></h2>
+<p>Blocks <code>{ ... }</code> sequence statements and produce a final value. A block contains zero or more statement expressions terminated by <code>;</code>, optionally followed by a final expression:</p>
+<pre><code class="language-dew">{
+  stmt1;
+  stmt2;
+  final_expression
+}
+</code></pre>
+<p>Statements are evaluated for their side effects (I/O) and their values are discarded. The block's value is the final expression.</p>
+<h3 id="local-def-bindings"><a class="header" href="#local-def-bindings">Local <code>def</code> Bindings</a></h3>
+<p>Inside blocks, <code>def</code> creates local bindings:</p>
+<pre><code class="language-dew">{
+  def x = 10;
+  def y = 20;
+  x + y  // 30 — this is the block's value
+}
+</code></pre>
+<p>Each local <code>def</code> is scoped to the remainder of the block (including subsequent <code>def</code>s and the final expression). Local <code>def</code>s compile to nested <code>Let</code> IR nodes.</p>
+<h3 id="statement-only-blocks"><a class="header" href="#statement-only-blocks">Statement-Only Blocks</a></h3>
+<p>A block with no final expression evaluates to <code>Unit</code>:</p>
+<pre><code class="language-dew">{
+  def x = 1;
+  x + 1 -&gt; Stdout;
+  // no final expression → Unit
+}
+</code></pre>
+<h3 id="comparison-with-top-level-def"><a class="header" href="#comparison-with-top-level-def">Comparison with Top-Level <code>def</code></a></h3>
+<p>Top-level <code>def</code> is parsed as a <code>Decl::Def</code> and produces a thunk in the IR module. Block-level <code>def</code> is parsed as part of the block body and produces <code>Let</code> nodes. The syntax is identical, but the semantics differ: top-level <code>def</code>s are lazy (thunked); block-level <code>def</code>s follow the ambient strictness context.</p>
+<h2 id="the-pipe-operator---1"><a class="header" href="#the-pipe-operator---1">The Pipe Operator (<code>-&gt;</code>)</a></h2>
+<p>The pipe operator feeds its left operand as an extra argument to the right:</p>
+<pre><code class="language-dew">left -&gt; right
+</code></pre>
+<p>At the AST level, this becomes an <code>Expr::App</code> where <code>left</code> is appended to <code>right</code>'s argument list. It is syntactic sugar:</p>
+<pre><code class="language-dew">x -&gt; f        // f(x)
+x -&gt; f(y)     // f(y, x)
+x -&gt; f(y, z)  // f(y, z, x)
+</code></pre>
+<p>Pipes are left-associative, enabling chaining:</p>
+<pre><code class="language-dew">input -&gt; validate -&gt; transform -&gt; Stdout
+</code></pre>
+<p>For I/O pipes (<code>-&gt; Stdin</code>, <code>-&gt; Stdout</code>), see the <a href="io.html">Input/Output</a> chapter.</p>
+<h2 id="ast-reference"><a class="header" href="#ast-reference">AST Reference</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>AST Node</th><th>Dew Syntax</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>Expr::If</code></td><td><code>if cond { then } else { else_ }</code></td><td>Conditional expression</td></tr>
+<tr><td><code>Expr::Match</code></td><td><code>match scrutinee { arms }</code></td><td>Pattern matching</td></tr>
+<tr><td><code>Expr::Block</code></td><td><code>{ stmts; final }</code></td><td>Statement sequence</td></tr>
+<tr><td><code>Expr::Return</code></td><td><code>return expr</code></td><td>Early return</td></tr>
+<tr><td><code>Expr::Pipe</code></td><td><code>left -&gt; right</code></td><td>Forward pipe</td></tr>
+</tbody></table>
+</div>
+<h2 id="next-2"><a class="header" href="#next-2">Next</a></h2>
+<ul>
+<li><a href="structs-enums.html"><strong>Structs and Enums</strong></a> — data types and pattern matching</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="structs-and-enums"><a class="header" href="#structs-and-enums">Structs and Enums</a></h1>
+<p>Dew supports algebraic data types through <code>struct</code> and <code>enum</code> declarations.</p>
+<h2 id="structs"><a class="header" href="#structs">Structs</a></h2>
+<p>Structs are named record types with positional fields. They are declared at the top level:</p>
+<pre><code>struct Name { field1: Type1, field2: Type2, ... }
+</code></pre>
+<h3 id="declaration"><a class="header" href="#declaration">Declaration</a></h3>
+<pre><code class="language-dew">struct Point { x: Int, y: Int }
+struct Person { name: String, age: Int }
+</code></pre>
+<p>Fields are separated by commas (optional trailing comma allowed). Each field must have an explicit type annotation.</p>
+<h3 id="construction"><a class="header" href="#construction">Construction</a></h3>
+<p>Struct values are constructed by calling the struct name as a function with positional arguments:</p>
+<pre><code class="language-dew">def p = Point(3, 4);
+def q = Point(10, 20);
+</code></pre>
+<p>Internally, struct construction is compiled as function application: <code>Point(3, 4)</code> becomes <code>Apply(Var("Point"), [Lit(3), Lit(4)])</code>. During evaluation, the evaluator recognizes capitalized names and constructs a <code>Value::Struct</code>.</p>
+<h3 id="field-access"><a class="header" href="#field-access">Field Access</a></h3>
+<p>Access fields by name using dot notation:</p>
+<pre><code class="language-dew">p.x      // 3
+p.y      // 4
+</code></pre>
+<p>The evaluator looks up the field name in the struct's field name list and returns the value at the corresponding positional index.</p>
+<h3 id="field-update"><a class="header" href="#field-update">Field Update</a></h3>
+<p>Structs are immutable, but you can create a modified copy using the update syntax:</p>
+<pre><code>expr { field1 = value1, field2 = value2 }
+</code></pre>
+<pre><code class="language-dew">def q = p { x = 10 };  // Point { x: 10, y: 4 }
+</code></pre>
+<p>The original struct is unchanged; this produces a new struct with the specified fields replaced.</p>
+<h3 id="complete-example"><a class="header" href="#complete-example">Complete Example</a></h3>
+<pre><code class="language-dew">struct Point { x: Int, y: Int }
+def dist_sq = fn(p: Point) -&gt; Int { p.x * p.x + p.y * p.y }
+def main = fn -&gt; Int { def p = Point(3, 4); dist_sq(p) }
+</code></pre>
+<h2 id="enums"><a class="header" href="#enums">Enums</a></h2>
+<p>Enums are tagged unions — each variant can optionally carry a payload type:</p>
+<pre><code>enum Name { Variant1(Type), Variant2, Variant3(Type) }
+</code></pre>
+<h3 id="declaration-1"><a class="header" href="#declaration-1">Declaration</a></h3>
+<pre><code class="language-dew">enum Option { Some(Int), None }
+enum Result { Ok(Int), Err(String) }
+enum Color { Red, Green, Blue }
+</code></pre>
+<p>Variants without payloads are unit-like variants. Variants with payloads carry a single typed value.</p>
+<h3 id="pattern-matching-on-enums"><a class="header" href="#pattern-matching-on-enums">Pattern Matching on Enums</a></h3>
+<p>Use <code>match</code> with enum variant patterns:</p>
+<pre><code class="language-dew">enum Option { Some(Int), None }
+
+def unwrap_or = fn(opt: Option, default: Int) -&gt; Int {
+  match opt {
+    Some(val) =&gt; val,
+    None =&gt; default,
+  }
+}
+</code></pre>
+<h3 id="variant-patterns"><a class="header" href="#variant-patterns">Variant Patterns</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Pattern</th><th>Matches</th></tr></thead><tbody>
+<tr><td><code>Variant</code></td><td>Unit-like variant (no payload)</td></tr>
+<tr><td><code>Variant(pat)</code></td><td>Variant with payload, matched against <code>pat</code></td></tr>
+</tbody></table>
+</div>
+<p>The payload pattern <code>pat</code> can itself be any pattern, including wildcards, variables, or nested patterns.</p>
+<h2 id="ast-and-ir-representation"><a class="header" href="#ast-and-ir-representation">AST and IR Representation</a></h2>
+<h3 id="ast-source"><a class="header" href="#ast-source">AST (Source)</a></h3>
+<pre><code class="language-rust ignore">Decl::Struct { name, fields: Vec&lt;(String, Type)&gt; }
+Decl::Enum   { name, variants: Vec&lt;Variant&gt; }
+
+Expr::StructCons   { name, fields: Vec&lt;Expr&gt; }     // Point(x, y)
+Expr::FieldAccess  { expr, field }                  // p.x
+Expr::StructUpdate { expr, updates }                // p { x = 10 }</code></pre>
+<h3 id="ir-thunk-graph"><a class="header" href="#ir-thunk-graph">IR (Thunk Graph)</a></h3>
+<pre><code class="language-rust ignore">Ir::Struct      { name, fields: Vec&lt;Ir&gt; }           // Struct Point [x, y]
+Ir::FieldAccess { expr, field }                      // FieldAccess %p .x
+Ir::StructUpdate { expr, updates }                   // StructUpdate %p [(x, val)]
+Ir::EnumVariant { enum_name, variant, payload }      // EnumVariant Option::Some val</code></pre>
+<h3 id="runtime-values"><a class="header" href="#runtime-values">Runtime Values</a></h3>
+<pre><code class="language-rust ignore">Value::Struct { name, field_names, fields: Vec&lt;Value&gt; }
+Value::EnumVariant { enum_name, variant, payload: Option&lt;Box&lt;Value&gt;&gt; }</code></pre>
+<h2 id="struct-constructor-as-application"><a class="header" href="#struct-constructor-as-application">Struct Constructor as Application</a></h2>
+<p>A key design decision: <strong>struct construction is function application</strong>. When the evaluator encounters <code>Apply(Var("Point"), [a, b])</code> where <code>"Point"</code> starts with an uppercase letter, it constructs a <code>Value::Struct</code> instead of attempting a function call. This unifies the syntax — <code>Name(args...)</code> means struct construction for uppercase names and function application for lowercase names.</p>
+<h2 id="next-3"><a class="header" href="#next-3">Next</a></h2>
+<ul>
+<li><a href="tuples-arrays.html"><strong>Tuples and Arrays</strong></a> — compound data without nominal types</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="tuples-and-arrays"><a class="header" href="#tuples-and-arrays">Tuples and Arrays</a></h1>
+<p>Dew provides two structural compound types: <strong>tuples</strong> (heterogeneous fixed-size collections) and <strong>arrays</strong> (homogeneous fixed-size collections).</p>
+<h2 id="tuples"><a class="header" href="#tuples">Tuples</a></h2>
+<p>Tuples group a fixed number of values of possibly different types:</p>
+<pre><code class="language-dew">def pair = (42, true);          // (Int, Bool)
+def triple = (1, 2, 3);         // (Int, Int, Int)
+def mixed = (42, 'a', true);    // (Int, Char, Bool)
+</code></pre>
+<h3 id="tuple-types-1"><a class="header" href="#tuple-types-1">Tuple Types</a></h3>
+<p>Tuple types use parenthesized, comma-separated type names:</p>
+<pre><code class="language-dew">def pair: (Int, Bool) = (42, true);
+</code></pre>
+<h3 id="restrictions"><a class="header" href="#restrictions">Restrictions</a></h3>
+<ul>
+<li><strong>No unit tuple</strong>: single element in parentheses is just grouping, e.g., <code>(42)</code> is <code>Int</code>, not a tuple</li>
+<li><strong>No single-element tuple</strong>: tuples require two or more elements</li>
+<li><strong>No numeric index access</strong>: use destructuring instead</li>
+</ul>
+<h3 id="tuple-literal-syntax"><a class="header" href="#tuple-literal-syntax">Tuple Literal Syntax</a></h3>
+<pre><code class="language-dew">def t = (1, 2, 3);  // TupleLit
+</code></pre>
+<p>The comma is the tuple constructor — parentheses are required for grouping.</p>
+<h3 id="tuple-update"><a class="header" href="#tuple-update">Tuple Update</a></h3>
+<p>Tuples are immutable. Create a modified copy by positional index:</p>
+<pre><code class="language-dew">def t = (1, 2, 3);
+def t2 = t { 0 = 10 };  // (10, 2, 3)
+</code></pre>
+<h3 id="ast-representation-1"><a class="header" href="#ast-representation-1">AST Representation</a></h3>
+<pre><code class="language-rust ignore">Expr::TupleLit    { elements: Vec&lt;Expr&gt; }     // (1, 2, 3)
+Expr::TupleUpdate { expr, index, value }       // t { 0 = 10 }</code></pre>
+<h3 id="pattern-matching-on-tuples"><a class="header" href="#pattern-matching-on-tuples">Pattern Matching on Tuples</a></h3>
+<p>Destructure tuples in <code>match</code> patterns:</p>
+<pre><code class="language-dew">match pair {
+  (x, y) =&gt; x + y,
+}
+</code></pre>
+<h2 id="arrays"><a class="header" href="#arrays">Arrays</a></h2>
+<p>Arrays are fixed-size, homogeneous collections. The size is a compile-time constant:</p>
+<pre><code class="language-dew">def digits = [1, 2, 3];   // Array(Int, 3)
+def flags = [true, false];  // Array(Bool, 2)
+</code></pre>
+<h3 id="array-types-1"><a class="header" href="#array-types-1">Array Types</a></h3>
+<p>In type annotations, arrays use the parameterized <code>Array(T, N)</code> form:</p>
+<pre><code>Array(Int, 3)      // 3-element integer array
+Array(Char, 5)     // 5-element character array
+Array(Bool, 2)     // 2-element boolean array
+</code></pre>
+<h3 id="array-literals"><a class="header" href="#array-literals">Array Literals</a></h3>
+<pre><code class="language-dew">[e1, e2, e3]       // Expr::ArrayLit
+</code></pre>
+<p>Commas separate elements. All elements must have the same type.</p>
+<h3 id="array-access"><a class="header" href="#array-access">Array Access</a></h3>
+<p>Read an element by index:</p>
+<pre><code class="language-dew">def first = digits[0];   // 1
+def third = digits[2];   // 3
+</code></pre>
+<p>Access compiles to <code>Expr::ArrayAccess { expr, index }</code>.</p>
+<h3 id="array-update"><a class="header" href="#array-update">Array Update</a></h3>
+<p>Create a modified copy with a specific index replaced:</p>
+<pre><code class="language-dew">def digits2 = digits { [0] = 99 };  // [99, 2, 3]
+</code></pre>
+<p>This compiles to <code>Expr::ArrayUpdate { expr, index, value }</code>. The original array is unchanged.</p>
+<h2 id="strings"><a class="header" href="#strings">Strings</a></h2>
+<p>String literals in Dew are syntactic sugar for character arrays:</p>
+<pre><code class="language-dew">"hello"   // equivalent to ['h', 'e', 'l', 'l', 'o']
+          // type: Array(Char, 5)
+</code></pre>
+<p>There is no separate <code>String</code> type. String literals are compiled into <code>Expr::ArrayLit { elements: [Char('h'), ...] }</code>.</p>
+<p>Escape sequences in string literals:</p>
+<ul>
+<li><code>\n</code> — newline</li>
+<li><code>\t</code> — tab</li>
+<li><code>\\</code> — backslash</li>
+<li><code>\"</code> — double quote</li>
+</ul>
+<h3 id="character-literals"><a class="header" href="#character-literals">Character Literals</a></h3>
+<p>Single characters use single quotes:</p>
+<pre><code class="language-dew">'a', 'Z', '\n'
+</code></pre>
+<p>Character literals can also include the same escape sequences.</p>
+<h2 id="internal-types-and-values"><a class="header" href="#internal-types-and-values">Internal Types and Values</a></h2>
+<h3 id="ir-representation"><a class="header" href="#ir-representation">IR Representation</a></h3>
+<pre><code class="language-rust ignore">Ir::Array(Vec&lt;Ir&gt;)                        // [a, b, c]
+Ir::ArrayAccess { expr, index }           // arr[idx]
+Ir::ArrayUpdate { expr, index, value }    // arr { [idx] = val }
+Ir::Tuple(Vec&lt;Ir&gt;)                        // (a, b, c)
+Ir::TupleUpdate { expr, index, value }    // t { idx = val }</code></pre>
+<h3 id="runtime-values-1"><a class="header" href="#runtime-values-1">Runtime Values</a></h3>
+<pre><code class="language-rust ignore">Value::Array(Vec&lt;Value&gt;)  // Array runtime value
+Value::Tuple(Vec&lt;Value&gt;)  // Tuple runtime value</code></pre>
+<h3 id="affinity"><a class="header" href="#affinity">Affinity</a></h3>
+<p>Arrays and tuples of Copyable types are themselves Copyable. If any element type is Affine, the compound type inherits Affine affinity.</p>
+<h2 id="design-notes-from-initial-designmd"><a class="header" href="#design-notes-from-initial-designmd">Design Notes (from <code>initial-design.md</code>)</a></h2>
+<ul>
+<li><strong>Lists</strong> (<code>List(T)</code>) are planned but not yet implemented. They would be persistent (reference-counted) cons-list collections.</li>
+<li><strong>No <code>Float</code></strong> in the initial version.</li>
+<li><strong>Strings as arrays</strong> is a deliberate design choice — no separate <code>String</code> type name exists.</li>
+</ul>
+<h2 id="next-4"><a class="header" href="#next-4">Next</a></h2>
+<ul>
+<li><a href="laziness.html"><strong>Laziness</strong></a> — implicit lazy evaluation and strictness analysis</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="laziness"><a class="header" href="#laziness">Laziness</a></h1>
+<p>Dew evaluates expressions <strong>lazily by default</strong>. The compiler automatically determines which expressions need immediate evaluation and which can be suspended. This chapter explains the mechanism.</p>
+<h2 id="implicit-lazy-evaluation"><a class="header" href="#implicit-lazy-evaluation">Implicit Lazy Evaluation</a></h2>
+<p>In Dew, you never write <code>lazy</code> or <code>force</code> in normal code. The compiler inserts these operations automatically:</p>
+<pre><code class="language-dew">def expensive = heavy_computation();  // SUSPENDED — not evaluated here
+expensive + 1                          // FORCED — evaluated when needed
+</code></pre>
+<h3 id="why-lazy"><a class="header" href="#why-lazy">Why Lazy?</a></h3>
+<ul>
+<li><strong>Efficiency</strong>: unused computations are never evaluated</li>
+<li><strong>Composability</strong>: infinite data structures are possible (with lazy tails)</li>
+<li><strong>Recursion</strong>: enables self-referential thunks for recursive bindings</li>
+</ul>
+<h2 id="strictness-analysis"><a class="header" href="#strictness-analysis">Strictness Analysis</a></h2>
+<p>The compiler performs a pass over the AST (see <code>strictness.rs</code>) to classify every expression context as <strong>Strict</strong> or <strong>Lazy</strong>:</p>
+<pre><code class="language-rust ignore">enum Strictness {
+    Strict,  // value must be computed now
+    Lazy,    // value can be delayed
+}</code></pre>
+<h3 id="classification-rules"><a class="header" href="#classification-rules">Classification Rules</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Expression</th><th>Context</th><th>Why</th></tr></thead><tbody>
+<tr><td><strong>Literals</strong> (<code>Int</code>, <code>Bool</code>, <code>Char</code>, <code>Unit</code>)</td><td>Ambient</td><td>Already in WHNF — no further work needed</td></tr>
+<tr><td><strong>Variables</strong></td><td>Ambient</td><td>Pass through context</td></tr>
+<tr><td><strong>Function body</strong></td><td><strong>Lazy</strong></td><td>Only produces a closure value; body evaluated on each call</td></tr>
+<tr><td><strong>Application</strong></td><td><strong>Strict</strong></td><td>Need the function value to call it; arguments are Lazy</td></tr>
+<tr><td><strong>Let binding</strong></td><td><strong>Lazy</strong> for value</td><td>Bound value can be deferred until used</td></tr>
+<tr><td><strong>If condition</strong></td><td><strong>Strict</strong></td><td>Must know which branch to take</td></tr>
+<tr><td><strong>Force</strong></td><td><strong>Strict</strong></td><td>Explicit demand for evaluation</td></tr>
+<tr><td><strong>Return</strong></td><td><strong>Strict</strong></td><td>Return value must be computed before exiting</td></tr>
+<tr><td><strong>Block statements</strong></td><td><strong>Lazy</strong></td><td>Discarded values need not be computed</td></tr>
+</tbody></table>
+</div>
+<h3 id="example-analysis"><a class="header" href="#example-analysis">Example Analysis</a></h3>
+<p>For <code>def main = fn -&gt; Int { 40 + 2 }</code>:</p>
+<pre><code>fn -&gt; Int { 40 + 2 }
+  body = 40 + 2     → Lazy (function body)
+    left = 40        → Strict (binary op operand)
+    right = 2        → Strict (binary op operand)
+    result = add     → strictness of BinOp follows parent
+</code></pre>
+<h2 id="the-thunk-graph-ir"><a class="header" href="#the-thunk-graph-ir">The Thunk Graph IR</a></h2>
+<p>Lazy evaluation is implemented through the <strong>Thunk Graph IR</strong> — a flat, label-based representation with six primitive operations:</p>
+<div class="table-wrapper"><table><thead><tr><th>Node</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>ThunkAlloc</code></td><td>Allocate a thunk cell on the heap (initial state: Suspended)</td></tr>
+<tr><td><code>ThunkDef</code></td><td>Define the computation body for a thunk</td></tr>
+<tr><td><code>Force</code></td><td>Demand evaluation of a thunk</td></tr>
+<tr><td><code>Update</code></td><td>Memoize the result back into the thunk</td></tr>
+<tr><td><code>Blackhole</code></td><td>Mark a thunk as Evaluating (for cycle detection)</td></tr>
+<tr><td><code>Def</code></td><td>Bind a top-level name to a thunk</td></tr>
+</tbody></table>
+</div>
+<h3 id="the-3-state-fsm"><a class="header" href="#the-3-state-fsm">The 3-State FSM</a></h3>
+<p>Each thunk cell transitions through three states during its lifetime:</p>
+<pre><code>                  Force
+Suspended ─────────────────► Evaluating
+    ▲                            │
+    │                            │ evaluation complete
+    │         Update             ▼
+    └─────────────────────── Evaluated
+                                │
+                          Force │ hit
+                                ▼
+                         (return cached)
+</code></pre>
+<ol>
+<li><strong>Suspended</strong>: Thunk exists but has not been evaluated. Holds the unevaluated IR body.</li>
+<li><strong>Evaluating</strong>: Evaluation is in progress. If another <code>Force</code> arrives, a <strong>cycle</strong> is detected and an error is raised.</li>
+<li><strong>Evaluated</strong>: Result is cached. All subsequent <code>Force</code> operations return the cached value (memoization).</li>
+</ol>
+<h3 id="cycle-detection"><a class="header" href="#cycle-detection">Cycle Detection</a></h3>
+<p>If a thunk in <code>Evaluating</code> state is forced again, the evaluator raises an error:</p>
+<pre><code>cyclic dependency at %t0
+</code></pre>
+<p>This prevents infinite loops from diverging silently and catches genuine programming errors like <code>def x = x</code>.</p>
+<h3 id="example-ir-for-def-x--40--2"><a class="header" href="#example-ir-for-def-x--40--2">Example: IR for <code>def x = 40 + 2</code></a></h3>
+<pre><code>%t0 = ThunkAlloc
+Thunk %t0 {
+  Prim add Lit 40 Lit 2
+}
+%t1 = Force %t0
+Update %t0, %t1
+Def "x" %t0
+</code></pre>
+<p>The sequence is:</p>
+<ol>
+<li>Allocate thunk <code>%t0</code> (Suspended)</li>
+<li>Define its body as <code>add(40, 2)</code></li>
+<li>Force <code>%t0</code> → transition to Evaluating → compute result → transition to Evaluated</li>
+<li>Update <code>%t0</code> with the result (memoize)</li>
+<li>Bind the name <code>x</code> to <code>%t0</code></li>
+</ol>
+<h2 id="explicit-force"><a class="header" href="#explicit-force">Explicit Force</a></h2>
+<p>While normally implicit, you can explicitly force evaluation with the <code>force</code> keyword or <code>!</code> prefix operator:</p>
+<pre><code class="language-dew">force(expr)   // built-in function form
+!expr         // prefix operator form
+</code></pre>
+<p>These are equivalent and force strict evaluation of <code>expr</code>. Use <code>force</code> when you need to ensure evaluation at a specific point (e.g., to trigger side effects at a known time).</p>
+<h2 id="recursion-through-thunks"><a class="header" href="#recursion-through-thunks">Recursion Through Thunks</a></h2>
+<p>Recursive definitions work by self-referential thunks. Inside a <code>def</code> body, when the compiler sees a variable reference that matches the current definition name, it emits <code>Ir::Ref(label)</code> pointing to the thunk's own label:</p>
+<pre><code class="language-dew">def fact = fn(n: Int) -&gt; Int {
+  if n == 0 { 1 } else { n * fact(n - 1) }
+}
+</code></pre>
+<p>The reference to <code>fact</code> inside its own body becomes a <code>Ref(%t_fact)</code> — a self-referential thunk edge. This allows the evaluator's 3-state FSM to handle recursion without explicit fixed-point combinators.</p>
+<p>For anonymous recursion, use the <code>fix</code> keyword:</p>
+<pre><code class="language-dew">fix loop {
+  fn(x: Int) -&gt; Int {
+    if x &lt; 10 { loop(x + 1) } else { x }
+  }
+}
+</code></pre>
+<h2 id="memoization"><a class="header" href="#memoization">Memoization</a></h2>
+<p>Once a thunk is evaluated, its result is memoized. All subsequent <code>Force</code> operations return the cached value without re-executing the body. This is the key property that makes lazy evaluation efficient: each computation is performed at most once.</p>
+<h2 id="compilation-strategy"><a class="header" href="#compilation-strategy">Compilation Strategy</a></h2>
+<p>The IR generator (<code>ir_gen.rs</code>) consults strictness analysis when compiling each expression:</p>
+<pre><code class="language-rust ignore">fn compile_expr_ctx(&amp;mut self, expr: &amp;Expr, ctx: Strictness) -&gt; Ir {
+    let inner = self.compile_expr_inner(expr);
+    match ctx {
+        Strictness::Strict =&gt; inner,      // no wrapping needed
+        Strictness::Lazy =&gt; inner,        // body itself is lazy
+    }
+}</code></pre>
+<p>Currently, both <code>Strict</code> and <code>Lazy</code> contexts produce the same IR — the distinction is structural (later passes may insert explicit Suspend/Force nodes).</p>
+<h2 id="design-notes-from-initial-designmd-1"><a class="header" href="#design-notes-from-initial-designmd-1">Design Notes (from <code>initial-design.md</code>)</a></h2>
+<ul>
+<li><strong>Tail-call optimization</strong> is planned for recursive functions</li>
+<li><strong>Infinite lists</strong> are possible when the tail is lazy — caught at compile time by circular dependency detection</li>
+<li>No tracing GC — memory for evaluated thunks is reclaimed when no longer referenced</li>
+</ul>
+<h2 id="next-5"><a class="header" href="#next-5">Next</a></h2>
+<ul>
+<li><a href="io.html"><strong>Input/Output</strong></a> — I/O via Stdin, Stdout, and the pipe operator</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="inputoutput"><a class="header" href="#inputoutput">Input/Output</a></h1>
+<p>Dew provides a minimal I/O system through two built-in functions and the pipe operator. All I/O is side-effecting and handled at runtime by the evaluator.</p>
+<h2 id="built-in-io-functions"><a class="header" href="#built-in-io-functions">Built-in I/O Functions</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Built-in</th><th>Signature</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>Stdin</code></td><td>Reads a value from standard input</td><td>Blocks until input is available</td></tr>
+<tr><td><code>Stdout</code></td><td>Writes a value to standard output</td><td>Prints followed by newline</td></tr>
+</tbody></table>
+</div>
+<p>These are not ordinary functions — they are recognized by the evaluator as <code>Value::Builtin</code> and dispatched specially.</p>
+<h2 id="reading-input-stdin"><a class="header" href="#reading-input-stdin">Reading Input: <code>Stdin</code></a></h2>
+<p>The <code>Stdin</code> builtin reads from standard input. When used via pipe, it reads a value and binds it to the piped variable:</p>
+<pre><code class="language-dew">def main = fn -&gt; Int {
+  def a = 0;
+  def b = 0;
+  a -&gt; Stdin;
+  b -&gt; Stdin;
+  a + b -&gt; Stdout;
+  0
+}
+</code></pre>
+<p>This program:</p>
+<ol>
+<li>Declares <code>a = 0</code> and <code>b = 0</code> as bindings</li>
+<li>Pipes <code>a -&gt; Stdin</code> — reads an integer from stdin and binds it to <code>a</code></li>
+<li>Pipes <code>b -&gt; Stdin</code> — reads another integer and binds it to <code>b</code></li>
+<li>Pipes <code>a + b -&gt; Stdout</code> — prints the sum</li>
+<li>Returns <code>0</code> as exit code</li>
+</ol>
+<h3 id="how-stdin-works"><a class="header" href="#how-stdin-works">How <code>Stdin</code> Works</a></h3>
+<p>When the evaluator encounters <code>Apply(Var("Stdin"), [Var("a")])</code>, it:</p>
+<ol>
+<li>Reads a line from <code>stdin</code></li>
+<li>Parses it as an <code>i64</code> integer</li>
+<li>Binds the result to <code>a</code> in the current environment</li>
+<li>Returns the parsed integer</li>
+</ol>
+<p>If the input cannot be parsed as an integer, it defaults to <code>0</code>.</p>
+<h3 id="using-stdin-directly"><a class="header" href="#using-stdin-directly">Using <code>Stdin</code> Directly</a></h3>
+<p>You can also call <code>Stdin</code> with an explicit argument:</p>
+<pre><code class="language-dew">def x = Stdin(0);  // reads integer, ignores argument value
+</code></pre>
+<h2 id="writing-output-stdout"><a class="header" href="#writing-output-stdout">Writing Output: <code>Stdout</code></a></h2>
+<p>The <code>Stdout</code> builtin evaluates its argument and prints it:</p>
+<pre><code class="language-dew">42 -&gt; Stdout;            // prints: 42
+a + b -&gt; Stdout;          // prints: sum of a and b
+"hello" -&gt; Stdout;        // prints: ['h', 'e', 'l', 'l', 'o']
+</code></pre>
+<h3 id="how-stdout-works"><a class="header" href="#how-stdout-works">How <code>Stdout</code> Works</a></h3>
+<p>When the evaluator encounters <code>Apply(Var("Stdout"), [arg])</code>:</p>
+<ol>
+<li>Evaluates <code>arg</code> to a <code>Value</code></li>
+<li>Prints the value using its <code>Display</code> implementation</li>
+<li>Flushes stdout</li>
+<li>Returns <code>Unit</code></li>
+</ol>
+<h3 id="value-display-formats"><a class="header" href="#value-display-formats">Value Display Formats</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Type</th><th>Output</th></tr></thead><tbody>
+<tr><td><code>Int</code></td><td><code>42</code></td></tr>
+<tr><td><code>Bool</code></td><td><code>true</code> or <code>false</code></td></tr>
+<tr><td><code>Char</code></td><td><code>'a'</code></td></tr>
+<tr><td><code>Unit</code></td><td><code>Unit</code></td></tr>
+<tr><td><code>Struct</code></td><td><code>Point(3, 4)</code></td></tr>
+<tr><td><code>EnumVariant</code></td><td><code>Some(42)</code></td></tr>
+<tr><td><code>Tuple</code></td><td><code>(1, 2, 3)</code></td></tr>
+<tr><td><code>Array</code></td><td><code>[1, 2, 3]</code></td></tr>
+<tr><td><code>Closure</code></td><td><code>&lt;fn(x, y)&gt;</code></td></tr>
+</tbody></table>
+</div>
+<h2 id="the-pipe-operator-for-io"><a class="header" href="#the-pipe-operator-for-io">The Pipe Operator for I/O</a></h2>
+<p>The pipe operator <code>-&gt;</code> is the idiomatic way to perform I/O in Dew:</p>
+<pre><code class="language-dew">value -&gt; Stdout;    // print value
+var -&gt; Stdin;        // read into var
+</code></pre>
+<p>Pipes work with any expression on the left:</p>
+<pre><code class="language-dew">expensive_computation() -&gt; Stdout;  // evaluates, then prints
+(x + y) * z -&gt; Stdout;              // arithmetic result printed
+</code></pre>
+<h2 id="supported-io-types"><a class="header" href="#supported-io-types">Supported I/O Types</a></h2>
+<p>According to the design document, I/O supports these types:</p>
+<div class="table-wrapper"><table><thead><tr><th>Type</th><th>Stdin (read)</th><th>Stdout (write)</th></tr></thead><tbody>
+<tr><td><code>Int</code></td><td>✅</td><td>✅</td></tr>
+<tr><td><code>Bool</code></td><td>✅</td><td>✅</td></tr>
+<tr><td><code>Char</code></td><td>✅</td><td>✅</td></tr>
+<tr><td><code>Unit</code></td><td>—</td><td>✅</td></tr>
+<tr><td><code>Array(T, N)</code> (T primitive)</td><td>✅</td><td>✅</td></tr>
+<tr><td><code>List(T)</code> (T primitive)</td><td>—</td><td>✅</td></tr>
+</tbody></table>
+</div>
+<p>In the current implementation, <code>Stdin</code> reads integers and <code>Stdout</code> prints any <code>Value</code> type.</p>
+<h2 id="io-and-laziness"><a class="header" href="#io-and-laziness">I/O and Laziness</a></h2>
+<p>I/O operations are naturally <strong>strict</strong>: reading or writing must happen at a specific point in the program's execution. The strictness analyzer classifies function application as strict, so I/O via <code>-&gt; Stdin</code> / <code>-&gt; Stdout</code> is always eagerly evaluated.</p>
+<p>However, if an I/O expression appears in a lazy context (e.g., the value of a <code>let</code> binding that is never used), it might never execute. Use <code>force</code> or ensure the I/O expression is in a strict context when you need guaranteed execution.</p>
+<h2 id="io-and-affine-types"><a class="header" href="#io-and-affine-types">I/O and Affine Types</a></h2>
+<p>I/O operations interact with affine types: if you read an affine value from stdin, it is consumed upon use. Writing does not consume the value (as it only borrows for display). See <a href="affine.html">Affine Types</a> for details.</p>
+<h2 id="ast-representation-2"><a class="header" href="#ast-representation-2">AST Representation</a></h2>
+<p>I/O via pipe is syntactic sugar. The compiler transforms:</p>
+<pre><code>a -&gt; Stdin   →   Stdin(a)
+a -&gt; Stdout  →   Stdout(a)
+</code></pre>
+<p>Both become <code>Expr::App { func: Var("Stdin"/"Stdout"), args: [Var("a")] }</code>.</p>
+<h2 id="design-notes-from-initial-designmd-2"><a class="header" href="#design-notes-from-initial-designmd-2">Design Notes (from <code>initial-design.md</code>)</a></h2>
+<ul>
+<li><strong>Borrow-style I/O</strong>: The design document specifies <code>Stdin(&amp;v: T)</code> — using the <code>&amp;</code> sugar to rebind variables. Currently, the pipe form <code>v -&gt; Stdin</code> achieves the same effect.</li>
+<li><strong>File I/O</strong> is planned for Phase 5 (not yet implemented).</li>
+<li><strong>No <code>print</code> function</strong> — all output goes through <code>Stdout</code>.</li>
+</ul>
+<h2 id="next-6"><a class="header" href="#next-6">Next</a></h2>
+<ul>
+<li><a href="affine.html"><strong>Affine Types</strong></a> — resource tracking and ownership</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="affine-types"><a class="header" href="#affine-types">Affine Types</a></h1>
+<p>Dew's type system tracks <strong>resource affinity</strong> — how many times a value can be used. This enables compile-time guarantees about resource safety without a garbage collector.</p>
+<h2 id="the-three-resource-kinds"><a class="header" href="#the-three-resource-kinds">The Three Resource Kinds</a></h2>
+<p>Every type in Dew belongs to exactly one of three resource categories:</p>
+<div class="table-wrapper"><table><thead><tr><th>Kind</th><th>Description</th><th>Examples</th><th>Rules</th></tr></thead><tbody>
+<tr><td><strong>Copyable</strong></td><td>Freely duplicable, stack-allocated</td><td><code>Int</code>, <code>Bool</code>, <code>Char</code>, <code>Unit</code>, pure structs</td><td>Unlimited use</td></tr>
+<tr><td><strong>Affine</strong></td><td>Used at most once, ownership transfers</td><td><code>Affine(T)</code></td><td>Single use, auto-dropped at scope end</td></tr>
+<tr><td><strong>Persistent</strong></td><td>Reference-counted, shared access</td><td><code>List(T)</code></td><td>Multiple references, refcount-managed</td></tr>
+</tbody></table>
+</div>
+<h2 id="the-affinet-wrapper"><a class="header" href="#the-affinet-wrapper">The <code>Affine(T)</code> Wrapper</a></h2>
+<p><code>Affine(T)</code> is a <strong>zero-cost compile-time marker</strong>. There is no heap allocation — it wraps any value (Copyable or already-affine) and marks it as tracked:</p>
+<pre><code class="language-dew">def x = Affine(42);      // x: Affine(Int) — the integer 42, now tracked
+def y = Affine(true);    // y: Affine(Bool)
+def z = Affine(Unit);    // z: Affine(Unit)
+</code></pre>
+<h3 id="implicit-unwrap"><a class="header" href="#implicit-unwrap">Implicit Unwrap</a></h3>
+<p>When an <code>Affine(T)</code> value appears where <code>T</code> is expected, the compiler <strong>automatically unwraps</strong> it and consumes the wrapper. You rarely need to write <code>open</code> explicitly:</p>
+<pre><code class="language-dew">def x = Affine(42);
+def y = x + 1;    // + expects Int, Int — x is implicitly unwrapped, consumed
+// x is now dead — the Affine wrapper was consumed
+
+def f = fn(a: Int) -&gt; Int { a * 2 };
+def z = Affine(10);
+f(z)              // f expects Int — z is implicitly unwrapped, consumed
+</code></pre>
+<p>The implicit unwrap applies wherever the inner type is demanded:</p>
+<div class="table-wrapper"><table><thead><tr><th>Context</th><th>Behavior</th></tr></thead><tbody>
+<tr><td>Arithmetic (<code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code>)</td><td>Unwraps <code>Affine(Int)</code> → <code>Int</code></td></tr>
+<tr><td>Comparison (<code>&lt;</code>, <code>&gt;</code>, <code>==</code>, etc.)</td><td>Unwraps <code>Affine(Int)</code> → <code>Int</code></td></tr>
+<tr><td>Function call matching parameter type</td><td>Unwraps if param expects inner type</td></tr>
+<tr><td>Condition (<code>if</code>, <code>match</code> scrutinee)</td><td>Unwraps if needed</td></tr>
+</tbody></table>
+</div>
+<h3 id="explicit-open"><a class="header" href="#explicit-open">Explicit <code>open</code></a></h3>
+<p>For cases where you want to explicitly consume the wrapper, use <code>open</code>:</p>
+<pre><code class="language-dew">def consume = fn(x: Affine(Int)) -&gt; Int {
+  open(x)   // explicit: consume the Affine wrapper, yield the inner Int
+}
+
+def a = Affine(42);
+consume(a)   // a is consumed — transferred into the function, then opened
+</code></pre>
+<p><code>open</code> fails at runtime if the value is not <code>Affine(T)</code>:</p>
+<pre><code class="language-dew">def x = 42;
+open(x)    // runtime error: open: expected Affine value
+</code></pre>
+<h3 id="no-implicit-wrapping"><a class="header" href="#no-implicit-wrapping">No Implicit Wrapping</a></h3>
+<p>The compiler <strong>never</strong> implicitly wraps a value in <code>Affine</code>. This must be explicit:</p>
+<pre><code class="language-dew">def f = fn(x: Affine(Int)) -&gt; Int { open(x) }
+def a = 42;
+// f(a);         // ERROR: Int where Affine(Int) expected
+f(Affine(a));     // OK: explicit opt-in to tracking
+</code></pre>
+<h3 id="behavior-summary"><a class="header" href="#behavior-summary">Behavior Summary</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Have</th><th>Expected</th><th>Result</th></tr></thead><tbody>
+<tr><td><code>T</code></td><td><code>T</code></td><td>Copy — both alive</td></tr>
+<tr><td><code>Affine(T)</code></td><td><code>T</code></td><td><strong>Implicit unwrap</strong> — affine consumed, inner extracted</td></tr>
+<tr><td><code>Affine(T)</code></td><td><code>Affine(T)</code></td><td>Ownership transfer — stays wrapped</td></tr>
+<tr><td><code>T</code></td><td><code>Affine(T)</code></td><td><strong>Rejected</strong> — must use <code>Affine(x)</code> explicitly</td></tr>
+</tbody></table>
+</div>
+<h2 id="computing-affinity"><a class="header" href="#computing-affinity">Computing Affinity</a></h2>
+<p>The affinity of a type is determined structurally:</p>
+<h3 id="primitives"><a class="header" href="#primitives">Primitives</a></h3>
+<pre><code>Int, Bool, Char, Unit → Copyable
+</code></pre>
+<h3 id="affine-wrapper"><a class="header" href="#affine-wrapper">Affine Wrapper</a></h3>
+<pre><code>Affine(T) → Affine (regardless of T)
+</code></pre>
+<h3 id="structs-1"><a class="header" href="#structs-1">Structs</a></h3>
+<pre><code>All fields Copyable → Copyable
+Any field Affine   → Affine
+</code></pre>
+<h3 id="enums-1"><a class="header" href="#enums-1">Enums</a></h3>
+<pre><code>Same as structs — all variants Copyable → Copyable; any Affine variant → Affine
+</code></pre>
+<h3 id="tuples-1"><a class="header" href="#tuples-1">Tuples</a></h3>
+<pre><code>Any element Affine → Affine
+All elements Copyable → Copyable
+</code></pre>
+<h3 id="closures-1"><a class="header" href="#closures-1">Closures</a></h3>
+<pre><code>All captured values Copyable → Copyable (unrestricted Fn)
+Any captured value Affine   → Affine (FnOnce — callable once)
+</code></pre>
+<h3 id="arrays-1"><a class="header" href="#arrays-1">Arrays</a></h3>
+<pre><code>Arrays are always Copyable (elements must be Copyable)
+</code></pre>
+<h2 id="ownership-transfer"><a class="header" href="#ownership-transfer">Ownership Transfer</a></h2>
+<p>When an affine value is used, its ownership transfers. Using it again after transfer is a compile-time error:</p>
+<pre><code class="language-dew">def x = Affine(42);  // x owns the tracked integer
+def y = x;            // ownership transfers from x to y
+// def z = x;         // ERROR: x was already moved
+</code></pre>
+<h3 id="function-arguments"><a class="header" href="#function-arguments">Function Arguments</a></h3>
+<p>Passing an affine value to a function transfers ownership:</p>
+<pre><code class="language-dew">def consume = fn(b: Affine(Int)) -&gt; Int {
+  // b is consumed here — auto-dropped at end of scope
+  0
+}
+
+def x = Affine(42);
+consume(x);    // x's ownership moves into the function
+// x is now unavailable
+</code></pre>
+<h2 id="the-borrow-pattern-"><a class="header" href="#the-borrow-pattern-">The Borrow Pattern (<code>&amp;</code>)</a></h2>
+<p>To use a value without consuming it, Dew provides the <strong>borrow sugar</strong> <code>&amp;</code>:</p>
+<pre><code class="language-dew">def translate = fn(&amp;p: Point, dx: Int, dy: Int) -&gt; Point {
+  &amp;p { x = p.x + dx, y = p.y + dy }
+}
+</code></pre>
+<p><strong>How <code>&amp;</code> desugars:</strong></p>
+<p>The compiler transforms borrow parameters into ownership-passing that returns the value:</p>
+<pre><code>fn(&amp;p: T, ...) -&gt; U
+  desugars to:
+fn(p: T, ...) -&gt; (T, U)
+</code></pre>
+<p>At the call site:</p>
+<pre><code>call f(&amp;x, ...)
+  desugars to:
+def x = f(x, ...)
+</code></pre>
+<p><strong>Restrictions on <code>&amp;</code>:</strong></p>
+<ul>
+<li><code>&amp;</code> only applies to function parameters</li>
+<li><code>&amp;</code> decorates the parameter <strong>name</strong> (<code>&amp;p: Point</code>), not the type (<code>p: &amp;Point</code>)</li>
+<li>Inside the function body, <code>&amp;p = ...</code> or <code>&amp;p { ... }</code> rebinds the parameter</li>
+<li>No explicit lifetime annotations — the compiler handles all scoping</li>
+</ul>
+<h2 id="closure-affinity-inference"><a class="header" href="#closure-affinity-inference">Closure Affinity Inference</a></h2>
+<p>Closures automatically derive their affinity from captured variables:</p>
+<pre><code class="language-dew">def x = 42;                        // x: Int (Copyable)
+def f = fn() -&gt; Int { x };         // captures Copyable → Copyable closure
+f();                               // can call multiple times
+f();                               // OK
+
+def y = Affine(42);                // y: Affine(Int)
+def g = fn() -&gt; Int { open(y) };   // captures Affine → Affine closure (FnOnce)
+g();                               // OK — first call
+// g();                            // ERROR: closure already consumed
+</code></pre>
+<h2 id="auto-drop-at-scope-end"><a class="header" href="#auto-drop-at-scope-end">Auto-Drop at Scope End</a></h2>
+<p>At the end of a scope, the compiler automatically inserts <code>drop</code> calls for any affine values that were not consumed. <code>drop</code> is a compiler-generated, type-specialized function — not exposed to users.</p>
+<pre><code class="language-dew">{
+  def x = Affine(42);
+  // x not explicitly consumed
+  // compiler inserts: drop(x) at end of scope
+}
+</code></pre>
+<p>This ensures no resource leaks.</p>
+<h2 id="affine-types-and-laziness"><a class="header" href="#affine-types-and-laziness">Affine Types and Laziness</a></h2>
+<p>Lazy evaluation interacts with affine types carefully:</p>
+<ul>
+<li>A thunk that captures an affine variable makes the thunk itself affine</li>
+<li>Forcing an affine thunk consumes it</li>
+<li>The compiler tracks thunk affinity to prevent double-forcing</li>
+</ul>
+<h2 id="future-affine-primitives"><a class="header" href="#future-affine-primitives">Future Affine Primitives</a></h2>
+<p><code>Affine(T)</code> is the general-purpose wrapper. Future versions will add domain-specific affine primitives that use the same pattern under the hood:</p>
+<pre><code class="language-dew">Mutex(T)      // mutual exclusion — inherently affine
+Channel(T)    // message passing — inherently affine
+</code></pre>
+<p>These are <code>Type::App(name, [T])</code> in the parser — no new syntax needed. Each registers itself as affine with the type checker. The <code>open</code> builtin, implicit unwrap, and ownership transfer rules apply uniformly.</p>
+<h2 id="memory-model"><a class="header" href="#memory-model">Memory Model</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>Kind</th><th>Allocation</th><th>Deallocation</th></tr></thead><tbody>
+<tr><td>Copyable</td><td>Stack</td><td>Stack unwind</td></tr>
+<tr><td>Affine</td><td>Determined by containing type</td><td>Compiler-inserted <code>drop</code></td></tr>
+<tr><td>Persistent</td><td>Heap, reference-counted</td><td>Last reference dropped → deallocation</td></tr>
+</tbody></table>
+</div>
+<p><strong>No tracing garbage collection.</strong> The combination of immutability and affine types guarantees no reference cycles, making reference counting sufficient.</p>
+<h2 id="design-notes"><a class="header" href="#design-notes">Design Notes</a></h2>
+<ul>
+<li><strong>Phase 2</strong> of implementation adds the full affine type system, <code>Affine(T)</code>, and <code>&amp;</code> sugar</li>
+<li><strong>No explicit lifetime annotations</strong> — lifetimes are always inferred</li>
+<li><strong>No <code>const</code></strong> — immutability is the default, and Copyable values are inherently constant-like</li>
+<li><strong>No <code>mut</code></strong> — there is no mutation at all, only rebinding via <code>def</code></li>
+</ul>
+<h2 id="next-7"><a class="header" href="#next-7">Next</a></h2>
+<ul>
+<li><a href="tooling.html"><strong>Tooling</strong></a> — CLI, LSP, and development tools</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="tooling"><a class="header" href="#tooling">Tooling</a></h1>
+<p>Dew ships with a command-line compiler, a Language Server Protocol (LSP) implementation, and a VS Code extension.</p>
+<h2 id="cli"><a class="header" href="#cli">CLI</a></h2>
+<p>The <code>dew</code> binary provides compilation, evaluation, and diagnostics:</p>
+<pre><code class="language-bash">cargo run -- &lt;file.dew&gt;              # compile and evaluate
+cargo run -- &lt;file.dew&gt; --emit=text  # print IR as text
+dew lsp                              # start LSP server
+</code></pre>
+<h3 id="commands"><a class="header" href="#commands">Commands</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Command</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>dew &lt;file&gt;</code></td><td>Parse, compile, and evaluate a <code>.dew</code> source file</td></tr>
+<tr><td><code>dew lsp</code></td><td>Start the LSP server (JSON-RPC over stdio)</td></tr>
+</tbody></table>
+</div>
+<h3 id="options"><a class="header" href="#options">Options</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Flag</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>--emit &lt;format&gt;</code></td><td>Emit IR text instead of evaluating. Current format: <code>text</code></td></tr>
+<tr><td><code>--trace</code></td><td>Enable evaluation tracing (planned)</td></tr>
+</tbody></table>
+</div>
+<h3 id="exit-codes"><a class="header" href="#exit-codes">Exit Codes</a></h3>
+<p>Dew uses the <code>main</code> function's return value as the process exit code:</p>
+<pre><code class="language-dew">def main = fn -&gt; Int { 42 }
+// process exits with code 42
+</code></pre>
+<p>If <code>main</code> returns a non-<code>Int</code> value, the exit code defaults to <code>0</code> after printing the value. Parsing or evaluation errors exit with code <code>1</code>.</p>
+<h3 id="example-session"><a class="header" href="#example-session">Example Session</a></h3>
+<pre><code class="language-bash">$ dew examples/arithmetic.dew
+=&gt; 42
+
+$ dew examples/arithmetic.dew --emit=text
+%t0 = ThunkAlloc
+Thunk %t0 {
+  Prim add Lit 40 Lit 2
+}
+%t1 = Force %t0
+Update %t0, %t1
+Def "main" %t0
+
+$ dew examples/fail_unbound.dew
+[E002] parse error: parse error
+</code></pre>
+<h2 id="lsp-server"><a class="header" href="#lsp-server">LSP Server</a></h2>
+<p>Dew includes a Language Server Protocol implementation for editor integration.</p>
+<h3 id="starting-the-server"><a class="header" href="#starting-the-server">Starting the Server</a></h3>
+<pre><code class="language-bash">dew lsp
+</code></pre>
+<p>The server communicates via JSON-RPC 2.0 over stdin/stdout, using the standard LSP <code>Content-Length</code> header framing.</p>
+<h3 id="supported-features"><a class="header" href="#supported-features">Supported Features</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Feature</th><th>Status</th><th>Description</th></tr></thead><tbody>
+<tr><td><strong>Initialize</strong></td><td>✅</td><td>Returns server capabilities</td></tr>
+<tr><td><strong>Text Document Sync</strong></td><td>✅</td><td>Full document sync on open/change</td></tr>
+<tr><td><strong>Hover</strong></td><td>✅</td><td>Shows "Dew expression" on hover (basic)</td></tr>
+<tr><td><strong>Go to Definition</strong></td><td>✅</td><td>Provider declared (stub implementation)</td></tr>
+<tr><td><strong>Diagnostics</strong></td><td>Partial</td><td>Parse errors available; type errors planned</td></tr>
+</tbody></table>
+</div>
+<h3 id="capabilities"><a class="header" href="#capabilities">Capabilities</a></h3>
+<p>On <code>initialize</code>, the server reports:</p>
+<pre><code class="language-json">{
+  "capabilities": {
+    "textDocumentSync": 1,
+    "hoverProvider": true,
+    "definitionProvider": true
+  },
+  "serverInfo": {
+    "name": "dew",
+    "version": "0.1.0"
+  }
+}
+</code></pre>
+<h3 id="document-lifecycle"><a class="header" href="#document-lifecycle">Document Lifecycle</a></h3>
+<p>The server tracks open documents in an in-memory map:</p>
+<ul>
+<li><code>textDocument/didOpen</code> — stores the document text</li>
+<li><code>textDocument/didChange</code> — updates with full content (sync mode: full)</li>
+</ul>
+<p>Diagnostics are generated from the parser on each change.</p>
+<h3 id="architecture"><a class="header" href="#architecture">Architecture</a></h3>
+<p>The LSP server is implemented in <code>lsp.rs</code> (~160 lines):</p>
+<ol>
+<li>Read <code>Content-Length</code> header from stdin</li>
+<li>Read JSON-RPC body</li>
+<li>Dispatch to <code>handle_request</code> for requests or process notifications</li>
+<li>Serialize response and write back to stdout</li>
+</ol>
+<pre><code class="language-rust ignore">enum LspMessage {
+    Request  { id, method, params },
+    Notification { method, params },
+}</code></pre>
+<h2 id="vs-code-extension"><a class="header" href="#vs-code-extension">VS Code Extension</a></h2>
+<p>The <code>vscode-dew/</code> directory contains a minimal VS Code extension:</p>
+<h3 id="files"><a class="header" href="#files">Files</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>File</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>package.json</code></td><td>Extension manifest — registers the <code>dew</code> language</td></tr>
+<tr><td><code>language-configuration.json</code></td><td>Comment toggling, bracket matching, auto-closing pairs</td></tr>
+<tr><td><code>syntaxes/dew.tmLanguage.json</code></td><td>TextMate grammar for syntax highlighting</td></tr>
+</tbody></table>
+</div>
+<h3 id="features"><a class="header" href="#features">Features</a></h3>
+<ul>
+<li><strong>File extension</strong>: <code>.dew</code> files are recognized as Dew source</li>
+<li><strong>Syntax highlighting</strong>: Keywords, types, strings, comments</li>
+<li><strong>Comment toggling</strong>: <code>//</code> line comments, <code>/* */</code> block comments</li>
+<li><strong>Bracket matching</strong>: <code>{}</code>, <code>[]</code>, <code>()</code></li>
+<li><strong>Auto-closing pairs</strong>: Brackets, quotes</li>
+</ul>
+<h3 id="installation"><a class="header" href="#installation">Installation</a></h3>
+<p>Copy or symlink <code>vscode-dew/</code> into your VS Code extensions directory:</p>
+<pre><code class="language-bash">cp -r vscode-dew ~/.vscode/extensions/dew
+</code></pre>
+<h2 id="diagnostics"><a class="header" href="#diagnostics">Diagnostics</a></h2>
+<p>Dew uses a structured diagnostic system with error/warning codes:</p>
+<h3 id="error-codes"><a class="header" href="#error-codes">Error Codes</a></h3>
+<pre><code>[E001] — File/system errors (cannot read file, no file specified)
+[E002] — Parse errors (syntax errors)
+[E###] — General errors (sequential numbering)
+</code></pre>
+<h3 id="warning-codes"><a class="header" href="#warning-codes">Warning Codes</a></h3>
+<pre><code>[W###] — Warnings (sequential numbering)
+</code></pre>
+<h3 id="output-formats"><a class="header" href="#output-formats">Output Formats</a></h3>
+<p>Diagnostics are collected in a <code>DiagnosticCollector</code> and can be emitted as:</p>
+<ul>
+<li><strong>stderr</strong> (default): plain text with code prefixes</li>
+<li><strong>JSON</strong>: structured array of diagnostic messages</li>
+</ul>
+<pre><code class="language-rust ignore">diag.report();          // prints to stderr
+let json = diag.to_json();  // returns JSON string</code></pre>
+<h3 id="example-output"><a class="header" href="#example-output">Example Output</a></h3>
+<pre><code>[E002] parse error: expected expr, got Eof
+[E001] eval: unbound: undefined_var
+</code></pre>
+<h2 id="build-configuration"><a class="header" href="#build-configuration">Build Configuration</a></h2>
+<h3 id="cargo-profile"><a class="header" href="#cargo-profile">Cargo Profile</a></h3>
+<pre><code class="language-toml">[profile.release]
+opt-level = 2
+lto = true
+</code></pre>
+<p>Release builds use optimization level 2 with link-time optimization.</p>
+<h3 id="dependencies"><a class="header" href="#dependencies">Dependencies</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Dependency</th><th>Version</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>clap</code></td><td>4 (derive)</td><td>CLI argument parsing</td></tr>
+<tr><td><code>serde</code></td><td>1 (derive)</td><td>Serialization for LSP JSON-RPC</td></tr>
+<tr><td><code>serde_json</code></td><td>1</td><td>JSON encoding/decoding</td></tr>
+<tr><td><code>ariadne</code></td><td>0.4</td><td>Fancy error reporting (declared)</td></tr>
+</tbody></table>
+</div>
+<h2 id="development-workflow"><a class="header" href="#development-workflow">Development Workflow</a></h2>
+<h3 id="building"><a class="header" href="#building">Building</a></h3>
+<pre><code class="language-bash">cargo build              # debug build
+cargo build --release    # release build
+</code></pre>
+<h3 id="running-tests"><a class="header" href="#running-tests">Running Tests</a></h3>
+<p>Testing is <strong>example-driven</strong> — each <code>.dew</code> file in <code>examples/</code> serves as a test case:</p>
+<pre><code class="language-bash">dew examples/arithmetic.dew        # expects exit code 42
+dew examples/factorial.dew         # expects exit code 120
+dew examples/fail/unbound_var.dew  # expects parse error
+</code></pre>
+<h3 id="example-categories"><a class="header" href="#example-categories">Example Categories</a></h3>
+<div class="table-wrapper"><table><thead><tr><th>Directory</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><code>examples/*.dew</code></td><td>Basic language features (arithmetic, factorial, if/else, match, struct)</td></tr>
+<tr><td><code>examples/complex/</code></td><td>Algorithm benchmarks (Ackermann, Fibonacci, power, GCD, FizzBuzz)</td></tr>
+<tr><td><code>examples/functions/</code></td><td>Higher-order function demos</td></tr>
+<tr><td><code>examples/structs/</code></td><td>Struct usage patterns</td></tr>
+<tr><td><code>examples/fail/</code></td><td>Error cases (unbound variables, infinite recursion, type errors)</td></tr>
+</tbody></table>
+</div>
+<h2 id="ir-emission"><a class="header" href="#ir-emission">IR Emission</a></h2>
+<p>The <code>--emit=text</code> flag prints the Thunk Graph IR in a human-readable format with 2-space indent:</p>
+<pre><code>%t0 = ThunkAlloc
+Thunk %t0 {
+  Lambda [n]
+  If Prim eq %n Lit 0
+  Then Lit 1
+  Else Prim mul %n Apply Ref %t0 [Prim sub %n Lit 1]
+}
+%t1 = Force %t0
+Update %t0, %t1
+Def "fact" %t0
+</code></pre>
+<p>This is useful for understanding the compiler's output and debugging lazy evaluation behavior.</p>
+<h2 id="interactive-playground-planned"><a class="header" href="#interactive-playground-planned">Interactive Playground (Planned)</a></h2>
+<p>The mdbook can be configured with a <strong>run backend</strong> so that code blocks in the book become interactive — readers can edit examples in the browser and see output without leaving the page.</p>
+<h3 id="how-it-works"><a class="header" href="#how-it-works">How it works</a></h3>
+<p>mdbook's <code>[output.html.playground]</code> config points at an HTTP endpoint. When a reader clicks "Run", mdbook sends the source code and receives stdout/stderr back:</p>
+<pre><code>Browser ──POST source──► dew-playground (HTTP server)
+                              │
+                         dew &lt;source.dew&gt; --emit=text
+                              │
+Browser ◄── stdout/err ──┘
+</code></pre>
+<h3 id="whats-needed"><a class="header" href="#whats-needed">What's needed</a></h3>
+<ol>
+<li><strong><code>dew-playground</code> binary</strong> — a small HTTP server (e.g. <code>axum</code> 100-line service) that:
+<ul>
+<li>Accepts <code>POST /execute</code> with <code>{ "code": "..." }</code></li>
+<li>Writes code to a temp file, runs <code>dew &lt;file&gt;</code>, captures stdout/stderr</li>
+<li>Returns <code>{ "success": bool, "stdout": "...", "stderr": "..." }</code></li>
+<li>Sandboxes execution (timeout, no filesystem write, no network)</li>
+</ul>
+</li>
+<li><strong>mdbook config</strong> — add to <code>docs/book.toml</code>:
+<pre><code class="language-toml">[output.html.playground]
+runnable = true
+editable = true
+</code></pre>
+</li>
+<li><strong>Playground URL</strong> — the <code>--playground-url</code> flag or embedding the endpoint in the book config</li>
+</ol>
+<h3 id="security-considerations"><a class="header" href="#security-considerations">Security considerations</a></h3>
+<p>Code execution on a server is inherently dangerous. The playground server must:</p>
+<ul>
+<li>Run each request in a sandboxed subprocess</li>
+<li>Enforce a timeout (e.g. 5 seconds) — Dew has no infinite loops due to cycle detection, but Ackermann with large inputs can take time</li>
+<li>Disallow <code>import</code> and filesystem access</li>
+<li>Run as an unprivileged user</li>
+<li>Rate-limit requests per IP</li>
+</ul>
+<h3 id="alternative-client-side"><a class="header" href="#alternative-client-side">Alternative: client-side</a></h3>
+<p>A lighter-weight approach is to compile <code>dew</code> to WASM via <code>wasm-pack</code> and run evaluation entirely in the browser. This removes the server-side risk entirely. Trade-off: less performant, larger page load, but zero server infrastructure.</p>
+<h2 id="next-steps-1"><a class="header" href="#next-steps-1">Next Steps</a></h2>
+<ul>
+<li><a href="intro.html"><strong>Introduction</strong></a> — return to the beginning</li>
+<li><a href="https://github.com/ACM-Class-2026-Spring/dew">Source code</a> — read the implementation</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+        <script>
+        window.addEventListener('load', function() {
+            window.setTimeout(window.print, 100);
+        });
+        </script>
+
+
+    </div>
+    </body>
+</html>

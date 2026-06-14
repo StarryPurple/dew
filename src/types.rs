@@ -19,8 +19,8 @@ pub enum Ty {
     Array(Box<Ty>, usize),
     /// List type
     List(Box<Ty>),
-    /// Box (affine resource wrapper)
-    Box(Box<Ty>),
+    /// Affine resource wrapper (zero-cost compile-time marker)
+    Affine(Box<Ty>),
     /// Hole (for type inference gaps)
     Hole(usize),
 }
@@ -48,9 +48,9 @@ impl fmt::Display for PrimTy {
 /// Resource affinity
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Affinity {
-    /// Copyable: freely duplicable (Int, Bool, Char, Unit, pure structs)
-    Copyable,
-    /// Affine: use at most once (Box(T))
+    /// Normal: default, no special semantics (Int, Bool, Char, Unit, pure structs)
+    Normal,
+    /// Affine: use at most once (Affine(T))
     Affine,
     /// Persistent: reference-counted (List, Map, Set)
     Persistent,
@@ -60,20 +60,20 @@ impl Ty {
     /// Compute the affinity of a type
     pub fn affinity(&self) -> Affinity {
         match self {
-            Ty::Prim(_) => Affinity::Copyable,
-            Ty::Box(_) => Affinity::Affine,
+            Ty::Prim(_) => Affinity::Normal,
+            Ty::Affine(_) => Affinity::Affine,
             Ty::List(_) => Affinity::Persistent,
-            Ty::Var(_) | Ty::Hole(_) => Affinity::Copyable, // conservative
-            Ty::Fun(_, _) => Affinity::Copyable, // closures follow capture rules
+            Ty::Var(_) | Ty::Hole(_) => Affinity::Normal,
+            Ty::Fun(_, _) => Affinity::Normal,
             Ty::Tuple(ts) => {
                 if ts.iter().any(|t| t.affinity() == Affinity::Affine) {
                     Affinity::Affine
                 } else {
-                    Affinity::Copyable
+                    Affinity::Normal
                 }
             }
-            Ty::Array(_, _) => Affinity::Copyable, // arrays are copyable
-            Ty::Adt(_, _) => Affinity::Copyable,   // structural check needed; conservative
+            Ty::Array(_, _) => Affinity::Normal,
+            Ty::Adt(_, _) => Affinity::Normal,
         }
     }
 }

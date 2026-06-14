@@ -44,6 +44,9 @@ pub enum Value {
 
     /// Array
     Array(Vec<Value>),
+
+    /// Affine wrapper: zero-cost compile-time resource marker
+    Affine(Box<Value>),
 }
 
 /// Runtime environment: maps variable names to values
@@ -78,7 +81,7 @@ impl fmt::Display for Value {
             Value::Int(n) => write!(f, "{n}"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Char(c) => write!(f, "'{c}'"),
-            Value::Unit => write!(f, "()"),
+            Value::Unit => write!(f, "Unit"),
       Value::Builtin(name) => write!(f, "<builtin:{name}>"),
             Value::Closure { params, .. } => write!(f, "<fn({})>", params.join(", ")),
             Value::Thunk { .. } => write!(f, "<thunk>"),
@@ -113,6 +116,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             }
+            Value::Affine(inner) => write!(f, "Affine({inner})"),
         }
     }
 }

@@ -172,7 +172,7 @@ impl fmt::Display for Lit {
       Lit::Int(n) => write!(f, "{n}"),
       Lit::Bool(b) => write!(f, "{b}"),
       Lit::Char(c) => write!(f, "'{c}'"),
-      Lit::Unit => write!(f, "()"),
+      Lit::Unit => write!(f, "Unit"),
     }
   }
 }

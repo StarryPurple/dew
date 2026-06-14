@@ -1,0 +1,382 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Control Flow - The Dew Language Book</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="A minimal functional language with affine types, implicit lazy evaluation, and first-class closures.">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="favicon.svg">
+        <link rel="shortcut icon" href="favicon.png">
+        <link rel="stylesheet" href="css/variables.css">
+        <link rel="stylesheet" href="css/general.css">
+        <link rel="stylesheet" href="css/chrome.css">
+        <link rel="stylesheet" href="css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="highlight-css" href="highlight.css">
+        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
+        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "searchindex.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="toc.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="toc.html"></iframe>
+            </noscript>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Dew Language Book</h1>
+
+                    <div class="right-buttons">
+                        <a href="print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+                        <a href="https://github.com/ACM-Class-2026-Spring/dew" title="Git repository" aria-label="Git repository">
+                            <i id="git-repository-button" class="fa fa-github"></i>
+                        </a>
+                        <a href="https://github.com/ACM-Class-2026-Spring/dew/edit/main/docs/src/control-flow.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <i id="git-edit-button" class="fa fa-edit"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <i class="fa fa-spinner fa-spin"></i>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="control-flow"><a class="header" href="#control-flow">Control Flow</a></h1>
+<p>Dew provides expression-based control flow. Every control construct produces a value.</p>
+<h2 id="if--else-expressions"><a class="header" href="#if--else-expressions"><code>if</code> / <code>else</code> Expressions</a></h2>
+<p>The <code>if</code> expression evaluates a condition (which must be <code>Bool</code>) and selects one of two branches:</p>
+<pre><code class="language-dew">if condition { then_expr } else { else_expr }
+</code></pre>
+<p>Each branch is a block expression. The <code>else</code> clause is optional — if omitted, it defaults to <code>Unit</code>:</p>
+<pre><code class="language-dew">def main = fn -&gt; Int {
+  if 10 &lt; 20 { 99 } else { 0 }   // returns 99
+}
+</code></pre>
+<p><code>if</code> expressions can be chained (else-if):</p>
+<pre><code class="language-dew">def sign = fn(n: Int) -&gt; Int {
+  if n &gt; 0 { 1 }
+  else {
+    if n &lt; 0 { -1 }
+    else { 0 }
+  }
+}
+</code></pre>
+<h3 id="strictness"><a class="header" href="#strictness">Strictness</a></h3>
+<p>The condition is always evaluated strictly. The branches are evaluated in the ambient context (lazy if the result is not immediately demanded).</p>
+<h2 id="match-expressions"><a class="header" href="#match-expressions"><code>match</code> Expressions</a></h2>
+<p>Pattern matching is the primary way to destructure values and branch on structure:</p>
+<pre><code class="language-dew">match scrutinee {
+  pattern1 =&gt; body1,
+  pattern2 =&gt; body2,
+}
+</code></pre>
+<h3 id="boolean-matching"><a class="header" href="#boolean-matching">Boolean Matching</a></h3>
+<p>The simplest use matches on <code>Bool</code>:</p>
+<pre><code class="language-dew">def abs = fn(n: Int) -&gt; Int {
+  match n &lt; 0 {
+    true =&gt; 0 - n,
+    false =&gt; n,
+  }
+}
+def main = fn -&gt; Int { abs(-42) }
+</code></pre>
+<h3 id="integer-literal-matching"><a class="header" href="#integer-literal-matching">Integer Literal Matching</a></h3>
+<p>Match on specific integer values:</p>
+<pre><code class="language-dew">def fizzbuzz = fn(n: Int) -&gt; Int {
+  match n % 15 {
+    0 =&gt; 0,
+    3 =&gt; 1,
+    5 =&gt; 1,
+    6 =&gt; 1,
+    9 =&gt; 1,
+    10 =&gt; 1,
+    12 =&gt; 1,
+    _ =&gt; n,
+  }
+}
+def main = fn -&gt; Int { fizzbuzz(33) }
+</code></pre>
+<h3 id="pattern-variables"><a class="header" href="#pattern-variables">Pattern Variables</a></h3>
+<p>Patterns can bind variables. A variable pattern matches any value and binds it to a name:</p>
+<pre><code class="language-dew">def describe = fn(n: Int) -&gt; Int {
+  match n {
+    0 =&gt; 0,
+    n =&gt; n,  // binds n (shadows outer n in this arm)
+  }
+}
+</code></pre>
+<h3 id="wildcard-pattern"><a class="header" href="#wildcard-pattern">Wildcard Pattern</a></h3>
+<p>The underscore <code>_</code> matches any value and discards it:</p>
+<pre><code class="language-dew">match x {
+  0 =&gt; "zero",
+  _ =&gt; "non-zero",
+}
+</code></pre>
+<h3 id="struct-patterns"><a class="header" href="#struct-patterns">Struct Patterns</a></h3>
+<p>Destructure struct values by field position:</p>
+<pre><code class="language-dew">struct Point { x: Int, y: Int }
+match p {
+  Point(x, y) =&gt; x + y,
+}
+</code></pre>
+<h3 id="enum-patterns"><a class="header" href="#enum-patterns">Enum Patterns</a></h3>
+<p>Match on enum variants:</p>
+<pre><code class="language-dew">enum Option { Some(Int), None }
+match opt {
+  Some(val) =&gt; val,
+  None =&gt; 0,
+}
+</code></pre>
+<h3 id="tuple-patterns"><a class="header" href="#tuple-patterns">Tuple Patterns</a></h3>
+<p>Destructure tuples:</p>
+<pre><code class="language-dew">match pair {
+  (x, y) =&gt; x + y,
+}
+</code></pre>
+<h2 id="blocks"><a class="header" href="#blocks">Blocks</a></h2>
+<p>Blocks <code>{ ... }</code> sequence statements and produce a final value. A block contains zero or more statement expressions terminated by <code>;</code>, optionally followed by a final expression:</p>
+<pre><code class="language-dew">{
+  stmt1;
+  stmt2;
+  final_expression
+}
+</code></pre>
+<p>Statements are evaluated for their side effects (I/O) and their values are discarded. The block's value is the final expression.</p>
+<h3 id="local-def-bindings"><a class="header" href="#local-def-bindings">Local <code>def</code> Bindings</a></h3>
+<p>Inside blocks, <code>def</code> creates local bindings:</p>
+<pre><code class="language-dew">{
+  def x = 10;
+  def y = 20;
+  x + y  // 30 — this is the block's value
+}
+</code></pre>
+<p>Each local <code>def</code> is scoped to the remainder of the block (including subsequent <code>def</code>s and the final expression). Local <code>def</code>s compile to nested <code>Let</code> IR nodes.</p>
+<h3 id="statement-only-blocks"><a class="header" href="#statement-only-blocks">Statement-Only Blocks</a></h3>
+<p>A block with no final expression evaluates to <code>Unit</code>:</p>
+<pre><code class="language-dew">{
+  def x = 1;
+  x + 1 -&gt; Stdout;
+  // no final expression → Unit
+}
+</code></pre>
+<h3 id="comparison-with-top-level-def"><a class="header" href="#comparison-with-top-level-def">Comparison with Top-Level <code>def</code></a></h3>
+<p>Top-level <code>def</code> is parsed as a <code>Decl::Def</code> and produces a thunk in the IR module. Block-level <code>def</code> is parsed as part of the block body and produces <code>Let</code> nodes. The syntax is identical, but the semantics differ: top-level <code>def</code>s are lazy (thunked); block-level <code>def</code>s follow the ambient strictness context.</p>
+<h2 id="the-pipe-operator--"><a class="header" href="#the-pipe-operator--">The Pipe Operator (<code>-&gt;</code>)</a></h2>
+<p>The pipe operator feeds its left operand as an extra argument to the right:</p>
+<pre><code class="language-dew">left -&gt; right
+</code></pre>
+<p>At the AST level, this becomes an <code>Expr::App</code> where <code>left</code> is appended to <code>right</code>'s argument list. It is syntactic sugar:</p>
+<pre><code class="language-dew">x -&gt; f        // f(x)
+x -&gt; f(y)     // f(y, x)
+x -&gt; f(y, z)  // f(y, z, x)
+</code></pre>
+<p>Pipes are left-associative, enabling chaining:</p>
+<pre><code class="language-dew">input -&gt; validate -&gt; transform -&gt; Stdout
+</code></pre>
+<p>For I/O pipes (<code>-&gt; Stdin</code>, <code>-&gt; Stdout</code>), see the <a href="io.html">Input/Output</a> chapter.</p>
+<h2 id="ast-reference"><a class="header" href="#ast-reference">AST Reference</a></h2>
+<div class="table-wrapper"><table><thead><tr><th>AST Node</th><th>Dew Syntax</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>Expr::If</code></td><td><code>if cond { then } else { else_ }</code></td><td>Conditional expression</td></tr>
+<tr><td><code>Expr::Match</code></td><td><code>match scrutinee { arms }</code></td><td>Pattern matching</td></tr>
+<tr><td><code>Expr::Block</code></td><td><code>{ stmts; final }</code></td><td>Statement sequence</td></tr>
+<tr><td><code>Expr::Return</code></td><td><code>return expr</code></td><td>Early return</td></tr>
+<tr><td><code>Expr::Pipe</code></td><td><code>left -&gt; right</code></td><td>Forward pipe</td></tr>
+</tbody></table>
+</div>
+<h2 id="next"><a class="header" href="#next">Next</a></h2>
+<ul>
+<li><a href="structs-enums.html"><strong>Structs and Enums</strong></a> — data types and pattern matching</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="functions.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="structs-enums.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="functions.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="structs-enums.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
+
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+
+        <!-- Custom JS scripts -->
+
+
+
+    </div>
+    </body>
+</html>
