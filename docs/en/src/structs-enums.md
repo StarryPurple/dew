@@ -58,7 +58,7 @@ The original struct is unchanged; this produces a new struct with the specified 
 ### Complete Example
 
 ```dew
-{{#include ../../examples/structs/point_dist.dew}}
+{{#include ../../../examples/structs/point_dist.dew}}
 ```
 
 ## Enums

@@ -50,7 +50,7 @@ match scrutinee {
 The simplest use matches on `Bool`:
 
 ```dew
-{{#include ../../examples/match_expr.dew}}
+{{#include ../../../examples/match_expr.dew}}
 ```
 
 ### Integer Literal Matching
@@ -58,7 +58,7 @@ The simplest use matches on `Bool`:
 Match on specific integer values:
 
 ```dew
-{{#include ../../examples/complex/fizzbuzz.dew}}
+{{#include ../../../examples/complex/fizzbuzz.dew}}
 ```
 
 ### Pattern Variables

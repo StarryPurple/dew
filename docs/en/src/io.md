@@ -16,7 +16,7 @@ These are not ordinary functions — they are recognized by the evaluator as `Va
 The `Stdin` builtin reads from standard input. When used via pipe, it reads a value and binds it to the piped variable:
 
 ```dew
-{{#include ../../examples/a_plus_b_stdio.dew}}
+{{#include ../../../examples/a_plus_b_stdio.dew}}
 ```
 
 This program:

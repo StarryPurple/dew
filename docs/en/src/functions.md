@@ -82,7 +82,7 @@ add_3(7)                // 10
 Dew supports direct recursion through self-reference in `def` bodies. Inside a function definition, the function's own name refers to itself:
 
 ```dew
-{{#include ../../examples/factorial.dew}}
+{{#include ../../../examples/factorial.dew}}
 ```
 
 For mutual recursion or more complex recursive patterns, use the `fix` combinator:
@@ -102,7 +102,7 @@ The IR generator detects self-references during compilation. When a `Var(name)` 
 Functions can accept other functions as arguments and return functions as results:
 
 ```dew
-{{#include ../../examples/functions/hof.dew}}
+{{#include ../../../examples/functions/hof.dew}}
 ```
 
 Common higher-order patterns:

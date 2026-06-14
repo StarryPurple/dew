@@ -5,7 +5,7 @@ Dew is a purely functional, statically-typed programming language with **implici
 ## Hello, Dew
 
 ```dew
-{{#include ../../examples/arithmetic.dew}}
+{{#include ../../../examples/arithmetic.dew}}
 ```
 
 Save this as `hello.dew` and run:

@@ -1,0 +1,16 @@
+[book]
+authors = ["Dew 贡献者"]
+language = "zh"
+multilingual = false
+src = "src"
+title = "Dew 语言手册"
+description = "一门具有 affine 类型、隐式惰性求值和一等闭包的极简函数式语言。"
+build-dir = "book"
+
+[output.html]
+site-url = "/dew/book/zh/"
+git-repository-url = "https://github.com/ACM-Class-2026-Spring/dew"
+
+[output.html.fold]
+enable = true
+level = 1
