@@ -43,6 +43,16 @@
       "[dew]": {
         "editor.tabSize": 2
       }
+    },
+    "configuration": {
+      "title": "Dew",
+      "properties": {
+        "dew.serverPath": {
+          "type": "string",
+          "default": "dew",
+          "description": "Path to the dew binary"
+        }
+      }
     }
   },
   "scripts": {
