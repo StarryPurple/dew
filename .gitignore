@@ -1,0 +1,27 @@
+# OpenCode / OMO internals
+.omo/
+
+# Submodule-like external repositories
+RustShard-Compiler/
+
+# Build artifacts
+target/
+
+# Old project remnants (pre-refactor)
+src/
+vscode-dew/
+docs/en/
+docs/zh/
+session-*.md
+
+# Agent session history
+agents/
+
+# IDE
+.cursor/
+
+# OS junk
+.DS_Store
+*.swp
+*.swo
+*~
