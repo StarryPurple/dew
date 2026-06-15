@@ -1,36 +1,38 @@
 # Dew IR Specification
 
 > **Canonical specification** for the Dew Thunk Graph IR.
-> This document describes the IR design; the implementation lives in `src/ir.rs`, `src/ir_gen.rs`, `src/eval.rs`.
-> Last updated: 2026-06-15.
+> All primitives use `snake_case` naming, matching Dew source convention.
+> Last updated: 2026-06-16.
 
-[§1 Architecture](#1-architecture) ·
-[§2 Module](#2-module) ·
-[§3 Items](#3-items) ·
-[§4 Thunk](#4-thunk) ·
-[§5 Basic Block](#5-basic-block) ·
-[§6 Registers & Labels](#6-registers-and-labels) ·
-[§7 Types](#7-types-ir-level) ·
-[§8 Instructions](#8-instructions--complete-reference) ·
-[§9 Accessor Paths](#9-accessor-paths) ·
-[§10 Text Format](#10-text-format) ·
-[§11 JSON](#11-json-serialization) ·
-[§12 Optimizations](#12-optimization-levels) ·
-[§13 Evaluator](#13-evaluator-integration) ·
-[§14 Gen Context](#14-generation-context) ·
-[§15 Thunk Graph](#15-thunk-graph-model) ·
-[§16 Examples](#16-source--ir-examples)
+- [§1 Architecture](#1-architecture)
+- [§2 Module](#2-module)
+- [§3 Items](#3-items)
+  - [§3.1 thunk](#31-thunk)
+  - [§3.2 entry](#32-entry)
+- [§4 Thunk Body](#4-thunk-body)
+- [§5 Basic Block](#5-basic-block)
+- [§6 Registers and Labels](#6-registers-and-labels)
+- [§7 Types (IR Level)](#7-types-ir-level)
+- [§8 Instructions](#8-instructions--complete-reference)
+- [§9 Accessor Paths](#9-accessor-paths)
+- [§10 Text Format](#10-text-format)
+- [§11 JSON Serialization](#11-json-serialization)
+- [§12 Optimization Levels](#12-optimization-levels)
+- [§13 Evaluator Integration](#13-evaluator-integration)
+- [§14 Generation Context](#14-generation-context)
+- [§15 Thunk Graph Model](#15-thunk-graph-model)
+- [§16 Source → IR Examples](#16-source--ir-examples)
 
-The Dew Thunk Graph IR (v2) is a flat, label-based, SSA-like intermediate representation. It sits between the Dew AST and the evaluator, serving as the compilation target for Dew source and (in the future) other frontends like Rx.
+The Dew Thunk Graph IR (v3) is a flat, label-based, SSA-like intermediate representation with `snake_case` naming throughout. It sits between the Dew AST and the evaluator, serving as the compilation target for Dew source.
+
+> The three-level structure mirrors LLVM's Module → Function → BasicBlock hierarchy, a proven design for compiler IRs. The key difference is that Dew's "functions" are thunks — they carry implicit laziness semantics. This matters because a thunk is not just code: it is a lazy cell that may be in `suspended`, `evaluating`, or `evaluated` state. LLVM functions are always executable; Dew thunks are memoized computations that may not have been evaluated yet.
 
 ---
 
 ## 1. Architecture
 
 ```
-Dew Source ──► Parser ──► AST ──► IR Gen ──► IR Module ──► Evaluator ──► Value
-                                          │
-                                    Strictness Analysis
+Dew Source → Parser → AST → Desugar → Type Check → Strictness → IR Gen → IR Module → Evaluator → Value
 ```
 
 The IR is structured in three levels:
@@ -38,49 +40,50 @@ The IR is structured in three levels:
 | Level | Type | Description |
 |-------|------|-------------|
 | Module | `Module` | Ordered list of top-level items |
-| Thunk | `Thunk` | Named entity with basic blocks (like an LLVM function) |
+| Thunk | `Thunk` | Named entity with basic blocks |
 | Instruction | `Instr` | Flat single-operation instruction within a block |
-
-> The three-level structure mirrors LLVM's Module → Function → BasicBlock hierarchy, a proven design for compiler IRs. The key difference is that Dew's "functions" are thunks — they carry implicit laziness semantics. The flat, SSA-like instruction model enables future optimization passes without redesigning the IR. Labels (not pointers) for thunk references avoid the complexity of memory management in the IR itself.
 
 ---
 
 ## 2. Module
 
-```rust
-struct Module {
-    items: Vec<Item>,
-}
+The module contains all thunk definitions. Execution always starts at `@main`:
+
+```
+module:
+  definitions: [Thunk]     // all top-level definitions
 ```
 
-The module is the top-level IR container. Items are processed in order by the evaluator.
+**Execution model.** The evaluator first registers all thunk definitions (inert — only names and blocks, no evaluation), then forces `@main`. This is equivalent to LLVM's model: `define` for declarations, then the runtime starts at `@main` by convention. If no `@main` thunk exists, the evaluator reports `[E007]`.
 
-**Serialization**: `Module::to_json()` produces a JSON string via serde.
+> No explicit `entry` directive — the entry point is always `@main`, matching the Dew language requirement that every program defines a `main` binding. This eliminates a redundant IR element and makes the module purely declarative.
 
-**Text format**: Each item is printed on its own line(s), 2-space indent.
+### 2.1 Text Format
+
+```
+thunk @x() {
+  entry:
+    %0 = lit 40
+    %1 = lit 2
+    %2 = add %0 %1
+    ret %2
+}
+
+thunk @main() {
+  entry:
+    %0 = force @x
+    ret %0
+}
+
+```
 
 ---
 
-## 3. Items
+---
 
-```rust
-enum Item {
-    Thunk(Thunk),
-    Alloc(Label),
-    ThunkDef { label: Label, thunk: String },
-    Force { dest: Label, src: Label },
-    Update { label: Label, value: ValueRef },
-    Def { name: String, label: Label },
-    StrictDef { name: String, blocks: Vec<BasicBlock> },
-    FnDef { name: String, params: Vec<String>, blocks: Vec<BasicBlock> },
-}
-```
+## 3. Thunk
 
-### 3.1 `Thunk`
-
-Defines a named thunk with parameters, return type, and basic blocks. This is the IR equivalent of a top-level `def` with a function value.
-
-> Thunks are the IR unit of laziness. Every `def` in Dew source produces a thunk (or a StrictDef optimization). The thunk encapsulates: what computation to run (blocks), what it depends on (params), and what it produces (ret_ty). By making thunks the primary IR entity rather than an annotation on functions, the evaluator can uniformly handle all lazy values — whether they come from top-level definitions, closures, or recursive self-references.
+A thunk is a named computation with typed parameters, a return type, and basic blocks:
 
 ```
 thunk @name(param1: Ty, param2: Ty) {
@@ -89,113 +92,27 @@ thunk @name(param1: Ty, param2: Ty) {
 }
 ```
 
-### 3.2 `Alloc`
+Parameters map to registers by position: `%0` = first param, `%1` = second param, etc. The parameter names (`param1`, `param2`) are for documentation only — the IR body uses register numbers exclusively.
 
-Allocates a new thunk cell with the given label. The cell starts in Suspended state.
-
-```
-alloc %t0
-```
-
-### 3.3 `ThunkDef`
-
-Binds an allocated label to a named thunk. The thunk's blocks are stored under the name; the label references the cell.
-
-```
-thunk_def %t0 @thunk_name
-```
-
-### 3.4 `Force`
-
-Forces evaluation of a thunk. If the thunk is Suspended, evaluation proceeds; if Evaluated, returns cached value.
-
-```
-force %dest %src
-```
-
-### 3.5 `Update`
-
-Updates a thunk's value. Used to implement call-by-need: after forcing a thunk, its computed value is written back to the cell.
-
-```
-update %label 42
-update %label %other_label
-```
-
-### 3.6 `Def`
-
-Creates a top-level binding: associates a name with a label.
-
-```
-def counter %t0
-```
-
-### 3.7 `StrictDef`
-
-Defines a strict (non-lazy) binding with inline basic blocks. Used for zero-argument, non-recursive definitions (O1 optimization).
-
-```
-strict_def name {
-  entry:
-    ...
-}
-```
-
-### 3.8 `FnDef`
-
-Defines a function binding with named parameters and inline basic blocks. Used for non-zero-argument, non-recursive definitions (O1 optimization).
-
-```
-fn_def name(param1, param2) {
-  entry:
-    ...
-}
-```
+> Thunks are the IR unit of laziness. Every top-level `def` produces a thunk. By making thunks the primary IR entity, the evaluator uniformly handles lazy values from top-level definitions, closures, and recursive self-references.
+>
+> **Why not LLVM functions?** An LLVM `define` describes executable code at a known address. A Dew thunk wraps code in a lazy cell with three states (`suspended`, `evaluating`, `evaluated`). Forcing a thunk may execute code (if suspended), return a cached value (if evaluated), or detect a cycle (if evaluating). This state machine has no LLVM equivalent — it is the core mechanism implementing call-by-need.
+>
+> **Asm translation:** Each thunk compiles to a labeled code block preceded by a cell header (2 words: state tag + value). On rv64gc: `sd zero, 0(thunk_ptr)` for suspended; `sd {tag}, 0(thunk_ptr)` for the state transition. On x86-64: same structure in 16 bytes. The state tag is checked before jumping to the code body.
 
 ---
 
-## 4. Thunk
+## 4. Basic Block
 
-```rust
-struct Thunk {
-    name: String,
-    params: Vec<(String, Ty)>,
-    ret_ty: Ty,
-    blocks: Vec<BasicBlock>,
-}
-```
-
-A thunk is a named computation with typed parameters and a return type. It contains one or more basic blocks.
-
----
-
-## 5. Basic Block
-
-```rust
-struct BasicBlock {
-    label: String,
-    instrs: Vec<Instr>,
-    term: Terminator,
-}
-```
-
-A basic block is a straight-line sequence of instructions ending with a terminator. Blocks are identified by string labels (e.g., `"entry"`, `"L0"`, `"L1"`).
+A basic block is a straight-line sequence of instructions ending with a terminator. Blocks are identified by string labels (`"entry"`, `"L0"`, `"L1"`).
 
 ### 5.1 Terminators
 
-```rust
-enum Terminator {
-    Ret(Reg),                                           // return value
-    Br { cond: Reg, then_label: String, else_label: String }, // conditional branch
-    Jmp(String),                                        // unconditional jump
-}
-```
-
 | Terminator | Text | Semantics |
 |-----------|------|-----------|
-| `Ret(r)` | `ret %r` | Return value from thunk |
-| `Br { cond, then, else }` | `br %cond Lthen Lelse` | Branch on boolean |
-| `Jmp(label)` | `jmp Ltarget` | Unconditional jump |
+| `ret` | `ret %r` | Return value from thunk |
+| `br` | `br %cond L_then L_else` | Branch on boolean |
+| `jmp` | `jmp L_target` | Unconditional jump |
 
 ---
 
@@ -203,23 +120,11 @@ enum Terminator {
 
 ### 6.1 Registers
 
-```rust
-struct Reg(pub usize);
-```
-
-Registers are virtual (unbounded). They are SSA-like: each register is assigned exactly once. Displayed as `%0`, `%1`, `%2`, etc.
-
-Generated by `GenCtx::fresh_reg()`.
+Virtual (unbounded), SSA-like — each register assigned exactly once. Displayed as `%0`, `%1`, `%2`. Generated by `GenCtx::fresh_reg()`.
 
 ### 6.2 Labels
 
-```rust
-struct Label(pub String);
-```
-
-Labels identify thunk cells in the heap. Displayed as `%t0`, `%t1`, etc.
-
-Generated by `GenCtx::fresh_label()`.
+Identify thunk cells in the heap. Displayed as `%t0`, `%t1`. Generated by `GenCtx::fresh_label()`.
 
 ### 6.3 Block Labels
 
@@ -227,184 +132,187 @@ String labels (`"entry"`, `"L0"`, `"L1"`) identify basic blocks within a thunk. 
 
 ### 6.4 Value References
 
-```rust
-enum ValueRef {
-    Lit(Lit),         // literal value
-    Label(Label),     // reference to another thunk
-}
-```
+Used in `update` items to specify the new value:
 
-Used in `Update` items to specify the new value.
+```
+update %t0 42          // literal value
+update %t0 %other      // reference to another label
+```
 
 ---
 
 ## 7. Types (IR Level)
 
-```rust
-enum Ty {
-    Int, Bool, Char, Unit,
-    Named(String),              // user-defined type name
-    Fun(Box<Ty>, Box<Ty>),      // function type
-    Tuple(Vec<Ty>),             // tuple type
-    Array(Box<Ty>, usize),      // array type with size
-}
-```
+IR types are a subset of source types — no type variables (inference happens before IR gen):
 
-IR types are a subset of source types — no type variables (inference happens before IR gen).
+> IR types are monomorphic: all generic parameters are resolved before IR generation. `List(Int)` and `List(Bool)` produce separate monomorphized thunks. This simplifies the evaluator — no type tags needed at runtime — and enables direct asm translation where every register has a known width. `Int` maps to a 64-bit GPR (rv64gc `xN`, x86-64 `rN`), `Bool` and `Char` also use 64-bit GPRs for uniformity, `Unit` is zero-sized.
+
+| IR Type | Text | Source Equivalent |
+|---------|------|-------------------|
+| `int` | `Int` | `Int` |
+| `bool` | `Bool` | `Bool` |
+| `char` | `Char` | `Char` |
+| `unit` | `Unit` | `Unit` |
+| `named(s)` | `Point` | `struct Point { ... }` |
+| `fun(a, r)` | `Int -> Bool` | `(Int) -> Bool` |
+| `tuple(ts)` | `(Int, Bool)` | `(Int, Bool)` |
+| `array(t, n)` | `Array(Char, 5)` | `Array(Char, 5)` |
 
 ---
 
 ## 8. Instructions — Complete Reference
 
-### 8.1 Literals and Variables
+All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 
-| Instruction | Operands | Text | Semantics |
-|------------|----------|------|-----------|
-| `Lit` | `dest, value: Lit` | `%r = lit 42` | Load literal into register |
-| `Var` | `dest, name: String` | `%r = var @x` | Reference named binding |
-| `Ref` | `dest, label: String` | `%r = ref %L0` | Reference a label (thunk pointer) |
+### 8.1 Literals and References
+
+| Instruction | Text | Semantics |
+|------------|------|-----------|
+| `lit` | `%r = lit 42` | Load literal into register |
 
 ### 8.2 Functions
 
-| Instruction | Operands | Text | Semantics |
-|------------|----------|------|-----------|
-| `Lambda` | `dest, thunk, param_tys, ret_ty` | `%r = lambda @name(x: Int)` | Create closure referencing named thunk |
-| `LambdaBlock` | `dest, params, blocks` | `%r = lambda(x, y) { ... }` | Create closure with inline blocks |
-| `Bind` | `name, value: Reg` | `bind @x %r` | Bind name to register value |
-| `Call` | `dest, func, args` | `%r = call %f %a %b` | Call function with arguments |
+| Instruction | Text | Semantics |
+|------------|------|-----------|
+| `lambda` | `%r = lambda @name(x: Int)` | Create closure referencing named thunk |
+| `lambda_block` | `%r = lambda(x, y) { ... }` | Create closure with inline blocks |
+| `call` | `%r = call %f %a %b` | Call function with arguments |
+
+> **`lambda` vs direct call:** `call @name %args` invokes a thunk directly by name — the thunk is statically known. `lambda @name` creates a runtime closure value wrapping the thunk reference. Use `call @name` when the callee is known at IR-gen time (direct calls, recursion). Use `lambda` only when the function must escape: returned from a function, stored in a struct, or passed as a higher-order argument. Direct calls are simpler and enable the asm backend to generate a plain `call`/`jal` instruction without closure allocation overhead.
 
 ### 8.3 Arithmetic
 
-| Instruction | Operands | Text | Semantics |
-|------------|----------|------|-----------|
-| `Add` | `dest, lhs, rhs` | `%r = add %a %b` | `%r := %a + %b` |
-| `Sub` | `dest, lhs, rhs` | `%r = sub %a %b` | `%r := %a - %b` |
-| `Mul` | `dest, lhs, rhs` | `%r = mul %a %b` | `%r := %a * %b` |
-| `Div` | `dest, lhs, rhs` | `%r = div %a %b` | `%r := %a / %b` (integer division) |
-| `Rem` | `dest, lhs, rhs` | `%r = rem %a %b` | `%r := %a % %b` |
+| Instruction | Text | Semantics |
+|------------|------|-----------|
+| `add` | `%r = add %a %b` | `%r := %a + %b` |
+| `sub` | `%r = sub %a %b` | `%r := %a - %b` |
+| `mul` | `%r = mul %a %b` | `%r := %a * %b` |
+| `div` | `%r = div %a %b` | `%r := %a / %b` (integer division) |
+| `rem` | `%r = rem %a %b` | `%r := %a % %b` |
 
 ### 8.4 Comparison
 
-| Instruction | Operands | Text | Semantics |
-|------------|----------|------|-----------|
-| `Lt` | `dest, lhs, rhs` | `%r = lt %a %b` | `%r := %a < %b` |
-| `Gt` | `dest, lhs, rhs` | `%r = gt %a %b` | `%r := %a > %b` |
-| `Le` | `dest, lhs, rhs` | `%r = le %a %b` | `%r := %a <= %b` |
-| `Ge` | `dest, lhs, rhs` | `%r = ge %a %b` | `%r := %a >= %b` |
-| `Eq` | `dest, lhs, rhs` | `%r = eq %a %b` | `%r := %a == %b` |
-| `Ne` | `dest, lhs, rhs` | `%r = ne %a %b` | `%r := %a != %b` |
+| Instruction | Text | Semantics |
+|------------|------|-----------|
+| `lt` | `%r = lt %a %b` | `%r := %a < %b` |
+| `gt` | `%r = gt %a %b` | `%r := %a > %b` |
+| `le` | `%r = le %a %b` | `%r := %a <= %b` |
+| `ge` | `%r = ge %a %b` | `%r := %a >= %b` |
+| `eq` | `%r = eq %a %b` | `%r := %a == %b` |
+| `ne` | `%r = ne %a %b` | `%r := %a != %b` |
 
 ### 8.5 Logic
 
-| Instruction | Operands | Text | Semantics |
-|------------|----------|------|-----------|
-| `And` | `dest, lhs, rhs` | `%r = and %a %b` | `%r := %a && %b` |
-| `Or` | `dest, lhs, rhs` | `%r = or %a %b` | `%r := %a \|\| %b` |
-| `Not` | `dest, arg` | `%r = not %a` | `%r := !%a` |
+| Instruction | Text | Semantics |
+|------------|------|-----------|
+| `and` | `%r = and %a %b` | `%r := %a && %b` |
+| `or` | `%r = or %a %b` | `%r := %a \|\| %b` |
+| `not` | `%r = not %a` | `%r := !%a` |
 
-### 8.6 Memory Access — Fetch and Place
+### 8.6 Control Flow
 
-```rust
-enum Accessor {
-    Array(Reg),     // array index
-    Field(String),  // struct field name
-    Tuple(usize),   // tuple element index
-}
+| Instruction | Text | Semantics |
+|------------|------|-----------|
+| `phi` | `%r = phi [%v1, L1] [%v2, L2]` | Select value based on predecessor block |
+
+The `phi` instruction is the standard SSA mechanism for merging values from different control flow paths. Each pair `[%value, label]` indicates "if we arrived from `label`, use `%value`."
+
+### 8.7 Memory Access — `fetch` and `place`
+
+Both use **accessor paths** to navigate compound data structures.
+
+```
+%r = fetch %base .field [%idx] .subfield
 ```
 
-#### `Fetch`
-
-```
-%r = fetch %base .field1 [%idx] .field2
-```
-
-Walks the accessor path on the base value. Each accessor selects a sub-value:
-- `.field` — struct field by name
-- `[%idx]` — array element by index
-- `.N` — tuple element by index
-
-#### `Place`
+Walks the accessor path on the base value, returning the selected sub-value.
 
 ```
 %r = place %base .field [%idx] = %value
 ```
 
-Creates a new value equal to `%base` but with the value at the given path replaced by `%value`. Returns the new value. The original `%base` is consumed (affine type system).
+Creates a new value equal to `%base` but with the value at the given path replaced by `%value`. Returns the new value. The original `%base` is consumed (affine type system). Copy-on-write: only the modified path is allocated fresh.
 
-The path is walked left-to-right: each accessor selects a sub-value of the previous result. The final accessor's position receives the new value.
+> **Why not LLVM's `getelementptr`?** GEP computes addresses; `load`/`store` access memory. Dew has no mutable memory — all values are immutable. `fetch`/`place` operate on VALUES, not addresses. `fetch` selects a sub-value (structural copy); `place` creates a new value with one sub-value replaced (structural update). There are no pointers, no addresses, no loads or stores. This is a functional IR, not a memory model.
+>
+> The dedicated instructions (`field`, `array_access`, `struct_update`, etc.) exist alongside `fetch`/`place` for two reasons: (1) they are the common case and deserve concise syntax, (2) they enable direct pattern-matching in the evaluator without path parsing overhead. `field %e .x` is directly matched; `fetch %e .x` requires accessor chain walking.
+>
+> **Asm translation — rv64gc:** `fetch` with a static field offset compiles to an offset load from the struct base address. `place` compiles to a copy with one field overwritten — if the value is affine (exclusive ownership), this becomes an in-place store. On x86-64: same pattern, using `mov` with `[base + offset]` addressing.
 
-**Example**: `place %arr [%i] .x = %new_val`
-1. Walk: `%arr` → `[%i]` → `.x`
-2. This means: update `%arr[%i].x` to `%new_val`
-3. Implementation: `ArrayUpdate(arr, i, StructUpdate(arr[i], [("x", new_val)]))`
+### 8.8 Structure Construction
 
-### 8.7 Structure Construction
+| Instruction | Text | Semantics |
+|------------|------|-----------|
+| `field` | `%r = field %e .x` | Extract field from struct |
+| `struct_cons` | `%r = struct @Point %x %y` | Construct struct value |
+| `enum_cons` | `%r = enum @Option::Some %v` | Construct enum variant |
+| `array_lit` | `%r = array %a %b %c` | Construct array value |
+| `tuple_lit` | `%r = tuple %a %b` | Construct tuple value |
 
-| Instruction | Operands | Text | Semantics |
-|------------|----------|------|-----------|
-| `Field` | `dest, expr, field: String` | `%r = field %e .x` | Extract field from struct |
-| `StructCons` | `dest, name, fields` | `%r = struct @Point %x %y` | Construct struct value |
-| `EnumCons` | `dest, enum_name, variant, payload` | `%r = enum @Option::Some %v` | Construct enum variant |
-| `ArrayLit` | `dest, elements` | `%r = array %a %b %c` | Construct array value |
-| `TupleLit` | `dest, elements` | `%r = tuple %a %b` | Construct tuple value |
+> **Why per-type instructions?** LLVM uses `insertvalue` for all aggregate types. Dew splits construction by type category (struct, enum, array, tuple) because each has different memory layout implications. `struct_cons` packs named fields at known offsets; `enum_cons` prepends a discriminant tag; `array_lit` packs N uniform elements at stride; `tuple_lit` packs heterogeneous elements contiguously. The evaluator matches these directly without inspecting type metadata at runtime.
+>
+> **Asm:** On rv64gc/x86-64, `struct_cons` compiles to stack or register packing. Structs ≤ 2 registers fit entirely in registers (rv64gc: `x10`+`x11`, x86-64: `rdi`+`rsi`). Larger structs allocate on the stack with `addi sp, sp, -N` (rv64gc) or `sub rsp, N` (x86-64).
 
-### 8.8 Structure Update
+### 8.9 Structure Update
 
-| Instruction | Operands | Text | Semantics |
-|------------|----------|------|-----------|
-| `StructUpdate` | `dest, expr, updates` | `%r = struct_update %s .x=%a .y=%b` | Create new struct with updated fields |
-| `ArrayAccess` | `dest, expr, index` | `%r = array_access %a %i` | Read array element |
-| `ArrayUpdate` | `dest, expr, index, value` | `%r = array_update %a %i %v` | Create new array with updated element |
-| `TupleUpdate` | `dest, expr, index, value` | `%r = tuple_update %t 0 %v` | Create new tuple with updated element |
+| Instruction | Text | Semantics |
+|------------|------|-----------|
+| `struct_update` | `%r = struct_update %s .x=%a .y=%b` | New struct with updated fields |
+| `array_access` | `%r = array_access %a %i` | Read array element |
+| `array_update` | `%r = array_update %a %i %v` | New array with updated element |
+| `tuple_update` | `%r = tuple_update %t 0 %v` | New tuple with updated element |
 
-### 8.9 Complete Instruction List (33 total)
+> **Why `array_access` separately from `fetch`?** Array element access is the common case — it happens at every subscript `a[i]`. `fetch %a [%i]` with an accessor path would work, but `array_access %a %i` is a single instruction the evaluator matches directly. The same logic applies to `array_update`, `struct_update`, and `tuple_update` — they are syntactic sugar for common patterns, backed by `fetch`/`place` as the general mechanism. This is analogous to LLVM providing both `getelementptr` (general) and `extractvalue` (specific).
+
+### 8.10 Complete Instruction List (32 total)
 
 ```
-Lit, Var, Ref                           — literals and references
-Lambda, LambdaBlock, Bind, Call          — functions
-Add, Sub, Mul, Div, Rem                  — arithmetic
-Lt, Gt, Le, Ge, Eq, Ne                   — comparison
-And, Or, Not                             — logic
-Fetch, Place                             — GEP-like path access
-Field                                    — field extraction
-StructCons, EnumCons, ArrayLit, TupleLit — construction
-StructUpdate, ArrayAccess, ArrayUpdate, TupleUpdate — mutation/update
+lit                                  — literals
+lambda, lambda_block, call           — functions
+add, sub, mul, div, rem              — arithmetic
+lt, gt, le, ge, eq, ne               — comparison
+and, or, not                         — logic
+phi                                  — control flow merge
+fetch, place                         — path-based access
+field                                — field extraction
+struct_cons, enum_cons, array_lit, tuple_lit  — construction
+struct_update, array_access, array_update, tuple_update — update
 ```
 
 ---
 
 ## 9. Accessor Paths
 
-Accessor paths are used by `Fetch` and `Place` to navigate compound data structures:
+Accessor paths navigate compound data structures in `fetch` and `place`:
 
-```rust
-enum Accessor {
-    Array(Reg),     // dynamic index (register value)
-    Field(String),  // static field name
-    Tuple(usize),   // static tuple index
-}
-```
+| Accessor | Text | Meaning |
+|----------|------|---------|
+| `field(name)` | `.name` | Struct field by name |
+| `array(%r)` | `[%idx]` | Array element by register index |
+| `tuple(n)` | `.n` | Tuple element by literal index |
 
 Paths are sequences of accessors applied left-to-right:
+
 ```
 %r = fetch %base .field_name [%idx] .subfield .0
 ```
-This is equivalent to: `base.field_name[idx].subfield.0`
+
+Equivalent to: `base.field_name[idx].subfield.0`
 
 ### 9.1 Place Path Semantics
 
-`Place` with a multi-element path creates a nested update:
+`place` with a multi-element path creates a nested update:
 
 ```
 %r = place %arr [%i] .x = %v
 ```
 
-This desugars to:
+Desugars to:
 ```
-ArrayUpdate(arr, i, StructUpdate(ArrayAccess(arr, i), [("x", v)]))
+struct_update(array_access(arr, i), [("x", v)])
 ```
 
-The evaluator implements this as a copy-on-write traversal: the base is copied, the path is traversed to the target, and the new value is inserted. All intermediate copies are created fresh.
+The evaluator implements copy-on-write: the base is copied, the path is traversed to the target, and the new value is inserted.
 
 ---
 
@@ -421,32 +329,27 @@ thunk @main() {
     ret %2
 }
 
-alloc %t0
-thunk_def %t0 @main
-force %result %t0
 ```
 
 ### 10.1 Formatting Rules
 
 - Block labels end with `:`
-- Instructions are indented 2 spaces within blocks
-- Terminators are at the same indent level as instructions
-- Items are separated by blank lines
+- Instructions indented 2 spaces within blocks
+- Terminators at the same indent level as instructions
+- Items separated by blank lines
 - Registers: `%N` (N is a non-negative integer)
 - Labels: `%tN` or `%name`
+- All names in `snake_case`
 
 ---
 
 ## 11. JSON Serialization
 
-All IR types derive `Serialize` and `Deserialize` from serde. The module can be emitted as JSON:
+All IR types derive `Serialize` and `Deserialize` from serde. JSON emission via `--emit=json`:
 
-```rust
-let json = module.to_json();
-// {"items":[{"Thunk":{"name":"main",...}},...]}
+```json
+{"definitions":[{"name":"main","params":[],"ret_ty":"Unit","blocks":[...]}],"entry":"main"}
 ```
-
-JSON emission is controlled by `--emit=json` CLI flag.
 
 ---
 
@@ -455,21 +358,18 @@ JSON emission is controlled by `--emit=json` CLI flag.
 ### O0 (Default)
 
 - No optimizations
-- All top-level `def` bindings produce thunks
+- All top-level bindings produce thunks
 - All function values produce closures
 
 ### O1
 
-> O1 is intentionally conservative — only optimizations that are provably safe. `StrictDef` and `FnDef` merely skip the thunk allocation/force cycle when the compiler can prove the definition is non-recursive. No speculative optimizations, no inlining, no dead code elimination. This keeps the O0→O1 behavior change minimal and auditable. Aggressive optimizations (O2+) are deferred until real program profiles demonstrate their necessity.
-
 | Optimization | Trigger | Effect |
 |-------------|---------|--------|
-| `StrictDef` | Zero-arg, non-recursive `def` | Emits inline blocks, no thunk allocation |
-| `FnDef` | Non-zero-arg, non-recursive `def` | Emits inline blocks with named params |
-| Lambda wrapper elimination | All opt levels | `emit_thunk_chain` detects `Expr::Fn` and compiles body directly |
-| Parametric thunk force | Thunk has params | `force_thunk` creates `Closure` for recursive fn support |
+| `strict_def` | Zero-arg, non-recursive `def` | Inline blocks, skip thunk allocation |
+| `fn_def` | Non-zero-arg, non-recursive `def` | Inline blocks with named params |
+| Lambda wrapper elimination | All opt levels | Detect `Expr::Fn` and compile body directly |
 
-`StrictDef` and `FnDef` eliminate the thunk allocation/force cycle for simple non-recursive definitions, improving performance.
+> O1 is intentionally conservative — only optimizations that are provably safe. `strict_def` and `fn_def` merely skip the thunk allocation/force cycle when the compiler can prove the definition is non-recursive. No speculative optimizations, no inlining, no dead code elimination. Aggressive optimizations (O2+) are deferred until real program profiles demonstrate their necessity.
 
 ---
 
@@ -477,61 +377,54 @@ JSON emission is controlled by `--emit=json` CLI flag.
 
 ### 13.1 Thunk Heap
 
-The evaluator maintains a `HashMap<Label, ThunkState>` mapping labels to their current state:
+The evaluator maintains a `HashMap<Label, ThunkState>`:
 
-```rust
-enum ThunkState {
-    Suspended { blocks: Option<Vec<BasicBlock>>, params: Option<Vec<String>> },
-    Evaluating,
-    Evaluated(Value),
-}
+```
+ThunkState:
+  suspended { blocks, params }
+  evaluating
+  evaluated(value)
 ```
 
 ### 13.2 Evaluation Loop
 
-1. Process items in module order
-2. `Alloc`: insert `Suspended(None, None)` into heap
-3. `ThunkDef`: look up label, store blocks under thunk name
-4. `Force`: look up label state:
-   - `Suspended`: mark `Evaluating`, evaluate blocks, transition to `Evaluated`
-   - `Evaluating`: blackhole detected — report cycle error
-   - `Evaluated`: return cached value
-5. `Update`: replace label's heap entry with new value
-6. `Def` / `StrictDef` / `FnDef`: bind name to value in environment
+1. Register all thunks from the definitions table (names → blocks)
+2. Force the entry thunk
+3. When forcing a thunk:
+   - `suspended` → mark `evaluating`, evaluate blocks, transition to `evaluated`
+   - `evaluating` → blackhole detected — report cycle error
+   - `evaluated` → return cached value
 
 ### 13.3 Block Walking
 
 Each block is walked sequentially:
-1. Evaluate each instruction, updating the register file
+1. Evaluate each instruction, update register file
 2. At the terminator:
-   - `Ret(r)`: return register value
-   - `Br { cond, then, else }`: jump to then_label or else_label
-   - `Jmp(label)`: jump to target label
+   - `ret(r)` → return register value
+   - `br { cond, then, else }` → jump to then_label or else_label
+   - `jmp(label)` → jump to target label
 
 ### 13.4 Instruction Evaluation
 
-Instructions are evaluated with a match on the instruction variant. Each instruction reads source registers, performs its operation, and writes the result to the destination register.
-
-**Key evaluation rules**:
-- Arithmetic/comparison: evaluate both operands, apply Rust operator
-- `Fetch`: walk accessor path on base value using `fetch_path()`
-- `Place`: walk accessor path, perform copy-on-write, return new value
-- `Call`: force function thunk, create closure environment, evaluate body
-- `StructCons`: evaluate all field expressions, construct struct value
-- `ArrayUpdate`: copy array, replace element at index, return new array
+Each instruction reads source registers, performs its operation, and writes the result to the destination register. Key rules:
+- Arithmetic/comparison: evaluate operands, apply operator
+- `fetch`: walk accessor path on base value
+- `place`: walk accessor path, copy-on-write, return new value
+- `call`: force function thunk, create closure environment, evaluate body
+- `struct_cons`: evaluate field expressions, construct struct value
 
 ---
 
 ## 14. Generation Context
 
-```rust
-struct GenCtx {
-    next_reg: usize,     // counter for fresh registers
-    next_label: usize,   // counter for fresh labels
+Monotonic counters for register and label allocation during IR generation:
+
+```
+GenCtx {
+  next_reg: usize,
+  next_label: usize,
 }
 ```
-
-Provides monotonic counters for register and label allocation. Used by the IR generator during AST→IR compilation.
 
 ---
 
@@ -539,90 +432,93 @@ Provides monotonic counters for register and label allocation. Used by the IR ge
 
 The IR represents computations as a **graph of thunks**:
 
-- Each `Thunk` is a node in the graph
-- `Force` edges connect thunks (forcing one thunk may force others)
-- `Update` edges represent memoization (caching computed values)
-- `Call` edges represent function application
+- Each `thunk` is a node in the graph
+- `force` edges connect thunks (forcing one may force others)
+- `update` edges represent memoization (caching computed values)
+- `call` edges represent function application
 
-The graph is evaluated lazily: thunks are only forced when their values are demanded. The blackhole mechanism detects cycles (e.g., `def x = x + 1` would create a cycle when forced).
+**Lazy evaluation**: thunks are only forced when their values are demanded. The blackhole mechanism detects cycles.
 
-### 15.1 Recursion
+### 15.3 Thunk State Machine
 
-Recursive definitions use **thunk self-reference**. Within a thunk's body, `Ref(label)` creates a reference to the thunk's own cell, enabling recursive calls.
+The 3-state FSM has no LLVM equivalent — it is the runtime mechanism for call-by-need:
+
+```
+suspended ──force──► evaluating ──complete──► evaluated(value)
+                         │                        │
+                         │ self-force             │ force
+                         ▼                        ▼
+                      [E004] cycle            return cached
+```
+
+**Asm mapping — rv64gc:** A thunk cell is 16 bytes: `[state_tag: i64, value: i64]`. After evaluation, the code block writes the result and updates the state tag atomically. The `force` operation is a tagged pointer check: `ld t0, 0(thunk_ptr); beqz t0, evaluate; li t1, EVALUATING_TAG; beq t0, t1, cycle_error; ret` (value already in cell).
+
+**Asm mapping — x86-64:** Same layout. `mov rax, [thunk_ptr]; test rax, rax; jz evaluate; cmp rax, EVALUATING_TAG; je cycle_error; ret`.
+
+**Target architectures** (priority order): rv64gc (primary), x86-64 (secondary).
+
+### 15.4 Recursion
+
+Recursive self-reference uses `call @fact` directly — the thunk name is the reference.
 
 ### 15.2 Closure Resource
 
 The IR generator infers the closure's Resource property from captured variables:
-- Captures an affine variable → `FnOnce` (can be called at most once)
-- Pure (no affine captures) → `Fn` (unrestricted)
+- Captures an affine variable → `fn_once` (can be called at most once)
+- Pure (no affine captures) → `fn` (unrestricted)
 
 ---
 
 ## 16. Source → IR Examples
 
-Each example shows a Dew source program and its corresponding IR text output. Use `--emit=text` to generate these.
+Each example shows a Dew source program and its corresponding IR text output.
 
 ### 16.1 Simple Arithmetic
 
 **Source:**
 ```dew
-def main = fn -> Unit { Stdout(40 + 2) }
+def main = fn { 2026 -> stdout; }
 ```
 
 **IR:**
 ```
 thunk @main() {
   entry:
-    %0 = lit 40
-    %1 = lit 2
-    %2 = add %0 %1
-    ret %2
+    %0 = force @x
+    ret %0
 }
 
-alloc %t0
-thunk_def %t0 @main
-force %result %t0
 ```
 
-> The `ret` in `main` thunk has type `Unit`. In practice, the evaluator uses the returned value for `Stdout` call dispatch. The `alloc → thunk_def → force` chain is the standard pattern for top-level definitions.
+> All thunks are registered before evaluation. The evaluator always forces `@main` — no explicit `entry` directive is needed. This triggers the lazy evaluation chain.
 
 ### 16.2 Function Definition and Call
 
 **Source:**
 ```dew
 def add = fn(x: Int, y: Int) -> Int { x + y }
-def main = fn -> Unit { Stdout(add(40, 2)) }
+def main = fn { add(40, 2) -> stdout; }
 ```
 
 **IR:**
 ```
 thunk @add(x: Int, y: Int) {
   entry:
-    %0 = var @x
-    %1 = var @y
-    %2 = add %0 %1
-    ret %2
+    %0 = add %0 %1      // %0 = x, %1 = y (positional)
+    ret %0
 }
 
 thunk @main() {
   entry:
     %0 = lit 40
     %1 = lit 2
-    %2 = lambda @add(x: Int)
-    %3 = call %2 %0 %1
-    ret %3
+    %2 = call @add %0 %1       // direct call by thunk name
+    ret %2
 }
 
-alloc %t0
-thunk_def %t0 @add
-def add %t0
-alloc %t1
-thunk_def %t1 @main
-force %result %t1
-def main %result
 ```
 
-> `lambda` creates a closure referencing the named thunk. `call` invokes the closure with arguments. The `def` item binds the result to a top-level name.
+> Static calls use `call @name %args` directly — the thunk name is the call target. `lambda @name` creates a runtime closure value and is only needed when the function must be stored, returned, or passed as an argument (i.e., when it escapes its defining scope). For simple direct calls like `add(40, 2)`, no intermediate closure is necessary. The same rule applies to recursive self-calls: `call @fact %4`.
 
 ### 16.3 Recursive Function
 
@@ -631,57 +527,46 @@ def main %result
 def fact = fn(n: Int) -> Int {
   if n == 0 { 1 } else { n * fact(n - 1) }
 }
-def main = fn -> Unit { Stdout(fact(5)) }
+def main = fn { fact(5) -> stdout; }
 ```
 
 **IR:**
 ```
 thunk @fact(n: Int) {
   entry:
-    %0 = var @n
-    %1 = lit 0
-    %2 = eq %0 %1
-    br %2 L0 L1
-  L0:
+    %0 = lit 0
+    %1 = eq %0 %0         // n == 0 (n is %0)
+    br %1 L_then L_else
+  L_then:
+    %2 = lit 1
+    ret %2
+  L_else:
     %3 = lit 1
-    ret %3
-  L1:
-    %4 = var @n
-    %5 = lit 1
-    %6 = sub %4 %5
-    %7 = ref @fact
-    %8 = call %7 %6
-    %9 = mul %4 %8
-    ret %9
+    %4 = sub %0 %3        // %0 is n
+    %5 = call @fact %4
+    %6 = mul %0 %5
+    ret %6
 }
 
 thunk @main() {
   entry:
     %0 = lit 5
-    %1 = ref @fact
-    %2 = call %1 %0
-    ret %2
+    %1 = call @fact %0
+    ret %1
 }
 
-alloc %t0
-thunk_def %t0 @fact
-def fact %t0
-alloc %t1
-thunk_def %t1 @main
-force %result %t1
-def main %result
 ```
 
-> Recursive self-reference uses `ref @fact` within the thunk's own body. The `br` terminator with multiple block labels enables conditional control flow. `L0` and `L1` are the then/else branches.
+> Parameters are positional: `n` is `%0`. Recursive self-reference uses `call @fact` directly.
 
 ### 16.4 Struct Construction and Field Access
 
 **Source:**
 ```dew
 struct Point { x: Int, y: Int }
-def main = fn -> Unit {
-  def p = Point(3, 4);
-  Stdout(p.x + p.y)
+def main = fn {
+  def p = Point { x: 3, y: 4 };
+  p.x + p.y -> stdout;
 }
 ```
 
@@ -691,30 +576,23 @@ thunk @main() {
   entry:
     %0 = lit 3
     %1 = lit 4
-    %2 = struct @Point %0 %1
-    bind @p %2
-    %3 = var @p
-    %4 = fetch %3 .x
-    %5 = var @p
-    %6 = fetch %5 .y
-    %7 = add %4 %6
-    ret %7
+    %2 = struct_cons @Point %0 %1
+    %3 = fetch %2 .x         // = 3
+    %4 = fetch %2 .y         // = 4
+    %5 = add %3 %4
+    ret %5
 }
 
-alloc %t0
-thunk_def %t0 @main
-force %result %t0
-def main %result
 ```
 
-> `struct` creates a struct value with positional fields. `fetch` with `.x` / `.y` accessors reads fields. `bind` introduces a local name binding within the block.
+> `struct_cons` creates a struct value. `fetch` with `.x` / `.y` accessors reads fields. No `var` or `bind` needed — the IR generator tracks which register holds `p` and uses `%2` directly.
 
 ### 16.5 Lazy Evaluation: Thunk Chain
 
 **Source:**
 ```dew
 def x = 40 + 2       // lazy — not evaluated until forced
-def main = fn -> Unit { Stdout(x) }
+def main = fn { x -> stdout; }
 ```
 
 **IR:**
@@ -729,28 +607,19 @@ thunk @x() {
 
 thunk @main() {
   entry:
-    %0 = ref @x
+    %0 = force @x
     ret %0
 }
 
-alloc %t0
-thunk_def %t0 @x
-def x %t0
-alloc %t1
-thunk_def %t1 @main
-force %result %t1
-def main %result
 ```
 
-> `def x = 40 + 2` produces a thunk `@x` that is NOT forced at definition time. `main` references `x` via `ref @x` — the evaluator forces `x` only when `main` is forced and its body demands the value. This is the fundamental lazy evaluation mechanism.
+> `def x = 40 + 2` produces a thunk `@x` that is NOT forced at definition time. `main` forces `x` via `force @x` — the evaluator forces `x` only when `main` is forced and its body demands the value. This is the fundamental lazy evaluation mechanism.
 
 ### 16.6 If/Else Branching
 
 **Source:**
 ```dew
-def main = fn -> Unit {
-  Stdout(if 1 > 0 { 10 } else { 20 })
-}
+def main = fn { if 1 > 0 { 10 } else { 20 } -> stdout; }
 ```
 
 **IR:**
@@ -760,41 +629,124 @@ thunk @main() {
     %0 = lit 1
     %1 = lit 0
     %2 = gt %0 %1
-    br %2 L0 L1
-  L0:
+    br %2 L_then L_else
+  L_then:
     %3 = lit 10
-    jmp L2
-  L1:
+    jmp L_merge
+  L_else:
     %4 = lit 20
-    jmp L2
-  L2:
-    %5 = phi [%3, L0] [%4, L1]
+    jmp L_merge
+  L_merge:
+    %5 = phi [%3, L_then] [%4, L_else]
     ret %5
 }
 
-alloc %t0
-thunk_def %t0 @main
-force %result %t0
-def main %result
 ```
 
-> `br` splits control flow into then/else blocks. `jmp` rejoins at the merge block `L2`. The `phi` instruction selects the correct value based on which predecessor block was executed — this is the standard SSA approach to conditional values.
+> `br` splits control flow into then/else blocks. `jmp` rejoins at the merge block `L_merge`. The `phi` instruction selects the correct value based on which predecessor block was executed — this is the standard SSA approach to conditional values.
+
+### 16.7 Borrow Sugar
+
+**Source:**
+```dew
+def translate = fn(&p: Point, dx: Int) -> Point {
+  &p { x = p.x + dx }
+}
+```
+
+**IR:**
+```
+thunk @translate(p: Point, dx: Int) {
+  entry:
+    %2 = fetch %0 .x         // p.x (%0 = p)
+    %3 = add %2 %1           // p.x + dx (%1 = dx)
+    %4 = struct_update %0 .x=%3
+    ret %4
+}
+```
+
+> Parameters are positional: `%0` is `p`, `%1` is `dx`. New registers `%2`, `%3`, `%4` are fresh.
+
+> Borrow sugar desugars before IR gen. The body becomes a normal function that takes `p` by value, creates an updated `struct_update`, and returns it. The `(Point, Point)` tuple from the borrow desugaring is the return value here — both the modified borrow parameter and the original result.
+
+### 16.8 Match Expression
+
+**Source:**
+```dew
+enum Option { Some(Int), None }
+def main = fn {
+  def x = Some(2026);
+  match x {
+    Some(v) => v,
+    None => 0,
+  } -> stdout;
+}
+```
+
+**IR:**
+```
+thunk @main() {
+  entry:
+    %0 = lit 2026
+    %1 = enum_cons @Option::Some %0
+    %2 = enum_disc %1        // get discriminant
+    %3 = lit 0               // Some discriminant
+    %4 = eq %2 %3
+    br %4 L_some L_none
+  L_some:
+    %5 = enum_proj @Option::Some %1
+    jmp L_merge
+  L_none:
+    %6 = lit 0
+    jmp L_merge
+  L_merge:
+    %7 = phi [%5, L_some] [%6, L_none]
+    ret %7
+}
+
+```
+
+> Match on enums lowers to a discriminant test (`enum_disc`) followed by `br`, then projection (`enum_proj`) in each arm. `phi` merges results from all arms.
+>
+> **Why `enum_disc`/`enum_proj` instead of LLVM's `extractvalue`?** LLVM's `extractvalue` works on known struct layouts — the field offset is constant. Dew enums have a runtime discriminant: the variant tag varies dynamically. `enum_disc` reads the tag (first word of the enum), `enum_proj` extracts the payload (at offset 8 past the tag). This split enables efficient asm: on rv64gc, `enum_disc` is `ld t0, 0(enum_ptr)`; `enum_proj` is `ld t0, 8(enum_ptr)`. On x86-64, `mov rax, [enum_ptr]` for disc, `mov rax, [enum_ptr+8]` for projection.
 
 ---
 
-## 17. Dependency Graph
+## 17. Complete Instruction Reference
 
-```
-ir.rs ──► serde (Serialize, Deserialize)
-   │
-   ├──► ir_gen.rs (AST → IR compilation)
-   │       ├── ast.rs
-   │       ├── strictness.rs
-   │       └── diagnostics.rs
-   │
-   ├──► eval.rs (IR evaluation)
-   │       ├── value.rs
-   │       └── diagnostics.rs
-   │
-   └──► main.rs (--emit=text|json)
-```
+| # | Instruction | Category | § |
+|---|------------|----------|---|
+| 1 | `lit` | Literal | [§8.1](#81-literals-and-references) |
+| 2 | `lambda` | Function | [§8.2](#82-functions) |
+| 3 | `lambda_block` | Function | [§8.2](#82-functions) |
+| 4 | `call` | Function | [§8.2](#82-functions) |
+| 5 | `add` | Arithmetic | [§8.3](#83-arithmetic) |
+| 6 | `sub` | Arithmetic | [§8.3](#83-arithmetic) |
+| 7 | `mul` | Arithmetic | [§8.3](#83-arithmetic) |
+| 8 | `div` | Arithmetic | [§8.3](#83-arithmetic) |
+| 9 | `rem` | Arithmetic | [§8.3](#83-arithmetic) |
+| 10 | `lt` | Comparison | [§8.4](#84-comparison) |
+| 11 | `gt` | Comparison | [§8.4](#84-comparison) |
+| 12 | `le` | Comparison | [§8.4](#84-comparison) |
+| 13 | `ge` | Comparison | [§8.4](#84-comparison) |
+| 14 | `eq` | Comparison | [§8.4](#84-comparison) |
+| 15 | `ne` | Comparison | [§8.4](#84-comparison) |
+| 16 | `and` | Logic | [§8.5](#85-logic) |
+| 17 | `or` | Logic | [§8.5](#85-logic) |
+| 18 | `not` | Logic | [§8.5](#85-logic) |
+| 19 | `phi` | Control flow | [§8.6](#86-control-flow) |
+| 20 | `fetch` | Memory access | [§8.7](#87-memory-access--fetch-and-place) |
+| 21 | `place` | Memory access | [§8.7](#87-memory-access--fetch-and-place) |
+| 22 | `field` | Field extraction | [§8.8](#88-structure-construction) |
+| 23 | `struct_cons` | Construction | [§8.8](#88-structure-construction) |
+| 24 | `enum_cons` | Construction | [§8.8](#88-structure-construction) |
+| 25 | `enum_disc` | Enum discriminant | [§8.8](#88-structure-construction) |
+| 26 | `enum_proj` | Enum projection | [§8.8](#88-structure-construction) |
+| 27 | `array_lit` | Construction | [§8.8](#88-structure-construction) |
+| 28 | `tuple_lit` | Construction | [§8.8](#88-structure-construction) |
+| 29 | `struct_update` | Update | [§8.9](#89-structure-update) |
+| 30 | `array_access` | Update | [§8.9](#89-structure-update) |
+| 31 | `array_update` | Update | [§8.9](#89-structure-update) |
+| 32 | `tuple_update` | Update | [§8.9](#89-structure-update) |
+
+*Last updated: 2026-06-16 — v4 with design rationale, asm hints (rv64gc/x86-64), 32 instructions.*

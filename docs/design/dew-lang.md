@@ -126,14 +126,18 @@ def main = fn {
 
 ### 2.2 Entry Point
 
-A program must define a `main` binding. The preferred style omits both the empty parameter list `()` and `-> Unit`:
+Dew execution begins at the `main` binding. `main` is expected to have signature `() -> IO Unit` — a zero-argument function with side effects. The evaluator invokes `main()`. Exit code is `0` on success, `1` on error.
+
+**If `main` is pure** (no IO), the compiler issues `[W003]` — the program compiles and runs correctly, but a pure `main` produces no visible output. Side effects are explicit: output comes from `stdout`, input from `stdin`.
+
+**Redefining `main`** produces `[W001]`. Redefining a standard library name produces `[W002]`.
 
 ```dew
 def main = fn { 2026 -> stdout; }
 // stdout: 2026
 ```
 
-All four forms are equivalent — the compiler accepts any combination of explicit/implicit `()` and `-> Unit`:
+All four forms are equivalent:
 
 ```dew
 def main = fn { 2026 -> stdout; }            // preferred
@@ -141,6 +145,10 @@ def main = fn -> Unit { 2026 -> stdout; }    // explicit return type
 def main = fn () { 2026 -> stdout; }         // explicit empty params
 def main = fn () -> Unit { 2026 -> stdout; } // fully explicit
 ```
+
+**Execution model.** The compiler collects all top-level definitions, then forces `main`. Definitions appear in source order but are registered before evaluation — forward references between `def` bindings are resolved lazily. Only `main` triggers evaluation; unreferenced definitions remain suspended thunks. This mirrors LLVM's model: `define` for declarations, `@main()` as the runtime entry.
+
+**Redefining `main`** produces a `[W001]` warning. The compiler accepts the redefinition but the later binding shadows the earlier — only the last `main` executes. Redefining a standard library name (`stdin`, `stdout`, `consume`, `Affine`, etc.) produces a `[W002]` warning.
 
 The evaluator invokes `main()`. Exit code is `0` on success.
 
@@ -1902,15 +1910,20 @@ The standard library provides types and functions that are not built into the la
 
 ## 12. Modules and Imports
 
+`import` performs literal file inclusion — the imported file's content is textually inserted at the import site, like C++ `#include`. The compiler processes the result as a single translation unit.
+
 ```dew
 import "stdlib/io.dew"
 import "stdlib/list.dew"
 ```
 
-- `import` loads files and merges symbol tables
-- Paths are relative to the project root (the directory containing the entry-point `.dew` file). `stdlib/` is a reserved path prefix for the standard library.
-- Name collisions on import produce a **compile error** — the programmer must disambiguate by renaming one of the conflicting definitions
-- Top-level only allows declarations (`def`, `import`, `struct`, `enum`)
+- `import "path"` is replaced by the content of `path` before parsing
+- Paths are relative to the file containing the `import` statement. `stdlib/` is relative to the compiler's standard library directory
+- Name collisions between imports produce `[E007]`
+- Top-level declarations only (`def`, `import`, `struct`, `enum`)
+- **Only single-file compilation is supported.** The compiler operates on one entry-point `.dew` file and inlines all imports into it
+
+> C++-style textual inclusion is intentionally simple. It avoids a module system, namespace management, and separate compilation — complexity that is not needed at this stage. When Dew grows beyond single-file programs, a proper module system can replace `import` without changing the language semantics.
 
 ---
 
@@ -1947,7 +1960,23 @@ If a program passes all compile-time checks, Dew assumes it is correct and runs 
 | OS kills process (SIGSEGV, SIGFPE, etc.) | OS-determined (typically non-zero) |
 | Compiler error | `1` (process exits before evaluation) |
 
-There is no mechanism for user code to set a non-zero exit code other than triggering an OS-level fault.
+### Diagnostic Codes
+
+All compiler diagnostics use bracketed codes. `[E###]` for errors (compilation stops), `[W###]` for warnings (compilation continues):
+
+| Code | Category | Description |
+|------|----------|-------------|
+| `[E001]` | File/System | File not found, I/O error |
+| `[E002]` | Parse | Syntax error |
+| `[E003]` | Type | Type mismatch |
+| `[E004]` | Affine | Use-after-consume, double use |
+| `[E005]` | Exhaustiveness | Non-exhaustive match |
+| `[E006]` | Effect | IO function in pure context, or pure annotation on IO body |
+| `[E007]` | Name | Unbound variable, import conflict |
+| `[W001]` | Shadow | Redefining `main` |
+| `[W002]` | Shadow | Redefining standard library name |
+| `[W003]` | Effect | `main` is pure (no IO) — compiles but produces no output |
+| `[W004]` | Affine | Struct contains affine field but not declared `affine` |
 
 ---
 
