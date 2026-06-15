@@ -363,11 +363,16 @@ impl Parser {
                 continue;
             }
             if matches!(self.current, Token::KwRefSelf) {
-                params.push(("self".into(), "&Self".into()));
                 self.advance();
-                continue;
-            }
-            if matches!(self.current, Token::Amp) {
+                if matches!(self.current, Token::KwSelf) {
+                    params.push(("self".into(), "&Self".into()));
+                    self.advance();
+                    continue;
+                }
+                // &mut in type position — handled by parse_type below
+                // push "&mut" back by falling through to param parsing
+                // The lexer consumed &mut as KwRefSelf, but parse_type handles it
+            } else if matches!(self.current, Token::Amp) {
                 self.advance();
                 if matches!(self.current, Token::KwSelf) {
                     params.push(("self".into(), "&Self".into()));
@@ -376,6 +381,7 @@ impl Parser {
                 }
                 return Err("expected 'self' after '&'".into());
             }
+            if matches!(self.current, Token::RParen) { break; }
             let pname = self.expect_ident()?;
             self.expect(&Token::Colon)?;
             let ptype = self.parse_type()?;
@@ -407,6 +413,7 @@ impl Parser {
             Token::KwIf => self.parse_if(),
             Token::KwReturn => { self.advance(); Ok(Stmt::Return(None)) }
             Token::KwContinue => { self.advance(); self.expect(&Token::Semi)?; Ok(Stmt::Continue) }
+            Token::Semi => { self.advance(); Ok(Stmt::Expr(Expr::Ident("Unit".into()))) }
             _ => {
                 let expr = self.parse_expr()?;
                 // Check for assignment
