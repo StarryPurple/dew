@@ -1,8 +1,0 @@
-struct Point { x: Int, y: Int }
-
-def main = fn -> Int {
-  def p = Point(3, 4);
-  &p { x = 10 };
-  &p = Point(1, 2);
-  p.x + p.y
-}

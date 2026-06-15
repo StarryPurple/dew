@@ -1,9 +1,0 @@
-struct Point { x: Int, y: Int }
-
-def dist = fn(p: Point) -> Int {
-  p.x + p.y
-}
-def main = fn -> Int {
-  def p = Point(3, 4);
-  dist(p)
-}

@@ -1,7 +1,0 @@
-def abs = fn(n: Int) -> Int {
-  match n < 0 {
-    true => 0 - n,
-    false => n,
-  }
-}
-def main = fn -> Int { abs(-42) }

@@ -1,2 +1,0 @@
-def loop = fn() -> Int { loop() }
-def main = fn -> Int { loop() }

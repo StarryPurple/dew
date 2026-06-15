@@ -1,3 +1,0 @@
-def apply5 = fn(f: Int -> Int) -> Int { f(5) }
-def inc = fn(x: Int) -> Int { x + 1 }
-def main = fn -> Int { apply5(inc) }

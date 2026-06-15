@@ -1,5 +1,0 @@
-def pow = fn(base: Int, exp: Int) -> Int {
-  if exp == 0 { 1 }
-  else { base * pow(base, exp - 1) }
-}
-def main = fn -> Int { pow(2, 10) }
