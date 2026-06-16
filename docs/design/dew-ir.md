@@ -72,7 +72,7 @@ thunk @x() {
 thunk @main() {
   entry:
     %0 = force @x
-    ret %0
+    stdout %0
 }
 
 ```
@@ -158,19 +158,30 @@ IR types are a subset of source types — no type variables (inference happens b
 | `tuple(ts)` | `(Int, Bool)` | `(Int, Bool)` |
 | `array(t, n)` | `Array(Char, 5)` | `Array(Char, 5)` |
 
+> **All values are 64-bit.** `Int`, `Bool`, `Char`, pointers, and thunk references all reside in a single 64-bit register (GPR). `Unit` is zero-width — no register, eliminated at codegen. This uniform width simplifies the evaluator (every register is `u64`) and the asm backend (every value maps to `xN` on rv64gc, `rN` on x86-64). Structs ≤ 2 fields fit in register pairs; larger structs use stack allocation. No type tags needed at runtime — all generic parameters are monomorphized before IR generation.
+
 ---
 
 ## 8. Instructions — Complete Reference
 
 All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 
-### 8.1 Literals and References
+### 8.1 Literals
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
 | `lit` | `%r = lit 42` | Load literal into register |
 
-### 8.2 Functions
+### 8.2 I/O
+
+| Instruction | Text | Semantics |
+|------------|------|-----------|
+| `stdout` | `stdout %r` | Write register value to stdout (no return) |
+| `stdin` | `%r = stdin` | Read value from stdin into register |
+
+> `stdout` and `stdin` are IR primitives, not thunk calls. Like `add` and `lit`, they are leaf instructions matched directly by the evaluator. This ensures side effects execute immediately (IO is always strict, per §3.2 of the language spec). On rv64gc, `stdout` maps to an `ecall` with the write syscall number; `stdin` maps to an `ecall` with the read syscall number. The borrow sugar on `stdin(&v)` is desugared before IR gen — the IR sees only the simple `stdin` read.
+
+### 8.3 Functions
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
@@ -180,7 +191,7 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 
 > **`lambda` vs direct call:** `call @name %args` invokes a thunk directly by name — the thunk is statically known. `lambda @name` creates a runtime closure value wrapping the thunk reference. Use `call @name` when the callee is known at IR-gen time (direct calls, recursion). Use `lambda` only when the function must escape: returned from a function, stored in a struct, or passed as a higher-order argument. Direct calls are simpler and enable the asm backend to generate a plain `call`/`jal` instruction without closure allocation overhead.
 
-### 8.3 Arithmetic
+### 8.4 Arithmetic
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
@@ -190,7 +201,7 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 | `div` | `%r = div %a %b` | `%r := %a / %b` (integer division) |
 | `rem` | `%r = rem %a %b` | `%r := %a % %b` |
 
-### 8.4 Comparison
+### 8.5 Comparison
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
@@ -201,7 +212,7 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 | `eq` | `%r = eq %a %b` | `%r := %a == %b` |
 | `ne` | `%r = ne %a %b` | `%r := %a != %b` |
 
-### 8.5 Logic
+### 8.6 Logic
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
@@ -209,7 +220,7 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 | `or` | `%r = or %a %b` | `%r := %a \|\| %b` |
 | `not` | `%r = not %a` | `%r := !%a` |
 
-### 8.6 Control Flow
+### 8.7 Control Flow
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
@@ -217,7 +228,7 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 
 The `phi` instruction is the standard SSA mechanism for merging values from different control flow paths. Each pair `[%value, label]` indicates "if we arrived from `label`, use `%value`."
 
-### 8.7 Memory Access — `fetch` and `place`
+### 8.8 Memory Access — `fetch` and `place`
 
 Both use **accessor paths** to navigate compound data structures.
 
@@ -239,7 +250,7 @@ Creates a new value equal to `%base` but with the value at the given path replac
 >
 > **Asm translation — rv64gc:** `fetch` with a static field offset compiles to an offset load from the struct base address. `place` compiles to a copy with one field overwritten — if the value is affine (exclusive ownership), this becomes an in-place store. On x86-64: same pattern, using `mov` with `[base + offset]` addressing.
 
-### 8.8 Structure Construction
+### 8.9 Structure Construction
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
@@ -253,7 +264,7 @@ Creates a new value equal to `%base` but with the value at the given path replac
 >
 > **Asm:** On rv64gc/x86-64, `struct_cons` compiles to stack or register packing. Structs ≤ 2 registers fit entirely in registers (rv64gc: `x10`+`x11`, x86-64: `rdi`+`rsi`). Larger structs allocate on the stack with `addi sp, sp, -N` (rv64gc) or `sub rsp, N` (x86-64).
 
-### 8.9 Structure Update
+### 8.10 Structure Update
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
@@ -264,10 +275,11 @@ Creates a new value equal to `%base` but with the value at the given path replac
 
 > **Why `array_access` separately from `fetch`?** Array element access is the common case — it happens at every subscript `a[i]`. `fetch %a [%i]` with an accessor path would work, but `array_access %a %i` is a single instruction the evaluator matches directly. The same logic applies to `array_update`, `struct_update`, and `tuple_update` — they are syntactic sugar for common patterns, backed by `fetch`/`place` as the general mechanism. This is analogous to LLVM providing both `getelementptr` (general) and `extractvalue` (specific).
 
-### 8.10 Complete Instruction List (32 total)
+### 8.11 Complete Instruction List (34 total)
 
 ```
 lit                                  — literals
+stdout, stdin                        — I/O
 lambda, lambda_block, call           — functions
 add, sub, mul, div, rem              — arithmetic
 lt, gt, le, ge, eq, ne               — comparison
@@ -326,7 +338,7 @@ thunk @main() {
     %0 = lit 40
     %1 = lit 2
     %2 = add %0 %1
-    ret %2
+    stdout %2
 }
 
 ```
@@ -484,13 +496,12 @@ def main = fn { 2026 -> stdout; }
 ```
 thunk @main() {
   entry:
-    %0 = force @x
-    ret %0
+    %0 = lit 2026
+    stdout %0
 }
-
 ```
 
-> All thunks are registered before evaluation. The evaluator always forces `@main` — no explicit `entry` directive is needed. This triggers the lazy evaluation chain.
+> `stdout` is an IR primitive — side effect, no return value. The thunk body ends with `stdout`; no `ret` is needed because `main` returns `Unit`. Pure thunks use `ret %r` to return values.
 
 ### 16.2 Function Definition and Call
 
@@ -512,8 +523,8 @@ thunk @main() {
   entry:
     %0 = lit 40
     %1 = lit 2
-    %2 = call @add %0 %1       // direct call by thunk name
-    ret %2
+    %2 = call @add %0 %1
+    stdout %2
 }
 
 ```
@@ -552,7 +563,7 @@ thunk @main() {
   entry:
     %0 = lit 5
     %1 = call @fact %0
-    ret %1
+    stdout %1
 }
 
 ```
@@ -580,7 +591,7 @@ thunk @main() {
     %3 = fetch %2 .x         // = 3
     %4 = fetch %2 .y         // = 4
     %5 = add %3 %4
-    ret %5
+    stdout %5
 }
 
 ```
@@ -608,7 +619,7 @@ thunk @x() {
 thunk @main() {
   entry:
     %0 = force @x
-    ret %0
+    stdout %0
 }
 
 ```
@@ -638,7 +649,7 @@ thunk @main() {
     jmp L_merge
   L_merge:
     %5 = phi [%3, L_then] [%4, L_else]
-    ret %5
+    stdout %5
 }
 
 ```
@@ -701,7 +712,7 @@ thunk @main() {
     jmp L_merge
   L_merge:
     %7 = phi [%5, L_some] [%6, L_none]
-    ret %7
+    stdout %7
 }
 
 ```
@@ -716,37 +727,39 @@ thunk @main() {
 
 | # | Instruction | Category | § |
 |---|------------|----------|---|
-| 1 | `lit` | Literal | [§8.1](#81-literals-and-references) |
-| 2 | `lambda` | Function | [§8.2](#82-functions) |
-| 3 | `lambda_block` | Function | [§8.2](#82-functions) |
-| 4 | `call` | Function | [§8.2](#82-functions) |
-| 5 | `add` | Arithmetic | [§8.3](#83-arithmetic) |
-| 6 | `sub` | Arithmetic | [§8.3](#83-arithmetic) |
-| 7 | `mul` | Arithmetic | [§8.3](#83-arithmetic) |
-| 8 | `div` | Arithmetic | [§8.3](#83-arithmetic) |
-| 9 | `rem` | Arithmetic | [§8.3](#83-arithmetic) |
-| 10 | `lt` | Comparison | [§8.4](#84-comparison) |
-| 11 | `gt` | Comparison | [§8.4](#84-comparison) |
-| 12 | `le` | Comparison | [§8.4](#84-comparison) |
-| 13 | `ge` | Comparison | [§8.4](#84-comparison) |
-| 14 | `eq` | Comparison | [§8.4](#84-comparison) |
-| 15 | `ne` | Comparison | [§8.4](#84-comparison) |
-| 16 | `and` | Logic | [§8.5](#85-logic) |
-| 17 | `or` | Logic | [§8.5](#85-logic) |
-| 18 | `not` | Logic | [§8.5](#85-logic) |
-| 19 | `phi` | Control flow | [§8.6](#86-control-flow) |
-| 20 | `fetch` | Memory access | [§8.7](#87-memory-access--fetch-and-place) |
-| 21 | `place` | Memory access | [§8.7](#87-memory-access--fetch-and-place) |
-| 22 | `field` | Field extraction | [§8.8](#88-structure-construction) |
-| 23 | `struct_cons` | Construction | [§8.8](#88-structure-construction) |
-| 24 | `enum_cons` | Construction | [§8.8](#88-structure-construction) |
-| 25 | `enum_disc` | Enum discriminant | [§8.8](#88-structure-construction) |
-| 26 | `enum_proj` | Enum projection | [§8.8](#88-structure-construction) |
-| 27 | `array_lit` | Construction | [§8.8](#88-structure-construction) |
-| 28 | `tuple_lit` | Construction | [§8.8](#88-structure-construction) |
-| 29 | `struct_update` | Update | [§8.9](#89-structure-update) |
-| 30 | `array_access` | Update | [§8.9](#89-structure-update) |
-| 31 | `array_update` | Update | [§8.9](#89-structure-update) |
-| 32 | `tuple_update` | Update | [§8.9](#89-structure-update) |
+| 1 | `lit` | Literal | [§8.1](#81-literals) |
+| 2 | `stdout` | I/O | [§8.2](#82-io) |
+| 3 | `stdin` | I/O | [§8.2](#82-io) |
+| 4 | `lambda` | Function | [§8.3](#83-functions) |
+| 5 | `lambda_block` | Function | [§8.3](#83-functions) |
+| 6 | `call` | Function | [§8.3](#83-functions) |
+| 7 | `add` | Arithmetic | [§8.4](#84-arithmetic) |
+| 8 | `sub` | Arithmetic | [§8.4](#84-arithmetic) |
+| 9 | `mul` | Arithmetic | [§8.4](#84-arithmetic) |
+| 10 | `div` | Arithmetic | [§8.4](#84-arithmetic) |
+| 11 | `rem` | Arithmetic | [§8.4](#84-arithmetic) |
+| 12 | `lt` | Comparison | [§8.5](#85-comparison) |
+| 13 | `gt` | Comparison | [§8.5](#85-comparison) |
+| 14 | `le` | Comparison | [§8.5](#85-comparison) |
+| 15 | `ge` | Comparison | [§8.5](#85-comparison) |
+| 16 | `eq` | Comparison | [§8.5](#85-comparison) |
+| 17 | `ne` | Comparison | [§8.5](#85-comparison) |
+| 18 | `and` | Logic | [§8.6](#86-logic) |
+| 19 | `or` | Logic | [§8.6](#86-logic) |
+| 20 | `not` | Logic | [§8.6](#86-logic) |
+| 21 | `phi` | Control flow | [§8.7](#87-control-flow) |
+| 22 | `fetch` | Memory access | [§8.8](#88-memory-access--fetch-and-place) |
+| 23 | `place` | Memory access | [§8.8](#88-memory-access--fetch-and-place) |
+| 24 | `field` | Field extraction | [§8.9](#89-structure-construction) |
+| 25 | `struct_cons` | Construction | [§8.9](#89-structure-construction) |
+| 26 | `enum_cons` | Construction | [§8.9](#89-structure-construction) |
+| 27 | `enum_disc` | Enum discriminant | [§8.9](#89-structure-construction) |
+| 28 | `enum_proj` | Enum projection | [§8.9](#89-structure-construction) |
+| 29 | `array_lit` | Construction | [§8.9](#89-structure-construction) |
+| 30 | `tuple_lit` | Construction | [§8.9](#89-structure-construction) |
+| 31 | `struct_update` | Update | [§8.10](#810-structure-update) |
+| 32 | `array_access` | Update | [§8.10](#810-structure-update) |
+| 33 | `array_update` | Update | [§8.10](#810-structure-update) |
+| 34 | `tuple_update` | Update | [§8.10](#810-structure-update) |
 
-*Last updated: 2026-06-16 — v4 with design rationale, asm hints (rv64gc/x86-64), 32 instructions.*
+*Last updated: 2026-06-16 — v4 with design rationale, asm hints (rv64gc/x86-64), 34 instructions.*
