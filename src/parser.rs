@@ -449,16 +449,57 @@ impl<'a> Parser<'a> {
                     });
                 }
                 TokenKind::LBrace => {
-                    let updates = self.parse_update_fields()?;
-                    let span = expr.span().merge(self.tokens[self.pos - 1].span);
-                    expr = Expr::Update(UpdateExpr {
-                        span, base: Box::new(expr), updates,
-                    });
+                    if self.is_struct_construction() {
+                        expr = self.parse_struct_construction(expr)?;
+                    } else {
+                        let updates = self.parse_update_fields()?;
+                        let span = expr.span().merge(self.tokens[self.pos - 1].span);
+                        expr = Expr::Update(UpdateExpr {
+                            span, base: Box::new(expr), updates,
+                        });
+                    }
                 }
                 _ => break,
             }
         }
         Ok(expr)
+    }
+
+    fn is_struct_construction(&self) -> bool {
+        let save = self.pos;
+        let p = self.pos;
+        if p + 1 < self.tokens.len() {
+            if self.tokens[p + 1].kind == TokenKind::Ident("".into()) { return false; }
+            if p + 2 < self.tokens.len() && self.tokens[p + 2].kind == TokenKind::Colon {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn parse_struct_construction(&mut self, name_expr: Expr) -> Result<Expr, Span> {
+        self.advance();
+        let name = match &name_expr {
+            Expr::Var(ident) => ident.clone(),
+            _ => return Err(self.current_span()),
+        };
+        let mut fields = Vec::new();
+        while !self.check(TokenKind::RBrace) && !self.is_eof() {
+            let fspan = self.current_span();
+            let fname = self.expect_ident()?;
+            self.expect(TokenKind::Colon)?;
+            let value = self.parse_expr();
+            fields.push(StructLitField { span: fspan, name: fname, value: Some(value) });
+            if !self.check(TokenKind::RBrace) {
+                self.expect(TokenKind::Comma)?;
+            }
+        }
+        let end = self.expect(TokenKind::RBrace)?.span.end;
+        Ok(Expr::StructLit(StructLit {
+            span: Span { start: name.span.start, end, line: 0, col: name.span.start },
+            name,
+            fields,
+        }))
     }
 
     // ==================================================================
