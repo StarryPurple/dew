@@ -53,11 +53,11 @@ The module contains all definitions. Execution always starts at `@main`:
 
 ```
 module:
-  fns: [Fn]          // ordinary functions (parametrized pure, IO, main)
+  fns: [Fn]          // ordinary functions (parametrized pure, IO)
   thunks: [Thunk]    // lazy memoized values (pure zero-arg only)
 ```
 
-The evaluator registers all definitions, then calls `@main`. If `@main` does not exist, report `[E007]`.
+The evaluator registers all definitions, then starts execution at `@main`. If `@main` is an `fn`, it is called; if `@main` is a `thunk`, it is forced. If `@main` does not exist, report `[E007]`.
 
 > **Why two definition kinds?** Thunks are lazy cells with a 3-state FSM (suspended, evaluating, evaluated). Fns are ordinary functions — called directly, no cell, no memoization. This split reflects the Dew source: `def x = expr` (pure, zero-arg) produces a thunk; everything else produces an fn.
 
@@ -180,7 +180,13 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `lit` | `%r = lit 42` | Load literal into register |
+| `lit` | `%r = lit 42` | Load integer literal |
+| `lit` | `%r = lit true` | Load Bool literal (`true` = 1, `false` = 0) |
+| `lit` | `%r = lit '字'` | Load Char literal (Unicode scalar value) |
+
+> **Why `lit` exists despite LLVM not needing it.** LLVM allows immediate operands on any instruction (`add i64 %0, 42`). Dew IR requires all operands to be registers — `lit` is the only way to introduce a constant. This keeps the evaluator simple: every instruction operand is a `Reg`, never an immediate. The asm backend folds `lit`+`add` into `addi` as an independent optimization pass, not as an IR concern.
+>
+> All literal values are 64-bit. `Bool` and `Char` literals are syntactic sugar for their integer representations — the type table determines how they are stored in memory (1 byte for Bool, 4 bytes for Char), but in registers they occupy a full 64-bit GPR.
 
 ### 8.2 I/O
 
