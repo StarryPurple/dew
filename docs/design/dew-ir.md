@@ -298,6 +298,42 @@ fn @make_foo(x: Affine(Int), r1: Affine(Int), r2: Int) {
 
 > The environment size grows with the number of captured variables — each captured value adds one slot. The evaluator allocates the environment on the heap (Rust `Vec<Value>` in the tree-walking evaluator; `malloc` in the asm backend). For affine closures, calling the closure consumes the captured affine values from the environment.
 
+**Curried closures — nested lambda construction:**
+
+```dew
+// Source: triple-curried function — each call returns another closure
+def curried = fn(a: Int) -> (Int) -> (Int) -> Int {
+  fn(b: Int) -> (Int) -> Int {
+    fn(c: Int) -> Int { a + b + c }
+  }
+};
+
+def add3 = curried(1)(2);    // two calls → closure capturing {a=1, b=2}
+def result = add3(3);         // → 6
+```
+
+Each `fn` captures the variables in its enclosing scope. After closure conversion, each nested function is lifted to the top level with the captured variables as parameters:
+
+```
+fn @inner3(a: Int, b: Int, c: Int) {
+  %0 = add %0 %1           // a + b
+  %3 = add %0 %2           // (a + b) + c
+  ret{Int} %3
+}
+
+fn @inner2(b: Int, a: Int) {
+  %2 = lambda{(Int) -> Int} @inner3(%1, %0)   // capture {b, a} → closure(c){a+b+c}
+  ret{(Int) -> Int} %2
+}
+
+fn @curried(a: Int) {
+  %1 = lambda{(Int) -> (Int) -> Int} @inner2(%0)   // capture {a} → closure(b){...}
+  ret{(Int) -> (Int) -> Int} %1
+}
+```
+
+> Each `lambda` creates a closure that packages the captured environment. The returned closure `%2` captures both `a` and `b` — `a` was captured by `@inner2`'s closure, and `b` is captured when `@inner2` is called. The environment chain is flattened: `@inner3` receives all three captured values directly as parameters.
+
 #### `lambda_block` — Inlined Closure (O1 Optimization)
 
 `lambda_block(x, y) { ... }` creates a closure whose body is defined inline. The compiler uses this when it can prove the closure **does not escape** its defining scope — it is only called locally, never returned, stored, or passed as an argument.
