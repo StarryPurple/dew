@@ -61,6 +61,24 @@ module:
 
 > The type table is part of the IR module, not a separate artifact. It is generated during type checking and consumed by both the evaluator (for field access) and the asm backend (for memory layout). Struct/enum definitions do not appear as IR instructions — the IR references names; the type table provides the structural details.
 
+### 2.1 Type Table Format
+
+```
+type Point: struct {
+  x: Int @ 0,
+  y: Int @ 8,
+} size=16
+
+type Option: enum {
+  None @ 0,
+  Some(Int) @ 1,
+}
+
+type Rgb: tuple(Int, Int, Int)
+```
+
+Each type entry lists its fields, variants, or elements with their sizes and offsets. The asm backend uses this to generate `sb`/`sd`/`ld` instructions at the correct offsets.
+
 The evaluator registers all definitions, then starts execution at `@main`. If `@main` is an `fn`, it is called; if `@main` is a `thunk`, it is forced. If `@main` does not exist, report `[E007]`.
 
 > **Why two definition kinds?** Thunks are lazy cells with a 3-state FSM (suspended, evaluating, evaluated). Fns are ordinary functions — called directly, no cell, no memoization. This split reflects the Dew source: `def x = expr` (pure, zero-arg) produces a thunk; everything else produces an fn.
@@ -578,6 +596,8 @@ def main = fn {
 
 **IR:**
 ```
+type Option: enum { None @ 0, Some(Int) @ 1 }
+
 fn @main() {
   entry:
     %0 = lit 2026
