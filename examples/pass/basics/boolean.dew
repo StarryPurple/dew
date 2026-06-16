@@ -1,0 +1,2 @@
+// expect: true
+def main = fn { true -> stdout; };

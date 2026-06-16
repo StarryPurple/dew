@@ -1,0 +1,2 @@
+// expect: 2026
+def main = fn { 2026 -> stdout; };

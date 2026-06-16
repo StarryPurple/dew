@@ -26,6 +26,11 @@ impl<'a> NameResolver<'a> {
     pub fn resolve(&mut self, prog: &Program) {
         let mut top_level = Scope::new();
 
+        // Register built-in names
+        for builtin in &["stdout", "stdin", "not"] {
+            top_level.insert(builtin.to_string(), Span::DUMMY);
+        }
+
         // First pass: collect all top-level def names
         for decl in &prog.decls {
             if let Decl::Def(d) = decl {

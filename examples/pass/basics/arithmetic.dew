@@ -1,0 +1,2 @@
+// expect: 42
+def main = fn { 40 + 2 -> stdout; };

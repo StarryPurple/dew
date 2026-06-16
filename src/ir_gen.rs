@@ -18,6 +18,8 @@ pub struct IrGenerator<'a> {
     module: Module,
     next_reg: usize,
     next_label: usize,
+    var_map: std::collections::HashMap<String, usize>,
+    thunk_names: std::collections::HashSet<String>,
 }
 
 impl<'a> IrGenerator<'a> {
@@ -27,6 +29,8 @@ impl<'a> IrGenerator<'a> {
             module: Module::new(),
             next_reg: 0,
             next_label: 0,
+            var_map: std::collections::HashMap::new(),
+            thunk_names: std::collections::HashSet::new(),
         }
     }
 
@@ -109,10 +113,15 @@ impl<'a> IrGenerator<'a> {
         let mut ir_fn = Fn::new(fn_name, params, return_ty.clone());
         let mut block = BasicBlock::new("entry".into());
         self.next_reg = f.params.len();
+        self.var_map.clear();
 
-        self.compile_expr(&f.body, &mut block);
+        // Register parameter names in var_map
+        for (i, param) in f.params.iter().enumerate() {
+            self.var_map.insert(param.name.name.clone(), i);
+        }
 
-        let result_reg = self.next_reg - 1;
+        let result_reg = self.compile_expr(&f.body, &mut block);
+
         block.terminator = Terminator::Ret(result_reg);
         ir_fn.blocks.push(block);
 
@@ -125,7 +134,10 @@ impl<'a> IrGenerator<'a> {
             None => IrType::Int,
         };
 
-        let mut t = Thunk::new(d.name.name.clone(), val_ty.clone());
+        let name = d.name.name.clone();
+        self.thunk_names.insert(name.clone());
+
+        let mut t = Thunk::new(name, val_ty.clone());
         let mut block = BasicBlock::new("entry".into());
         self.next_reg = 0;
 
@@ -138,34 +150,44 @@ impl<'a> IrGenerator<'a> {
         self.module.thunks.push(t);
     }
 
-    fn compile_expr(&mut self, expr: &Expr, block: &mut BasicBlock) {
+    fn compile_expr(&mut self, expr: &Expr, block: &mut BasicBlock) -> usize {
         match expr {
             Expr::IntLit(l) => {
                 let r = self.fresh_reg();
                 block.instrs.push(Instr::Lit(r, IrLitValue::Int(l.value)));
+                r
             }
             Expr::BoolLit(l) => {
                 let r = self.fresh_reg();
                 block.instrs.push(Instr::Lit(r, IrLitValue::Bool(l.value)));
+                r
             }
             Expr::CharLit(l) => {
                 let r = self.fresh_reg();
                 block.instrs.push(Instr::Lit(r, IrLitValue::Char(l.value)));
+                r
             }
-            Expr::UnitLit(_) => {}
+            Expr::UnitLit(_) => 0,
             Expr::Var(ident) => {
-                // Variable reference: assume it maps to a register
-                // In a real implementation, this would be resolved by name resolution
-                let r = self.fresh_reg();
-                let idx = ident.name.parse::<usize>().unwrap_or(0);
-                block.instrs.push(Instr::Lit(r, IrLitValue::Int(idx as i64)));
+                if self.thunk_names.contains(&ident.name) {
+                    let r = self.fresh_reg();
+                    block.instrs.push(Instr::Force(r, ForceTarget::Static(ident.name.clone())));
+                    r
+                } else if let Some(&reg) = self.var_map.get(&ident.name) {
+                    reg
+                } else {
+                    self.diag.error("E007",
+                        format!("unresolved variable '{}' in IR gen", ident.name),
+                        Some(ident.span));
+                    let r = self.fresh_reg();
+                    block.instrs.push(Instr::Lit(r, IrLitValue::Int(0)));
+                    r
+                }
             }
 
             Expr::Binary(b) => {
-                self.compile_expr(&b.left, block);
-                let left_r = self.next_reg - 1;
-                self.compile_expr(&b.right, block);
-                let right_r = self.next_reg - 1;
+                let left_r = self.compile_expr(&b.left, block);
+                let right_r = self.compile_expr(&b.right, block);
                 let result_r = self.fresh_reg();
 
                 let instr = match b.op {
@@ -184,42 +206,75 @@ impl<'a> IrGenerator<'a> {
                     BinaryOp::Or => Instr::Or(result_r, left_r, right_r),
                 };
                 block.instrs.push(instr);
+                result_r
             }
 
             Expr::Call(c) => {
-                let mut arg_regs = Vec::new();
-                for arg in &c.args {
-                    if let ExprArg::Value(e) = arg {
-                        self.compile_expr(e, block);
-                        arg_regs.push(self.next_reg - 1);
+                let is_builtin = match &*c.func {
+                    Expr::Var(ident) => {
+                        matches!(ident.name.as_str(), "stdout" | "stdin")
                     }
-                }
-                let result_r = self.fresh_reg();
-                let target = match &*c.func {
-                    Expr::Var(ident) => CallTarget::Static(ident.name.clone()),
-                    _ => CallTarget::Dynamic(0),
+                    _ => false,
                 };
-                block.instrs.push(Instr::Call(result_r, target, arg_regs));
+
+                if is_builtin {
+                    let name = match &*c.func {
+                        Expr::Var(ident) => ident.name.clone(),
+                        _ => String::new(),
+                    };
+                    match name.as_str() {
+                        "stdout" => {
+                            let arg_reg = if let Some(ExprArg::Value(e)) = c.args.first() {
+                                self.compile_expr(e, block)
+                            } else { 0 };
+                            block.instrs.push(Instr::Stdout(arg_reg));
+                            arg_reg
+                        }
+                        "stdin" => {
+                            let result_r = self.fresh_reg();
+                            block.instrs.push(Instr::Stdin(result_r));
+                            result_r
+                        }
+                        _ => 0,
+                    }
+                } else {
+                    let mut arg_regs = Vec::new();
+                    for arg in &c.args {
+                        if let ExprArg::Value(e) = arg {
+                            arg_regs.push(self.compile_expr(e, block));
+                        }
+                    }
+                    let result_r = self.fresh_reg();
+                    let target = match &*c.func {
+                        Expr::Var(ident) => CallTarget::Static(ident.name.clone()),
+                        _ => CallTarget::Dynamic(0),
+                    };
+                    block.instrs.push(Instr::Call(result_r, target, arg_regs));
+                    result_r
+                }
             }
 
             Expr::Block(b) => {
+                let mut last_reg = 0;
                 for stmt in &b.stmts {
-                    self.compile_expr(&stmt.expr, block);
+                    last_reg = self.compile_expr(&stmt.expr, block);
                 }
                 if let Some(final_expr) = &b.final_expr {
-                    self.compile_expr(final_expr, block);
+                    last_reg = self.compile_expr(final_expr, block);
                 }
+                last_reg
             }
 
-            Expr::Fn(f) => {
-                // Nested fn: this shouldn't happen after closure conversion
+            Expr::Fn(_f) => {
                 self.diag.error("E003", "nested fn not yet supported in IR gen", None);
+                0
             }
 
             _ => {
                 self.diag.error("E003",
                     format!("IR gen not implemented for this expression"),
                     None);
+                0
             }
         }
     }

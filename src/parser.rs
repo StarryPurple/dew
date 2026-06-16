@@ -267,7 +267,7 @@ impl<'a> Parser<'a> {
     }
 
     fn prev_was_arrow(&self) -> bool {
-        self.pos >= 2 && self.tokens[self.pos - 2].kind == TokenKind::Minus
+        self.pos >= 1 && self.tokens[self.pos - 1].kind == TokenKind::Arrow
     }
 
     fn parse_prefix(&mut self) -> Result<Expr, Span> {

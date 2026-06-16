@@ -1,0 +1,3 @@
+// expect: 2026
+def add = fn(x: Int, y: Int) -> Int { x + y };
+def main = fn { add(2000, 26) -> stdout; };

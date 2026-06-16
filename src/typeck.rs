@@ -28,6 +28,9 @@ impl<'a> TypeChecker<'a> {
     }
 
     pub fn check(&mut self, prog: &Program) {
+        // Register built-in functions with polymorphic types
+        self.register_builtins();
+
         // First pass: register struct/enum declarations
         for decl in &prog.decls {
             match decl {
@@ -345,6 +348,12 @@ impl<'a> TypeChecker<'a> {
             Type::Wildcard(_) => self.tvg.fresh_ty(),
             Type::TypeOf(_) => self.tvg.fresh_ty(),
         }
+    }
+
+    fn register_builtins(&mut self) {
+        self.env.insert("stdout".into(), Scheme { vars: vec![], ty: Ty::Fun(Box::new(Ty::Int), Box::new(Ty::Unit)) });
+        self.env.insert("stdin".into(), Scheme { vars: vec![], ty: Ty::Fun(Box::new(Ty::Unit), Box::new(Ty::Int)) });
+        self.env.insert("not".into(), Scheme { vars: vec![], ty: Ty::Fun(Box::new(Ty::Bool), Box::new(Ty::Bool)) });
     }
 
     fn register_struct(&mut self, s: &StructDecl) {
