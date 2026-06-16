@@ -226,13 +226,75 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `lambda` | `%r = lambda @name(x: Int)` | Create closure referencing named fn |
-| `lambda_block` | `%r = lambda(x, y) { ... }` | Create closure with inline blocks |
-| `call` | `%r = call @name %a %b` | Call fn by name |
-| `call` | `%r = call %f %a %b` | Call closure by register |
-| `force` | `%r = force @name` | Force lazy thunk |
+| `lambda` | `%r = lambda @name(%0, %1)` | Create heap-allocated closure |
+| `lambda_block` | `%r = lambda(x, y) { ... }` | Create inlined closure (O1) |
+| `call` | `%r = call @name %a %b` | Call fn by name (static dispatch) |
+| `call` | `%r = call %f %a %b` | Call closure by register (dynamic dispatch) |
+| `force` | `%r = force @name` | Force lazy thunk, return cached or computed value |
 
-> **`lambda` vs direct `call`:** `call @name %args` invokes an fn directly. `lambda @name` creates a runtime closure value — only needed when the function escapes its defining scope (returned, stored, passed as argument). `lambda_block` is an O1 optimization for non-escaping inline closures. `force @name` forces a thunk — only for pure zero-arg thunks.
+#### `lambda` — Closure Construction
+
+`lambda @name(%0, %1)` constructs a runtime closure value from a top-level fn and captured variables. The result is a heap-allocated pair `(code_ptr, env)` where `env` contains the captured register values.
+
+The closure body is always a top-level `fn` — `lambda` does not define the body, it wraps it. This reflects the standard compiler technique of **closure conversion** (also called lambda lifting): nested functions are lifted to the top level with an extra environment parameter; `lambda` constructs the environment at the capture site.
+
+```
+// Source:
+def make_adder = fn(x: Int) -> () -> Int { fn { x } }
+
+// After closure conversion:
+fn @inner(x: Int) { ret %0 }           // body lifted to top level
+fn @make_adder(x: Int) {
+  %0 = lambda @inner(%0)               // capture x in environment
+  ret %0
+}
+```
+
+> **Why a dedicated instruction?** `lambda` is not syntactic sugar for `struct_cons`. It allocates on the heap (the closure may outlive the creating function's stack frame), and the produced closure value is callable via `call %closure`. Expressing this with general-purpose memory primitives would require `alloc` + `store` in the IR — violating the no-memory-operations design. `lambda` is the minimal abstraction for "create a callable value with captured state."
+
+#### `lambda_block` — Inlined Closure (O1 Optimization)
+
+`lambda_block(x, y) { ... }` creates a closure whose body is defined inline. The compiler uses this when it can prove the closure **does not escape** its defining scope — it is only called locally, never returned, stored, or passed as an argument.
+
+```
+// Source (IIFE):
+def val = fn { def x: Int; &x -> stdin; x }();
+
+// IR — closure never escapes, lambda_block inlined:
+fn @main() {
+  %0 = stdin_int
+  stdout_int %0
+}
+```
+
+When the closure does not escape, `lambda_block` is fully eliminated — the body is inlined at the call site and no allocation occurs. When escape cannot be proven, the compiler falls back to `lambda` for correctness.
+
+> **Why not always use `lambda`?** `lambda` requires heap allocation. `lambda_block` is a zero-cost optimization — it signals to the evaluator and asm backend that the closure can be stack-allocated or entirely inlined. The distinction is purely a performance hint with no semantic difference.
+
+#### `call` — Function Dispatch
+
+`call @name %a %b` performs a static call — the target `@name` is known at IR-gen time. The evaluator looks up `@name` in the module's fn table and branches directly.
+
+`call %f %a %b` performs a dynamic call through a closure. The evaluator unpacks the closure value `%f` into `(code_ptr, env)`, installs the environment as the first implicit parameter, and jumps to `code_ptr`.
+
+> **Why two forms?** Static calls are simpler and faster — no unpacking, no indirection. Dynamic calls are necessary for higher-order functions where the callee is not known until runtime. The IR distinguishes them so the asm backend can emit `jal @name` (static) vs `jalr %f` (dynamic).
+
+#### `force` — Lazy Thunk Evaluation
+
+`force @name` reads the thunk cell of a pure zero-arg definition. Unlike `call`, there is no argument passing. The evaluator checks the thunk's state:
+
+- `suspended` → evaluate the thunk body, write the result to the cell, mark `evaluated`
+- `evaluating` → cycle detected, runtime error
+- `evaluated` → return the cached value directly
+
+```
+fn @main() {
+  %0 = force @x          // x is a thunk — eval once, cache forever
+  stdout_int %0
+}
+```
+
+> **Why separate from `call`?** Thunks have no parameters and maintain mutable state (the 3-state FSM cell). `call` is stateless — each invocation is independent. Conflating them would require every `call` to check for a thunk cell that doesn't exist for ordinary fns.
 
 ### 8.4 Arithmetic
 
