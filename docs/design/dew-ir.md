@@ -18,7 +18,6 @@
 - [§12 Optimizations](#12-optimization-levels)
 - [§13 Evaluator](#13-evaluator-integration)
 - [§14 Source → IR Examples](#14-source--ir-examples)
-- [§15 Complete Instruction Reference](#15-complete-instruction-reference)
 
 The Dew IR is a flat, label-based, SSA-like intermediate representation. It has two kinds of top-level definitions: **fns** (ordinary functions) and **thunks** (lazy memoized values).
 
@@ -47,6 +46,50 @@ Dew Source → Parser → AST → Desugar → Type Check → Strictness → IR G
 
 ---
 
+## Instruction Reference
+
+| # | Instruction | Category | § |
+|---|------------|----------|---|
+| 1 | `lit` | Literal | [§8.1](#81-literals) |
+| 2 | `stdout_int` | I/O | [§8.2](#82-io) |
+| 3 | `stdout_char` | I/O | [§8.2](#82-io) |
+| 4 | `stdout_bool` | I/O | [§8.2](#82-io) |
+| 5 | `stdin_int` | I/O | [§8.2](#82-io) |
+| 6 | `stdin_char` | I/O | [§8.2](#82-io) |
+| 7 | `lambda` | Function | [§8.3](#83-functions) |
+| 8 | `lambda_block` | Function | [§8.3](#83-functions) |
+| 9 | `call` | Function | [§8.3](#83-functions) |
+| 10 | `force` | Function | [§8.3](#83-functions) |
+| 11 | `add` | Arithmetic | [§8.4](#84-arithmetic) |
+| 12 | `sub` | Arithmetic | [§8.4](#84-arithmetic) |
+| 13 | `mul` | Arithmetic | [§8.4](#84-arithmetic) |
+| 14 | `div` | Arithmetic | [§8.4](#84-arithmetic) |
+| 15 | `rem` | Arithmetic | [§8.4](#84-arithmetic) |
+| 16 | `lt` | Comparison | [§8.5](#85-comparison) |
+| 17 | `gt` | Comparison | [§8.5](#85-comparison) |
+| 18 | `le` | Comparison | [§8.5](#85-comparison) |
+| 19 | `ge` | Comparison | [§8.5](#85-comparison) |
+| 20 | `eq` | Comparison | [§8.5](#85-comparison) |
+| 21 | `ne` | Comparison | [§8.5](#85-comparison) |
+| 22 | `and` | Logic | [§8.6](#86-logic) |
+| 23 | `or` | Logic | [§8.6](#86-logic) |
+| 24 | `not` | Logic | [§8.6](#86-logic) |
+| 25 | `phi` | Control flow | [§8.7](#87-control-flow) |
+| 26 | `fetch` | Memory access | [§8.8](#88-memory-access--fetch-and-place) |
+| 27 | `place` | Memory access | [§8.8](#88-memory-access--fetch-and-place) |
+| 28 | `field` | Field extraction | [§8.9](#89-structure-construction) |
+| 29 | `struct_cons` | Construction | [§8.9](#89-structure-construction) |
+| 30 | `enum_cons` | Construction | [§8.9](#89-structure-construction) |
+| 31 | `enum_disc` | Enum discriminant | [§8.9](#89-structure-construction) |
+| 32 | `enum_proj` | Enum projection | [§8.9](#89-structure-construction) |
+| 33 | `array_lit` | Construction | [§8.9](#89-structure-construction) |
+| 34 | `tuple_lit` | Construction | [§8.9](#89-structure-construction) |
+| 35 | `struct_update` | Update | [§8.10](#810-structure-update) |
+| 36 | `array_access` | Update | [§8.10](#810-structure-update) |
+| 37 | `array_update` | Update | [§8.10](#810-structure-update) |
+| 38 | `tuple_update` | Update | [§8.10](#810-structure-update) |
+
+*Last updated: 2026-06-16 — v5 with fn/thunk split, 38 instructions.*
 ## 2. Module
 
 The module contains all definitions. Execution always starts at `@main`:
@@ -593,47 +636,3 @@ fn @main() {
 
 ---
 
-## 15. Complete Instruction Reference
-
-| # | Instruction | Category | § |
-|---|------------|----------|---|
-| 1 | `lit` | Literal | [§8.1](#81-literals) |
-| 2 | `stdout_int` | I/O | [§8.2](#82-io) |
-| 3 | `stdout_char` | I/O | [§8.2](#82-io) |
-| 4 | `stdout_bool` | I/O | [§8.2](#82-io) |
-| 5 | `stdin_int` | I/O | [§8.2](#82-io) |
-| 6 | `stdin_char` | I/O | [§8.2](#82-io) |
-| 7 | `lambda` | Function | [§8.3](#83-functions) |
-| 8 | `lambda_block` | Function | [§8.3](#83-functions) |
-| 9 | `call` | Function | [§8.3](#83-functions) |
-| 10 | `force` | Function | [§8.3](#83-functions) |
-| 11 | `add` | Arithmetic | [§8.4](#84-arithmetic) |
-| 12 | `sub` | Arithmetic | [§8.4](#84-arithmetic) |
-| 13 | `mul` | Arithmetic | [§8.4](#84-arithmetic) |
-| 14 | `div` | Arithmetic | [§8.4](#84-arithmetic) |
-| 15 | `rem` | Arithmetic | [§8.4](#84-arithmetic) |
-| 16 | `lt` | Comparison | [§8.5](#85-comparison) |
-| 17 | `gt` | Comparison | [§8.5](#85-comparison) |
-| 18 | `le` | Comparison | [§8.5](#85-comparison) |
-| 19 | `ge` | Comparison | [§8.5](#85-comparison) |
-| 20 | `eq` | Comparison | [§8.5](#85-comparison) |
-| 21 | `ne` | Comparison | [§8.5](#85-comparison) |
-| 22 | `and` | Logic | [§8.6](#86-logic) |
-| 23 | `or` | Logic | [§8.6](#86-logic) |
-| 24 | `not` | Logic | [§8.6](#86-logic) |
-| 25 | `phi` | Control flow | [§8.7](#87-control-flow) |
-| 26 | `fetch` | Memory access | [§8.8](#88-memory-access--fetch-and-place) |
-| 27 | `place` | Memory access | [§8.8](#88-memory-access--fetch-and-place) |
-| 28 | `field` | Field extraction | [§8.9](#89-structure-construction) |
-| 29 | `struct_cons` | Construction | [§8.9](#89-structure-construction) |
-| 30 | `enum_cons` | Construction | [§8.9](#89-structure-construction) |
-| 31 | `enum_disc` | Enum discriminant | [§8.9](#89-structure-construction) |
-| 32 | `enum_proj` | Enum projection | [§8.9](#89-structure-construction) |
-| 33 | `array_lit` | Construction | [§8.9](#89-structure-construction) |
-| 34 | `tuple_lit` | Construction | [§8.9](#89-structure-construction) |
-| 35 | `struct_update` | Update | [§8.10](#810-structure-update) |
-| 36 | `array_access` | Update | [§8.10](#810-structure-update) |
-| 37 | `array_update` | Update | [§8.10](#810-structure-update) |
-| 38 | `tuple_update` | Update | [§8.10](#810-structure-update) |
-
-*Last updated: 2026-06-16 — v5 with fn/thunk split, 38 instructions.*
