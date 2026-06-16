@@ -848,8 +848,8 @@ def summary = fn(val: T) -> Int {
                     Some(v) => 1,          // v is the payload type
                     None    => 0,
                   },
-    (_, _, _)  => def (a, b, c) = val;    // narrowed to triple
-                  a + b + c,               // all Int — type_match guarantees this
+    (Int, Int, Int) => def (a, b, c) = val;  // narrowed to triple of Ints
+                  a + b + c,                  // all Int — + is valid
     Point      => def Point { x, y } = val; // narrowed to Point
                   x + y,
     _          => -1,                      // unknown type
@@ -1634,7 +1634,7 @@ The default function is universal: ignore all parameters (bind with `_`), pass b
 
 ```dew
 // Struct destructuring
-def Point { x, y } = p;              // bind x and y
+def Point { x, y } = p;              // bind x and y (shorthand: field name = variable name)
 def Point { x, .. } = p;             // bind x, drop the rest
 def Request { handle: h, .. } = req;  // rename binding (field "handle" → variable h)
 
@@ -1642,6 +1642,8 @@ def Request { handle: h, .. } = req;  // rename binding (field "handle" → vari
 def (a, b) = pair;
 def (x, _, z) = triple;              // _ discards the second element
 ```
+
+**Field name shorthand.** `Point { x, y }` omits the colon-binding when the variable name matches the field name — equivalent to `Point { x: x, y: y }`. Write `Point { x: a, y: b }` for explicit renaming. This matches Rust's destructuring sugar.
 
 The `..` rest pattern discards unmentioned struct fields. `_` discards a single position in either struct or tuple patterns. Both `..` and `_` trigger implicit `drop` for affine fields.
 
