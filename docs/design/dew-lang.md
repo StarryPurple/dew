@@ -392,6 +392,33 @@ def id = fn(x) { x }           // inferred: a -> a
 def add = fn(x, y) { x + y }   // inferred: Int -> Int -> Int
 ```
 
+**Generic parameters.** Two kinds of parameter appear in type declarations:
+
+| Kind | Syntax | Example | Meaning |
+|------|--------|---------|---------|
+| **Type parameter** | Unannotated identifier | `T`, `U`, `Elem` | A type variable resolved by HM at the call site |
+| **Const generic** | `name: Int` | `N: Int`, `R: Int` | A compile-time integer constant; monomorphized per literal value |
+
+Type parameters are implicit — no annotation needed. The name alone signals "this is a type variable":
+
+```dew
+struct Pair(T, U) { first: T, second: U }
+// T and U are type parameters — inferred from construction
+
+enum Option(T) { Some(T), None }
+// T is a type parameter — Option(Int), Option(Bool), etc.
+```
+
+**Const generic parameters** are annotated with `: Int` to distinguish them from type parameters. The compiler monomorphizes per concrete value at call sites:
+
+```dew
+struct Arr(T, N: Int) { data: Array(T, N) }
+// T: type, N: Int compile-time constant
+
+def identity = fn(a: Array(Int, N)) -> Array(Int, N) { a }
+// N is polymorphic — the compiler generates code per concrete N
+```
+
 **`_` as type wildcard.** `_` in a type annotation means "infer this type variable." HM handles this naturally:
 
 ```dew
@@ -399,7 +426,7 @@ def pair = fn(x: _, y: _) -> (_, _) { (x, y) }
 // Inferred: (a, b) -> (a, b) — each _ is an independent type variable
 ```
 
-`_` works for **type parameters** only. It cannot infer value-level parameters — `Array(Char, _)` is rejected because `N` is a compile-time integer literal, not a type. Writing `fn(name: Array(Char, N))` without concrete `N` would require const generics, which Dew does not have.
+`_` works for type parameters only — const generic parameters (`N: Int`) are written explicitly.
 
 **Property propagation through generics.** HM naturally carries affine and IO properties through type parameters:
 
@@ -560,6 +587,15 @@ struct Point {
 }
 ```
 
+**Const generic parameters.** Value-level compile-time constants use `N: Int` — unannotated names are type parameters, annotated names are const generics:
+
+```dew
+struct Matrix(T, R: Int, C: Int) {
+  data: Array(T, R * C),   // future: const arithmetic
+}
+// T: type, R: Int = const generic, C: Int = const generic
+```
+
 **Construction.** Named-field syntax, matching the declaration:
 
 ```dew
@@ -687,21 +723,19 @@ def main = fn {
 
 ### 4.7 Array
 
-```dew
-type Array(T, N)   // T: element type, N: integer literal (N > 0)
-```
-
-`[e1, e2, ...]` is syntactic sugar for array construction. Unlike Haskell, where `[1, 2, 3]` constructs a linked `List`, Dew's brackets always produce a fixed-size `Array` — the size `N` is inferred from the number of elements. `N` must be an integer literal; it cannot be a variable or any expression:
+`Array(T, N: Int)` is a built-in type: `T` is an element type, `N` is a compile-time integer constant. `[e1, e2, ...]` is syntactic sugar — unlike Haskell's linked `List`, Dew's brackets produce a fixed-size `Array`:
 
 ```dew
 def arr = [1, 2, 3]           // Array(Int, 3) — N inferred from element count
-def arr: Array(Int, 3) = ...  // explicit N as literal
-
-def size = 10;
-def arr: Array(Int, size) = ... // ERROR: N must be a literal
+def arr: Array(Int, 3)        // explicit N as literal
 ```
 
-> `def` creates a runtime value, not a compile-time constant. `def N = 10` and `def N = fn { def x: Int; &x -> stdin; x }()` are indistinguishable to the type system — both are runtime bindings, even if the programmer knows one is constant. The `fn { ... }()` pattern is an immediately-invoked function expression (see [§5.1](#51-definition)). Array size `N` appears at the type level (`Array(Int, N)` is a TYPE); crossing the type/value boundary would require dependent types, which Dew does not have. Integer literals are the only compile-time constants.
+`N` can be a [const generic](#41-hindley-milner-type-inference) parameter — the compiler monomorphizes per concrete `N` at call sites:
+
+```dew
+def identity = fn(a: Array(Int, N)) -> Array(Int, N) { a }
+def duplicate = fn(a: Array(T, N)) -> Array(T, N + N) { ... }  // future: arithmetic in const generics
+```
 
 String literals are arrays of Char: `"hello"` is `Array(Char, 5)`.
 
