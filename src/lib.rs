@@ -8,6 +8,7 @@ pub mod lexer;
 pub mod parser;
 pub mod desugar;
 pub mod nameres;
+pub mod types;
 pub mod typeck;
 pub mod strictness;
 pub mod ir;
