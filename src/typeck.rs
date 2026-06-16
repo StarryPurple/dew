@@ -43,6 +43,10 @@ impl<'a> TypeChecker<'a> {
         // Second pass: infer types for def bindings
         for decl in &prog.decls {
             if let Decl::Def(d) = decl {
+                if d.rec {
+                    self.env.insert(d.name.name.clone(),
+                        Scheme { vars: vec![], ty: self.tvg.fresh_ty() });
+                }
                 self.infer_def(d);
             }
         }
