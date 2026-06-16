@@ -299,6 +299,7 @@ Creates a new value equal to `%base` but with the value at the given path replac
 | `enum_disc` | `%r = enum_disc %e` | Read enum discriminant tag |
 | `enum_proj` | `%r = enum_proj @Option::Some %e` | Extract variant payload |
 | `array_lit` | `%r = array %a %b %c` | Construct array value |
+| `array_fill` | `%r = array_fill %v N` | Construct array with all elements = %v |
 | `tuple_lit` | `%r = tuple %a %b` | Construct tuple value |
 
 > **Why per-type instructions?** Each aggregate type has different memory layout. `struct_cons` packs named fields at known offsets; `enum_cons` prepends a discriminant tag; `array_lit` packs N uniform elements at stride; `tuple_lit` packs heterogeneous elements contiguously.
@@ -684,10 +685,11 @@ fn @main() {
 | 31 | `enum_disc` | Read enum discriminant | [§8.9](#89-structure-construction) |
 | 32 | `enum_proj` | Extract variant payload | [§8.9](#89-structure-construction) |
 | 33 | `array_lit` | Construct array value | [§8.9](#89-structure-construction) |
-| 34 | `tuple_lit` | Construct tuple value | [§8.9](#89-structure-construction) |
-| 35 | `struct_update` | New struct with updated fields | [§8.10](#810-structure-update) |
-| 36 | `array_access` | Read array element | [§8.10](#810-structure-update) |
-| 37 | `array_update` | New array with updated element | [§8.10](#810-structure-update) |
-| 38 | `tuple_update` | New tuple with updated element | [§8.10](#810-structure-update) |
+| 34 | `array_fill` | Construct array filled with value | [§8.9](#89-structure-construction) |
+| 35 | `tuple_lit` | Construct tuple value | [§8.9](#89-structure-construction) |
+| 36 | `struct_update` | New struct with updated fields | [§8.10](#810-structure-update) |
+| 37 | `array_access` | Read array element | [§8.10](#810-structure-update) |
+| 38 | `array_update` | New array with updated element | [§8.10](#810-structure-update) |
+| 39 | `tuple_update` | New tuple with updated element | [§8.10](#810-structure-update) |
 
-*Last updated: 2026-06-16 — v5 with fn/thunk split, 38 instructions.*
+*Last updated: 2026-06-16 — v5 with fn/thunk split, 39 instructions.*

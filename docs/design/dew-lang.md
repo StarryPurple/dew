@@ -748,6 +748,14 @@ def arr = [1, 2, 3]           // Array(Int, 3) — N inferred from element count
 def arr: Array(Int, 3)        // explicit N as literal
 ```
 
+**Fill syntax.** `[expr; N]` constructs an array where every element is `expr` — no need to write `N` copies:
+
+```dew
+def arr = [0; 100];           // Array(Int, 100), all zeros
+def arr = [true; 10];         // Array(Bool, 10), all true
+def arr: Array(Int, 1000) = [10; 1000];  // all tens
+```
+
 `N` can be a [const generic](#41-hindley-milner-type-inference) parameter — the compiler monomorphizes per concrete `N` at call sites:
 
 ```dew
