@@ -79,7 +79,7 @@ fn @main() {
     %0 = lit 40
     %1 = lit 2
     %2 = call @add %0 %1
-    stdout %2
+    stdout_int %2
 }
 ```
 
@@ -192,10 +192,13 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `stdout` | `stdout %r` | Write register value to stdout |
-| `stdin` | `%r = stdin` | Read value from stdin into register |
+| `stdout_int` | `stdout_int %r` | Write register as decimal integer |
+| `stdout_char` | `stdout_char %r` | Write register as Unicode character |
+| `stdout_bool` | `stdout_bool %r` | Write register as "true" / "false" |
+| `stdin_int` | `%r = stdin_int` | Read decimal integer from stdin |
+| `stdin_char` | `%r = stdin_char` | Read one character from stdin |
 
-> `stdout` and `stdin` are IR primitives, not fn calls. Side effects execute immediately. On rv64gc: `ecall` with write/read syscall numbers.
+> **Why per-type instructions?** The IR has no type annotations on instructions, but output/input behavior depends on type. `stdout_int` prints decimal, `stdout_char` prints a glyph. Using instruction variants keeps the evaluator simple — match directly without type table lookups — and preserves the "no type annotations" philosophy. The IR generator selects the correct variant based on the source type resolved at IR gen time.
 
 ### 8.3 Functions
 
@@ -325,7 +328,7 @@ fn @main() {
     %0 = lit 40
     %1 = lit 2
     %2 = call @add %0 %1
-    stdout %2
+    stdout_int %2
 }
 ```
 
@@ -412,7 +415,7 @@ def main = fn { 2026 -> stdout; }
 fn @main() {
   entry:
     %0 = lit 2026
-    stdout %0
+    stdout_int %0
 }
 ```
 
@@ -437,7 +440,7 @@ fn @main() {
     %0 = lit 40
     %1 = lit 2
     %2 = call @add %0 %1
-    stdout %2
+    stdout_int %2
 }
 ```
 
@@ -473,7 +476,7 @@ fn @main() {
   entry:
     %0 = lit 5
     %1 = call @fact %0
-    stdout %1
+    stdout_int %1
 }
 ```
 
@@ -498,7 +501,7 @@ thunk @x() {
 fn @main() {
   entry:
     %0 = force @x
-    stdout %0
+    stdout_int %0
 }
 ```
 
@@ -527,7 +530,7 @@ fn @main() {
     jmp L_merge
   L_merge:
     %5 = phi [%3, L_then] [%4, L_else]
-    stdout %5
+    stdout_int %5
 }
 ```
 
@@ -582,7 +585,7 @@ fn @main() {
     jmp L_merge
   L_merge:
     %7 = phi [%5, L_some] [%6, L_none]
-    stdout %7
+    stdout_int %7
 }
 ```
 
@@ -595,39 +598,42 @@ fn @main() {
 | # | Instruction | Category | § |
 |---|------------|----------|---|
 | 1 | `lit` | Literal | [§8.1](#81-literals) |
-| 2 | `stdout` | I/O | [§8.2](#82-io) |
-| 3 | `stdin` | I/O | [§8.2](#82-io) |
-| 4 | `lambda` | Function | [§8.3](#83-functions) |
-| 5 | `lambda_block` | Function | [§8.3](#83-functions) |
-| 6 | `call` | Function | [§8.3](#83-functions) |
-| 7 | `force` | Function | [§8.3](#83-functions) |
-| 8 | `add` | Arithmetic | [§8.4](#84-arithmetic) |
-| 9 | `sub` | Arithmetic | [§8.4](#84-arithmetic) |
-| 10 | `mul` | Arithmetic | [§8.4](#84-arithmetic) |
-| 11 | `div` | Arithmetic | [§8.4](#84-arithmetic) |
-| 12 | `rem` | Arithmetic | [§8.4](#84-arithmetic) |
-| 13 | `lt` | Comparison | [§8.5](#85-comparison) |
-| 14 | `gt` | Comparison | [§8.5](#85-comparison) |
-| 15 | `le` | Comparison | [§8.5](#85-comparison) |
-| 16 | `ge` | Comparison | [§8.5](#85-comparison) |
-| 17 | `eq` | Comparison | [§8.5](#85-comparison) |
-| 18 | `ne` | Comparison | [§8.5](#85-comparison) |
-| 19 | `and` | Logic | [§8.6](#86-logic) |
-| 20 | `or` | Logic | [§8.6](#86-logic) |
-| 21 | `not` | Logic | [§8.6](#86-logic) |
-| 22 | `phi` | Control flow | [§8.7](#87-control-flow) |
-| 23 | `fetch` | Memory access | [§8.8](#88-memory-access--fetch-and-place) |
-| 24 | `place` | Memory access | [§8.8](#88-memory-access--fetch-and-place) |
-| 25 | `field` | Field extraction | [§8.9](#89-structure-construction) |
-| 26 | `struct_cons` | Construction | [§8.9](#89-structure-construction) |
-| 27 | `enum_cons` | Construction | [§8.9](#89-structure-construction) |
-| 28 | `enum_disc` | Enum discriminant | [§8.9](#89-structure-construction) |
-| 29 | `enum_proj` | Enum projection | [§8.9](#89-structure-construction) |
-| 30 | `array_lit` | Construction | [§8.9](#89-structure-construction) |
-| 31 | `tuple_lit` | Construction | [§8.9](#89-structure-construction) |
-| 32 | `struct_update` | Update | [§8.10](#810-structure-update) |
-| 33 | `array_access` | Update | [§8.10](#810-structure-update) |
-| 34 | `array_update` | Update | [§8.10](#810-structure-update) |
-| 35 | `tuple_update` | Update | [§8.10](#810-structure-update) |
+| 2 | `stdout_int` | I/O | [§8.2](#82-io) |
+| 3 | `stdout_char` | I/O | [§8.2](#82-io) |
+| 4 | `stdout_bool` | I/O | [§8.2](#82-io) |
+| 5 | `stdin_int` | I/O | [§8.2](#82-io) |
+| 6 | `stdin_char` | I/O | [§8.2](#82-io) |
+| 7 | `lambda` | Function | [§8.3](#83-functions) |
+| 8 | `lambda_block` | Function | [§8.3](#83-functions) |
+| 9 | `call` | Function | [§8.3](#83-functions) |
+| 10 | `force` | Function | [§8.3](#83-functions) |
+| 11 | `add` | Arithmetic | [§8.4](#84-arithmetic) |
+| 12 | `sub` | Arithmetic | [§8.4](#84-arithmetic) |
+| 13 | `mul` | Arithmetic | [§8.4](#84-arithmetic) |
+| 14 | `div` | Arithmetic | [§8.4](#84-arithmetic) |
+| 15 | `rem` | Arithmetic | [§8.4](#84-arithmetic) |
+| 16 | `lt` | Comparison | [§8.5](#85-comparison) |
+| 17 | `gt` | Comparison | [§8.5](#85-comparison) |
+| 18 | `le` | Comparison | [§8.5](#85-comparison) |
+| 19 | `ge` | Comparison | [§8.5](#85-comparison) |
+| 20 | `eq` | Comparison | [§8.5](#85-comparison) |
+| 21 | `ne` | Comparison | [§8.5](#85-comparison) |
+| 22 | `and` | Logic | [§8.6](#86-logic) |
+| 23 | `or` | Logic | [§8.6](#86-logic) |
+| 24 | `not` | Logic | [§8.6](#86-logic) |
+| 25 | `phi` | Control flow | [§8.7](#87-control-flow) |
+| 26 | `fetch` | Memory access | [§8.8](#88-memory-access--fetch-and-place) |
+| 27 | `place` | Memory access | [§8.8](#88-memory-access--fetch-and-place) |
+| 28 | `field` | Field extraction | [§8.9](#89-structure-construction) |
+| 29 | `struct_cons` | Construction | [§8.9](#89-structure-construction) |
+| 30 | `enum_cons` | Construction | [§8.9](#89-structure-construction) |
+| 31 | `enum_disc` | Enum discriminant | [§8.9](#89-structure-construction) |
+| 32 | `enum_proj` | Enum projection | [§8.9](#89-structure-construction) |
+| 33 | `array_lit` | Construction | [§8.9](#89-structure-construction) |
+| 34 | `tuple_lit` | Construction | [§8.9](#89-structure-construction) |
+| 35 | `struct_update` | Update | [§8.10](#810-structure-update) |
+| 36 | `array_access` | Update | [§8.10](#810-structure-update) |
+| 37 | `array_update` | Update | [§8.10](#810-structure-update) |
+| 38 | `tuple_update` | Update | [§8.10](#810-structure-update) |
 
-*Last updated: 2026-06-16 — v5 with fn/thunk split, 35 instructions.*
+*Last updated: 2026-06-16 — v5 with fn/thunk split, 38 instructions.*
