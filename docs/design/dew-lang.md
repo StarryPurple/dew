@@ -705,6 +705,24 @@ def main = fn {
 }
 ```
 
+#### Recursive Types
+
+Self-referential types are checked for termination at the layout level:
+
+**Struct self-recursion** produces `[E008]` — a struct containing itself inline would require infinite memory:
+
+```dew
+struct S { x: S }    // ERROR [E008]: struct self-recursion — infinite layout
+```
+
+**Enum recursion without a base case** produces `[W005]` — the type is usable with lazy evaluation (construct only what you need):
+
+```dew
+enum Stream(T) { Cons(T, Stream(T)) }  // Warning [W005]: no non-recursive variant
+```
+
+> `[W005]` is a warning, not an error — this is intentional. Lazy evaluation enables infinite streams: you can construct `Cons(1, Cons(2, ...))` on demand without ever materializing the full structure. Banning base-case-less recursion would kill one of laziness's core use cases.
+
 ### 4.6 Tuple
 
 ```dew
@@ -2116,10 +2134,12 @@ All compiler diagnostics use bracketed codes. `[E###]` for errors (compilation s
 | `[E005]` | Exhaustiveness | Non-exhaustive match |
 | `[E006]` | Effect | IO function in pure context, or pure annotation on IO body |
 | `[E007]` | Name | Unbound variable, import conflict |
+| `[E008]` | Layout | Struct self-recursion — infinite layout |
 | `[W001]` | Shadow | Redefining `main` |
 | `[W002]` | Shadow | Redefining standard library name |
 | `[W003]` | Effect | `main` is pure (no IO) — compiles but produces no output |
 | `[W004]` | Affine | Struct contains affine field but not declared `affine` |
+| `[W005]` | Recursion | Enum recursion without a base case |
 
 ---
 
