@@ -17,7 +17,7 @@
 - [§3 Core Semantics](#3-core-semantics)
   - [§3.1 Immutability](#31-immutability)
   - [§3.2 Lazy Evaluation](#32-lazy-evaluation)
-  - [§3.3 Strict Evaluation](#33-strict-evaluation-force)
+  - [§3.3 Strict Evaluation](#33-strict-evaluation)
   - [§3.4 Resource Kinds](#34-resource-kinds)
   - [§3.5 IO Effect System](#35-io-effect-system)
   - [§3.6 Properties](#36-properties)
@@ -216,7 +216,7 @@ def main = fn {
 **Implicit lazy evaluation.** The compiler determines evaluation timing via strictness analysis;
 users write no laziness annotations.
 
-> Haskell proved that lazy evaluation is powerful but also proved that space leaks are a real problem. Dew chooses implicit laziness with compiler-driven strictness analysis as a middle ground: users get the benefits of laziness (infinite structures, separation of concerns) without the cognitive burden of reasoning about evaluation order. The strictness analyzer — not the programmer — decides what to evaluate when. If the analyzer is wrong, `force()` is the escape hatch.
+> Haskell proved that lazy evaluation is powerful but also proved that space leaks are a real problem. Dew chooses implicit laziness with compiler-driven strictness analysis as a middle ground: users get the benefits of laziness (infinite structures, separation of concerns) without the cognitive burden of reasoning about evaluation order. The strictness analyzer — not the programmer — decides what to evaluate when. If the analyzer is wrong, `!` (force operator) is the escape hatch.
 
 - **Strictness Analysis** automatically classifies each expression context as Strict or Lazy
 - Runtime thunk has three states: `Suspended` → `Evaluating` → `Evaluated`
@@ -237,11 +237,32 @@ users write no laziness annotations.
 
 > IO functions are always strict because side effects have ordering dependencies. `stdout` must output immediately; `stdin` must read at the point of call. An IO-marked function's entire body is evaluated strictly — lazily deferring a side effect would make program behavior unpredictable.
 
-### 3.3 Strict Evaluation (force)
+**Function argument semantics.** Function arguments in the "Lazy (ambient)" row above means arguments are **passed as unevaluated thunks**, not forced at the call site. The thunk is forced on first use in a strict context within the function body. This is the same model as Haskell: `f(some_thunk)` passes the thunk unevaluated; `f`'s body forces it when the parameter first appears in arithmetic, comparison, IO, or a `match` scrutinee.
 
 ```dew
-force(expr)   // Built-in function, forces evaluation immediately
+def expensive = 40 + 2;
+def use_twice = fn(x: Int) -> Int { x + x };
+// In use_twice, x is forced once on first use (x + x):
+//   first x → force thunk, cache result (42)
+//   second x → reuse cached value (no recomputation)
+def result = use_twice(expensive);
+// expensive is passed as thunk, forced inside use_twice, not at call site
 ```
+
+> **Why lazy at the call site?** Forcing arguments eagerly would defeat the purpose of lazy evaluation — `expensive` might never be used by the callee. The strictness analyzer already determines when each parameter must be evaluated based on its usage context within the function body. The call site is never responsible for forcing.
+
+### 3.3 Strict Evaluation
+
+The `!` (force) operator immediately evaluates a lazy thunk. It is a prefix operator at precedence level 2:
+
+```dew
+!x                // force x immediately
+!(heavy + expr)   // force the result of an expression
+```
+
+`!expr` forces `expr` to its value. If `expr` is already evaluated (a literal, a constructed value), `!` is a no-op and returns the value unchanged. If `expr` is an unevaluated thunk, `!` triggers the thunk's 3-state FSM: `suspended → evaluating → evaluated`.
+
+> `!` is force, not logical NOT. Dew uses `not` for boolean negation. Haskell also uses `!` for strictness — Dew follows this convention. The operator is prefix to avoid ambiguity: `!x` always means "force x", never "negate x".
 
 ### 3.4 Resource Kinds
 
@@ -1913,13 +1934,12 @@ Operator characters: `+ - * / % < > = ! & |`
 | Logical | `&& \|\|` | Bool | `cond && ok`, `a \|\| b` |
 | Logical NOT | `not` (built-in) | Bool | `not flag` |
 | Force (prefix) | `!` | All types | `!x`, `!(heavy_computation)` |
-| Force (function) | `force()` (built-in) | All types | `force(x)` |
 | Pipeline | `->` | All types | `x -> stdout`, `3 -> add(4)` |
 | Field access | `.` | Struct | `p.x`, `req.handle` |
 | Subscript | `[]` | Array | `arr[0]`, `a[i + 1]` |
 | Update | `{}` | Struct, Array, Tuple | `p { x = 10 }`, `t { .0 = 1 }` |
 
-Built-in operators can be infix. User-defined operator functions cannot be infix. `!x` and `force(x)` are equivalent; `!` is the prefix operator form.
+Built-in operators can be infix. User-defined operator functions cannot be infix. `!` is the prefix force operator.
 
 > **`!` is force, not logical NOT.** Like Haskell, `!` is used for strictness/force semantics. The logical NOT operator is the built-in function `not`. Do not confuse: `!x` forces evaluation of `x`; `not x` negates a boolean. These are distinct operators at the same precedence level (2).
 
@@ -2063,7 +2083,7 @@ Separate `map`, `filter`, `fold`, `foreach` for [Array](#47-array) and `List`.
 
 ## 10. Standard Library
 
-The standard library provides types and functions that are not built into the language but are defined in `stdlib/` using Dew itself. All stdlib definitions are normal Dew source — no compiler magic beyond what `stdin`/`stdout`/`force` provide.
+The standard library provides types and functions that are not built into the language but are defined in `stdlib/` using Dew itself. All stdlib definitions are normal Dew source — no compiler magic beyond what `stdin`/`stdout` provide.
 
 ### 10.1 Types
 
@@ -2197,7 +2217,7 @@ type_match, typeof
 ### Built-in Functions
 
 ```
-force, not, stdin, stdout
+not, stdin, stdout
 ```
 
 ### Reserved (Future)
