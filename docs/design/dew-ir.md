@@ -41,7 +41,7 @@ Dew Source → Parser → AST → Desugar → Type Check → Strictness → IR G
 **No pointers, no addresses, no `alloca`.** The Dew IR is a pure functional intermediate representation. All safety analysis (affine checking, provenance tracking, pointer aliasing) occurs in the type system layer above the IR. The IR sees only verified, safe computation.
 
 - **Memory allocation** is owned by the asm backend. `struct_cons` and `array_lit` produce values; the backend determines layout from the module's type table.
-- **All values are 64-bit** in registers. Memory layout (field offsets, element widths) comes from the type table at codegen time.
+- **Scalar values are 64-bit** in registers (`Int`, `Bool`, `Char`, pointers). Aggregates (structs, tuples, arrays) use register pairs (≤2 fields) or stack allocation (>2 fields). Memory layout comes from the type table at codegen time.
 - **No type annotations on instructions.** IR types are monomorphic — all generic parameters are resolved before IR generation.
 
 ---
@@ -190,7 +190,7 @@ IR types are a subset of source types — no type variables (monomorphized befor
 | `tuple(ts)` | `(Int, Bool)` | `(Int, Bool)` |
 | `array(t, n)` | `Array(Char, 5)` | `Array(Char, 5)` |
 
-> **All values are 64-bit** in registers. `Int`, `Bool`, `Char`, pointers, and thunk references all occupy a single 64-bit GPR. `Unit` is zero-width. Structs ≤ 2 fields fit in register pairs; larger structs use stack allocation. Memory layout (field offsets, array element widths) is determined by the type table at codegen time.
+> **Scalar values are 64-bit** in registers. `Int`, `Bool`, `Char`, pointers, and thunk references occupy a single 64-bit GPR. Structs ≤ 2 fields fit in register pairs (rv64gc: `x10`+`x11`); larger aggregates use stack allocation. `Unit` is zero-width — eliminated at codegen. Memory layout (field offsets, element widths) is determined by the type table at codegen time.
 
 ---
 
@@ -582,6 +582,29 @@ fn @translate(p: Point, dx: Int) {
 ```
 
 > Borrow sugar desugars before IR gen. The body becomes a normal fn taking `p` by value and returning the updated struct.
+
+### 14.7 Large Tuple (Stack Allocation)
+
+**Source:**
+```dew
+def f = fn -> (Int, Int, Int, Int, Int) { (1, 2, 3, 4, 5) }
+```
+
+**IR:**
+```
+fn @f() {
+  entry:
+    %0 = lit 1
+    %1 = lit 2
+    %2 = lit 3
+    %3 = lit 4
+    %4 = lit 5
+    %5 = tuple_lit %0 %1 %2 %3 %4   // 40 bytes — stack allocated
+    ret %5
+}
+```
+
+> `%0`–`%4` are scalar 64-bit GPRs. `%5` is an aggregate — 5 × 8 = 40 bytes, allocated on the stack and passed via stack on return. The IR register `%5` is a virtual name; the asm backend determines the concrete storage location.
 
 ### 14.7 Match Expression
 
