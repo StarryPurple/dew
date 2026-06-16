@@ -314,6 +314,52 @@ fn @curried(%0: Int) {
 }
 > Each `lambda` creates a closure that packages the captured environment. The returned closure `%2` captures both `a` and `b` — `a` was captured by `@inner2`'s closure, and `b` is captured when `@inner2` is called. The environment chain is flattened: `@inner3` receives all three captured values directly as parameters.
 
+**Mixed-type captures — struct, tuple, enum across two levels:**
+
+```dew
+// Source:
+struct Config { factor: Int }
+enum Status { Active(Int), Done }
+
+def make_handler = fn(cfg: Config) -> ((Int, Int)) -> ((Int) -> Status) {
+  fn(base: (Int, Int)) -> ((Int) -> Status) {
+    fn(x: Int) -> Status {
+      Active(x * cfg.factor + base.0 + base.1)
+    }
+  }
+};
+
+def handler = make_handler(Config { factor: 10 });
+def step1 = handler((1, 2));        // closure capturing {cfg, base}
+def result = step1(5);              // → Active(5*10 + 1 + 2) = Active(53)
+```
+
+The environment contains three values of different kinds: a struct (`cfg: Config`), a tuple (`base: (Int, Int)`), and an enum is the return type. Two levels of escaping: `make_handler` returns a closure, which itself returns another closure. After closure conversion:
+
+```
+fn @inner3(%0: Config, %1: Int, %2: Int, %3: Int) {
+  %4 = field{Int} %0 .factor         // cfg.factor
+  %5 = mul %3 %4                     // x * cfg.factor
+  %6 = add %5 %1                     // + base.0
+  %7 = add %6 %2                     // + base.1
+  %8 = enum_cons{Status} @Status::Active %7   // Active(result)
+  ret{Status} %8
+}
+
+fn @inner2(%0: Int, %1: Int, %2: Config) {
+  // env: [base.0, base.1, cfg] —— tuple flattened into two scalars + struct
+  %3 = lambda{(Int) -> Status} @inner3(%2, %0, %1)  // capture {cfg, base.0, base.1}
+  ret{(Int) -> Status} %3
+}
+
+fn @make_handler(%0: Config) {
+  %1 = lambda{((Int,Int)) -> ((Int) -> Status)} @inner2(%0)  // capture {cfg}
+  ret{((Int,Int)) -> ((Int) -> Status)} %1
+}
+```
+
+> Tuples are flattened into individual scalars in the capture list — `(Int, Int)` becomes two `Int` parameters. Structs and enums are captured as whole values. The environment grows additively with each nesting level: `@inner2` holds `{cfg}` (1 value), `@inner3` holds `{cfg, base.0, base.1}` (3 values). The full closure chain is `make_handler → inner2 → inner3`, each returning a heap-allocated closure to the caller.
+
 #### `lambda_block` — Inlined Closure (O1 Optimization)
 
 `lambda_block(x, y) { ... }` creates a closure whose body is defined inline. The compiler uses this when it can prove the closure **does not escape** its defining scope — it is only called locally, never returned, stored, or passed as an argument.
