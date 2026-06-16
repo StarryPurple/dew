@@ -446,18 +446,124 @@ Creates a new value equal to `%base` but with the value at the given path replac
 | `array_fill` | `%r = array_fill{Array(Int,N)} %v N` | Construct array with all elements = %v |
 | `tuple_lit` | `%r = tuple_lit{(Int,Int)} %a %b` | Construct tuple value |
 
-> **Why per-type instructions?** Each aggregate type has different memory layout. `struct_cons` packs named fields at known offsets; `enum_cons` prepends a discriminant tag; `array_lit` packs N uniform elements at stride; `tuple_lit` packs heterogeneous elements contiguously.
+#### `struct_cons` — Struct Construction
+
+`struct_cons{Point} @Point %0 %1` creates a `Point` value from two register values. The `{Point}` annotation tells the asm backend the struct layout (field offsets, total size). The `@Point` name is a reference into the type table.
+
+```
+struct Point { x: Int, y: Int }
+def p = Point { x: 3, y: 4 };
+
+// IR:
+fn @main() {
+  %0 = lit 3
+  %1 = lit 4
+  %2 = struct_cons{Point} @Point %0 %1   // 16 bytes on stack
+  ret{Point} %2
+}
+```
+
+> **Why separate from `tuple_lit`?** Structs have named fields (accessed by `.x`, `.y`), tuples have positional indices (`.0`, `.1`). Different accessor syntax, different layout semantics — the IR distinguishes them so the asm backend can emit correct field-offset GEPs without ambiguity.
+
+#### `enum_cons` / `enum_disc` / `enum_proj` — Enum Handling
+
+Enums are tagged unions: a discriminant word followed by the payload. Three instructions handle the full lifecycle:
+
+```
+enum Option { None, Some(Int) }
+
+// Construct:
+%0 = lit 42
+%1 = enum_cons{Option} @Option::Some %0    // [tag=1 | payload=42]
+
+// Match:
+%2 = enum_disc %1                           // → 1 (Some's tag)
+%3 = lit 1
+%4 = eq %2 %3                               // is it Some?
+br %4 L_some L_none
+L_some:
+  %5 = enum_proj{Int} @Option::Some %1      // → 42
+```
+
+- `enum_cons{Option} @Option::V %payload` — creates an enum of type `Option` using variant `V`. The tag is implicit (V's position in declaration order).
+- `enum_disc %e` — reads the discriminant (always Int). Used to branch on which variant is present.
+- `enum_proj{Int} @Option::Some %e` — extracts the payload as type `Int`. Requires the variant name for type safety.
+
+#### `array_lit` / `array_fill` — Array Construction
+
+```
+// Explicit elements:
+%0 = lit 1; %1 = lit 2; %2 = lit 3
+%3 = array_lit{Array(Int,3)} %0 %1 %2      // [1, 2, 3]
+
+// Fill with single value:
+%0 = lit 0
+%1 = array_fill{Array(Int,100)} %0 100      // [0, 0, ..., 0] — 100 zeros
+```
+
+`array_lit` takes N register operands — one per element. `array_fill` takes one value and a size literal — the asm backend emits `memset`-style initialization. Both instructions carry the array type in `{Array(T,N)}` so the backend knows element width and total size.
+
+#### `tuple_lit` — Tuple Construction
+
+```
+%0 = lit 3; %1 = lit 4
+%2 = tuple_lit{(Int,Int)} %0 %1            // (3, 4)
+
+%0 = lit 1; %1 = lit 2; %2 = lit 3
+%3 = tuple_lit{(Int,Int,Int)} %0 %1 %2     // (1, 2, 3)
+```
+
+Tuples are anonymous structs — accessed by position (`.0`, `.1`), not name. The type annotation `{(Int,Int)}` provides element count and types for the asm backend's layout.
+
+#### `field` — Field Extraction
+
+`field{Int} %p .x` extracts a single named field without path walking. Equivalent to `fetch{Int} %p .x` but implemented as a dedicated instruction for the common case.
 
 ### 8.10 Structure Update
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `struct_update` | `%r = struct_update %s .x=%a .y=%b` | New struct with updated fields |
+| `struct_update` | `%r = struct_update{Point} %s .x=%a .y=%b` | New struct with updated fields |
 | `array_access` | `%r = array_access{Int} %a %i` | Read array element |
 | `array_update` | `%r = array_update{Array(Int,N)} %a %i %v` | New array with updated element |
 | `tuple_update` | `%r = tuple_update{(Int,Int)} %t .0=%v` | New tuple with updated element |
 
-> **Why dedicated update instructions?** `array_access %a %i` is the common case — a single instruction the evaluator matches directly. `fetch %a [%i]` with an accessor path would also work but requires path parsing. The dedicated forms are sugar for the common patterns; `fetch`/`place` are the general mechanism.
+#### `struct_update` — Immutable Field Update
+
+`struct_update{Point} %p .x=%v` creates a **new** `Point` where field `x` is replaced by `%v` and all other fields are copied from `%p`. This is a pure functional operation — `%p` is not modified.
+
+```
+%0 = struct_cons{Point} @Point %3 %4       // Point { x: 3, y: 4 }
+%1 = lit 10
+%2 = struct_update{Point} %0 .x=%1          // Point { x: 10, y: 4 }
+// %0 unchanged; %2 is independent
+```
+
+> **Copy-on-write optimization.** When the asm backend can prove `%0` is never used after `%2`, the update becomes in-place — `struct_update` compiles to a single `sd` at the field offset, no copy.
+
+#### `array_access` / `array_update` — Array Operations
+
+```
+%0 = array_lit{Array(Int,3)} %1 %2 %3      // [10, 20, 30]
+%4 = lit 1
+%5 = array_access{Int} %0 %4                // → 20 (element at index 1)
+
+%6 = lit 99
+%7 = array_update{Array(Int,3)} %0 %4 %6    // [10, 99, 30]
+// %0 unchanged
+```
+
+`array_access{Int}` reads one element. `array_update{Array(Int,N)}` creates a new array with one element changed. The type annotation provides element type (for access width) and array size (for bounds validation in the evaluator).
+
+#### `tuple_update` — Immutable Tuple Element Update
+
+```
+%0 = tuple_lit{(Int,Int,Int)} %1 %2 %3      // (10, 20, 30)
+%4 = lit 99
+%5 = tuple_update{(Int,Int,Int)} %0 .1=%4   // (10, 99, 30)
+```
+
+Same copy-on-write semantics as `struct_update`. The `.1` dot-notation identifies the positional index. The type annotation `{(Int,Int,Int)}` carries element types and count.
 
 ---
 
