@@ -820,8 +820,44 @@ type_match typeof(shape) {
 }
 ```
 
-**Type patterns are type constructors only.** `type_match` arms are **types**, not value patterns. A struct type name (`Point`) or enum variant (`Some(Int)`) is sufficient to uniquely identify the type — struct field-level patterns (`Point { x: Int, .. }`) are unnecessary because the type name already narrows the whole type. `type_match` does not do field-level type selection; it dispatches entirely by type identity and type constructor structure.
-- Field patterns use `_` (wildcard), not variable binding — type_match matches types, not values
+**Type patterns are type constructors only.** `type_match` arms are **types**, not value patterns. A struct type name (`Point`) or enum variant (`Some(Int)`) is sufficient to uniquely identify the type. `type_match` does not do field-level type selection; it dispatches entirely by type identity and type constructor structure.
+
+**Branch return types must be consistent** — same as `match`. All arms unify to the same type:
+
+```dew
+// OK: both arms return Int
+type_match typeof(x) {
+  Int => x + 1,
+  _   => 0,
+}
+
+// ERROR: type mismatch (Int vs Bool)
+type_match typeof(x) {
+  Int => x + 1,
+  _   => true,
+}
+```
+
+**Composability with value-level patterns.** `type_match` narrows the type; `match` and `def` patterns then work on the narrowed value. This separation keeps type dispatch and value destructuring orthogonal:
+
+```dew
+// type_match identifies the type; subsequent code uses the narrowed value
+def process = fn(val: T) -> String {
+  type_match typeof(val) {
+    Option(_)  => match val {             // narrowed to Option, now match on variants
+                    Some(v) => "got value",
+                    None    => "empty",
+                  },
+    (_, _, _)  => def (a, b, c) = val;    // narrowed to triple, destructure
+                  a + b + c,
+    Point      => def Point { x, y } = val; // narrowed to Point, extract fields
+                  x + y,
+    _          => "unknown",
+  }
+}
+```
+
+> `type_match` answers "what type is this?" — after narrowing, `match` answers "which variant?" and `def` deconstructs the value. The two mechanisms are intentionally separate: type dispatch and value destructuring are different operations.
 
 **How type_match works.** The compiler resolves the concrete type at the call site, then matches each arm pattern against it. Only the matching arm survives; unmatched arms are dead code eliminated. No runtime type tags, no vtable, no reflection:
 
