@@ -42,7 +42,7 @@ Dew Source → Parser → AST → Desugar → Type Check → Strictness → IR G
 
 - **Memory allocation** is owned by the asm backend. `struct_cons` and `array_lit` produce values; the backend determines layout from the module's type table.
 - **Scalar values are 64-bit** in registers (`Int`, `Bool`, `Char`, pointers). Aggregates (structs, tuples, arrays) are stack-allocated. Memory layout comes from the type table at codegen time.
-- **Type annotations on register-producing instructions.** Instructions that produce registers carry `{Type}` annotations for the asm backend: `%r = add{Int} %a %b`, `%r = fetch{Int} %p .x`. Fixed-output instructions (`add` → always Int, `lt` → always Bool) use the same format for consistency.
+- **Type annotations on variable-output instructions.** Instructions whose output type depends on context (`fetch`, `call`, `lambda`, `tuple_lit`, etc.) carry `{Type}` annotations. Fixed-output instructions (`add` → always Int, `lt` → always Bool) omit the annotation.
 
 ---
 
@@ -92,7 +92,7 @@ An `fn` is an ordinary function — called directly, no cell, no state machine. 
 ```
 fn @add(x: Int, y: Int) {
   entry:
-    %0 = add{Int} %0 %1      // %0 = x, %1 = y (positional)
+    %0 = add %0 %1      // %0 = x, %1 = y (positional)
     ret{Int} %0
 }
 
@@ -131,7 +131,7 @@ thunk @x() {
   entry:
     %0 = lit{Int} 40
     %1 = lit{Int} 2
-    %2 = add{Int} %0 %1
+    %2 = add %0 %1
     ret{Int} %2
 }
 ```
@@ -260,8 +260,8 @@ def make_foo = fn(x: Int) -> () -> Int { fn { x + r1 - r2 } };
 
 // IR — environment contains all captured variables:
 fn @inner(x: Int, r1: Int, r2: Int) {
-  %0 = add{Int} %0 %1           // x + r1
-  %3 = sub{Int} %0 %2           // (x + r1) - r2
+  %0 = add %0 %1           // x + r1
+  %3 = sub %0 %2           // (x + r1) - r2
   ret{Int} %3
 }
 
@@ -288,8 +288,8 @@ The closure captures two affine values — it is `FnOnce`. After the closure is 
 fn @inner(x: Affine(Int), r1: Affine(Int), r2: Int) {
   %0 = field %0 .data       // consume x → Int
   %1 = field %1 .data       // consume r1 → Int
-  %3 = add{Int} %0 %1            // x.data + r1.data
-  %4 = sub{Int} %3 %2            // (x+r1) - r2
+  %3 = add %0 %1            // x.data + r1.data
+  %4 = sub %3 %2            // (x+r1) - r2
   ret{Int} %4
 }
 
@@ -349,30 +349,30 @@ fn @main() {
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `add` | `%r = add{Int} %a %b` | `%r := %a + %b` |
-| `sub` | `%r = sub{Int} %a %b` | `%r := %a - %b` |
-| `mul` | `%r = mul{Int} %a %b` | `%r := %a * %b` |
-| `div` | `%r = div{Int} %a %b` | `%r := %a / %b` (integer division) |
-| `rem` | `%r = rem{Int} %a %b` | `%r := %a % %b` |
+| `add` | `%r = add %a %b` | `%r := %a + %b` |
+| `sub` | `%r = sub %a %b` | `%r := %a - %b` |
+| `mul` | `%r = mul %a %b` | `%r := %a * %b` |
+| `div` | `%r = div %a %b` | `%r := %a / %b` (integer division) |
+| `rem` | `%r = rem %a %b` | `%r := %a % %b` |
 
 ### 8.5 Comparison
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `lt` | `%r = lt{Bool} %a %b` | `%r := %a < %b` |
-| `gt` | `%r = gt{Bool} %a %b` | `%r := %a > %b` |
-| `le` | `%r = le{Bool} %a %b` | `%r := %a <= %b` |
-| `ge` | `%r = ge{Bool} %a %b` | `%r := %a >= %b` |
-| `eq` | `%r = eq{Bool} %a %b` | `%r := %a == %b` |
-| `ne` | `%r = ne{Bool} %a %b` | `%r := %a != %b` |
+| `lt` | `%r = lt %a %b` | `%r := %a < %b` |
+| `gt` | `%r = gt %a %b` | `%r := %a > %b` |
+| `le` | `%r = le %a %b` | `%r := %a <= %b` |
+| `ge` | `%r = ge %a %b` | `%r := %a >= %b` |
+| `eq` | `%r = eq %a %b` | `%r := %a == %b` |
+| `ne` | `%r = ne %a %b` | `%r := %a != %b` |
 
 ### 8.6 Logic
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `and` | `%r = and{Bool} %a %b` | `%r := %a && %b` |
-| `or` | `%r = or{Bool} %a %b` | `%r := %a \|\| %b` |
-| `not` | `%r = not{Bool} %a` | `%r := !%a` |
+| `and` | `%r = and %a %b` | `%r := %a && %b` |
+| `or` | `%r = or %a %b` | `%r := %a \|\| %b` |
+| `not` | `%r = not %a` | `%r := !%a` |
 
 ### 8.7 Control Flow
 
@@ -407,7 +407,7 @@ Creates a new value equal to `%base` but with the value at the given path replac
 | `field` | `%r = field{Int} %e .x` | Extract field from struct |
 | `struct_cons` | `%r = struct_cons{Point} @Point %x %y` | Construct struct value |
 | `enum_cons` | `%r = enum_cons{Option} @Option::Some %v` | Construct enum variant |
-| `enum_disc` | `%r = enum_disc{Int} %e` | Read enum discriminant tag |
+| `enum_disc` | `%r = enum_disc %e` | Read enum discriminant tag |
 | `enum_proj` | `%r = enum_proj{Int} @Option::Some %e` | Extract variant payload |
 | `array_lit` | `%r = array_lit{Array(Int,3)} %a %b %c` | Construct array value |
 | `array_fill` | `%r = array_fill{Array(Int,N)} %v N` | Construct array with all elements = %v |
@@ -447,7 +447,7 @@ Accessor paths navigate compound data structures in `fetch` and `place`:
 ```
 fn @add(x: Int, y: Int) {
   entry:
-    %0 = add{Int} %0 %1
+    %0 = add %0 %1
     ret{Int} %0
 }
 
@@ -572,7 +572,7 @@ def main = fn { add(40, 2) -> stdout; }
 ```
 fn @add(x: Int, y: Int) {
   entry:
-    %0 = add{Int} %0 %1
+    %0 = add %0 %1
     ret{Int} %0
 }
 
@@ -600,16 +600,16 @@ def main = fn { fact(5) -> stdout; }
 fn @fact(n: Int) {
   entry:
     %0 = lit{Int} 0
-    %1 = eq{Bool} %0 %0         // n == 0 (n is %0)
+    %1 = eq %0 %0         // n == 0 (n is %0)
     br %1 L_then L_else
   L_then:
     %2 = lit{Int} 1
     ret{Int} %2
   L_else:
     %3 = lit{Int} 1
-    %4 = sub{Int} %0 %3
+    %4 = sub %0 %3
     %5 = call{Int} @fact %4
-    %6 = mul{Int} %0 %5
+    %6 = mul %0 %5
     ret{Int} %6
 }
 
@@ -635,7 +635,7 @@ thunk @x() {
   entry:
     %0 = lit{Int} 40
     %1 = lit{Int} 2
-    %2 = add{Int} %0 %1
+    %2 = add %0 %1
     ret{Int} %2
 }
 
@@ -661,7 +661,7 @@ fn @main() {
   entry:
     %0 = lit{Int} 1
     %1 = lit{Int} 0
-    %2 = gt{Bool} %0 %1
+    %2 = gt %0 %1
     br %2 L_then L_else
   L_then:
     %3 = lit{Int} 10
@@ -689,7 +689,7 @@ def translate = fn(&p: Point, dx: Int) -> Point {
 fn @translate(p: Point, dx: Int) {
   entry:
     %2 = fetch{Int} %0 .x         // p.x (%0 = p)
-    %3 = add{Int} %2 %1           // p.x + dx (%1 = dx)
+    %3 = add %2 %1           // p.x + dx (%1 = dx)
     %4 = struct_update{Point} %0 .x=%3
     ret{Int} %4
 }
@@ -739,9 +739,9 @@ fn @main() {
   entry:
     %0 = lit{Int} 2026
     %1 = enum_cons @Option::Some %0
-    %2 = enum_disc{Int} %1
+    %2 = enum_disc %1
     %3 = lit{Int} 0
-    %4 = eq{Bool} %2 %3
+    %4 = eq %2 %3
     br %4 L_some L_none
   L_some:
     %5 = enum_proj{Int} @Option::Some %1
@@ -773,27 +773,27 @@ fn @main() {
 | 8 | `lambda_block` | `%r = lambda_block{T} (..) { .. }` | | [§8.3](#83-functions) |
 | 9 | `call` | `%r = call{T} @name ..` or `call{T} %f ..` | | [§8.3](#83-functions) |
 | 10 | `force` | `%r = force{T} @name` | | [§8.3](#83-functions) |
-| 11 | `add` | `%r = add{Int} %a %b` | | [§8.4](#84-arithmetic) |
-| 12 | `sub` | `%r = sub{Int} %a %b` | | [§8.4](#84-arithmetic) |
-| 13 | `mul` | `%r = mul{Int} %a %b` | | [§8.4](#84-arithmetic) |
-| 14 | `div` | `%r = div{Int} %a %b` | | [§8.4](#84-arithmetic) |
-| 15 | `rem` | `%r = rem{Int} %a %b` | | [§8.4](#84-arithmetic) |
-| 16 | `lt` | `%r = lt{Bool} %a %b` | | [§8.5](#85-comparison) |
-| 17 | `gt` | `%r = gt{Bool} %a %b` | | [§8.5](#85-comparison) |
-| 18 | `le` | `%r = le{Bool} %a %b` | | [§8.5](#85-comparison) |
-| 19 | `ge` | `%r = ge{Bool} %a %b` | | [§8.5](#85-comparison) |
-| 20 | `eq` | `%r = eq{Bool} %a %b` | | [§8.5](#85-comparison) |
-| 21 | `ne` | `%r = ne{Bool} %a %b` | | [§8.5](#85-comparison) |
-| 22 | `and` | `%r = and{Bool} %a %b` | | [§8.6](#86-logic) |
-| 23 | `or` | `%r = or{Bool} %a %b` | | [§8.6](#86-logic) |
-| 24 | `not` | `%r = not{Bool} %a` | | [§8.6](#86-logic) |
+| 11 | `add` | `%r = add %a %b` | | [§8.4](#84-arithmetic) |
+| 12 | `sub` | `%r = sub %a %b` | | [§8.4](#84-arithmetic) |
+| 13 | `mul` | `%r = mul %a %b` | | [§8.4](#84-arithmetic) |
+| 14 | `div` | `%r = div %a %b` | | [§8.4](#84-arithmetic) |
+| 15 | `rem` | `%r = rem %a %b` | | [§8.4](#84-arithmetic) |
+| 16 | `lt` | `%r = lt %a %b` | | [§8.5](#85-comparison) |
+| 17 | `gt` | `%r = gt %a %b` | | [§8.5](#85-comparison) |
+| 18 | `le` | `%r = le %a %b` | | [§8.5](#85-comparison) |
+| 19 | `ge` | `%r = ge %a %b` | | [§8.5](#85-comparison) |
+| 20 | `eq` | `%r = eq %a %b` | | [§8.5](#85-comparison) |
+| 21 | `ne` | `%r = ne %a %b` | | [§8.5](#85-comparison) |
+| 22 | `and` | `%r = and %a %b` | | [§8.6](#86-logic) |
+| 23 | `or` | `%r = or %a %b` | | [§8.6](#86-logic) |
+| 24 | `not` | `%r = not %a` | | [§8.6](#86-logic) |
 | 25 | `phi` | `%r = phi{T} [%v1,L1] [%v2,L2]` | | [§8.7](#87-control-flow) |
 | 26 | `fetch` | `%r = fetch{T} %base .f [%i] .0` | | [§8.8](#88-memory-access--fetch-and-place) |
 | 27 | `place` | `%r = place{T} %base .f = %v` | | [§8.8](#88-memory-access--fetch-and-place) |
 | 28 | `field` | `%r = field{T} %e .x` | | [§8.9](#89-structure-construction) |
 | 29 | `struct_cons` | `%r = struct_cons{Name} @N %x %y` | | [§8.9](#89-structure-construction) |
 | 30 | `enum_cons` | `%r = enum_cons{Name} @N::V %v` | | [§8.9](#89-structure-construction) |
-| 31 | `enum_disc` | `%r = enum_disc{Int} %e` | | [§8.9](#89-structure-construction) |
+| 31 | `enum_disc` | `%r = enum_disc %e` | | [§8.9](#89-structure-construction) |
 | 32 | `enum_proj` | `%r = enum_proj{T} @N::V %e` | | [§8.9](#89-structure-construction) |
 | 33 | `array_lit` | `%r = array_lit{Array(T,N)} %a %b` | | [§8.9](#89-structure-construction) |
 | 34 | `array_fill` | `%r = array_fill{Array(T,N)} %v N` | | [§8.9](#89-structure-construction) |
