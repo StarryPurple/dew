@@ -419,6 +419,8 @@ def identity = fn(a: Array(Int, N)) -> Array(Int, N) { a }
 // N is polymorphic — the compiler generates code per concrete N
 ```
 
+> **Const generic types.** Only `Int` is supported — `Char` and `Bool` as const generic types have no current use case. Only integer literals and other const generics may flow into `N: Int`. Runtime expressions are rejected (`def size = stdin(); f(arr, size)` → error).
+
 **`_` as type wildcard.** `_` in a type annotation means "infer this type variable." HM handles this naturally:
 
 ```dew
@@ -580,6 +582,8 @@ match req {
 
 ### 4.4 Struct
 
+Struct declarations may have [generic parameters](#41-hindley-milner-type-inference) — type parameters (`T`) and const generics (`N: Int`).
+
 ```dew
 struct Point {
   x: Int,
@@ -642,6 +646,8 @@ def main = fn {
 ```
 
 ### 4.5 Enum
+
+Enum declarations may have [generic parameters](#41-hindley-milner-type-inference) — type parameters (`T`) and const generics (`N: Int`) work identically to structs.
 
 ```dew
 enum Option {
