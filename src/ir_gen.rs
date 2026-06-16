@@ -303,8 +303,8 @@ impl<'a> IrGenerator<'a> {
 
     fn compile_finish(&mut self, block: &mut BasicBlock, blocks: &mut Vec<BasicBlock>, result_reg: usize) {
         block.terminator = Terminator::Ret(result_reg);
-        blocks.push(block.clone());
         blocks.append(&mut self.extra_blocks);
+        blocks.push(block.clone());
     }
 
     fn compile_match(&mut self, m: &MatchExpr, block: &mut BasicBlock) -> usize {
@@ -319,6 +319,7 @@ impl<'a> IrGenerator<'a> {
         let l_merge = self.fresh_label("merge");
 
         block.terminator = Terminator::Br(cond_reg, l_true.clone(), l_false.clone());
+        self.extra_blocks.push(block.clone());
 
         let mut block_true = BasicBlock::new(l_true.clone());
         let true_reg = self.compile_expr(&m.arms[0].body, &mut block_true);
