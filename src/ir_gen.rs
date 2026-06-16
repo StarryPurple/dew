@@ -288,7 +288,7 @@ impl<'a> IrGenerator<'a> {
             Expr::Field(f) => {
                 let obj_r = self.compile_expr(&f.object, block);
                 let result_r = self.fresh_reg();
-                block.instrs.push(Instr::Field(result_r, obj_r, f.field.name.clone()));
+                block.instrs.push(Instr::Field(result_r, obj_r, 0));
                 result_r
             }
 

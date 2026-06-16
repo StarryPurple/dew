@@ -29,7 +29,7 @@ pub enum Instr {
     Phi(Reg, Vec<(Reg, Label)>),
     Fetch(Reg, Reg, Vec<Accessor>),
     Place(Reg, Reg, Vec<Accessor>, Reg),
-    Field(Reg, Reg, String),
+    Field(Reg, Reg, usize),
     StructCons(Reg, String, Vec<Reg>),
     EnumCons(Reg, String, String, Vec<Reg>),
     EnumDisc(Reg, Reg),
