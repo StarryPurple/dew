@@ -1,25 +1,76 @@
-// IR types — mapping from Dew types to IR type representations.
-// All type variables are monomorphized before IR generation.
-
 use serde::{Deserialize, Serialize};
 
-/// An IR-level type. No type variables — all generics are resolved before IR gen.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IrType {
     Int,
     Bool,
     Char,
     Unit,
-    /// Named struct type, e.g., "Point"
     Struct(String),
-    /// Named enum type, e.g., "Option"
     Enum(String),
-    /// Function type: (param_types) -> return_type
     Fun(Vec<IrType>, Box<IrType>),
-    /// Tuple type
     Tuple(Vec<IrType>),
-    /// Array type with element type and size
     Array(Box<IrType>, usize),
-    /// Thunk reference (pointer to thunk cell)
     ThunkRef(Box<IrType>),
+}
+
+impl IrType {
+    pub fn display(&self) -> String {
+        match self {
+            IrType::Int => "Int".into(),
+            IrType::Bool => "Bool".into(),
+            IrType::Char => "Char".into(),
+            IrType::Unit => "Unit".into(),
+            IrType::Struct(n) => n.clone(),
+            IrType::Enum(n) => n.clone(),
+            IrType::Fun(p, r) => format!("({}) -> {}", p.iter().map(|t| t.display()).collect::<Vec<_>>().join(", "), r.display()),
+            IrType::Tuple(ts) => format!("({})", ts.iter().map(|t| t.display()).collect::<Vec<_>>().join(", ")),
+            IrType::Array(t, n) => format!("Array({}, {})", t.display(), n),
+            IrType::ThunkRef(t) => format!("ThunkRef({})", t.display()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructDef {
+    pub name: String,
+    pub fields: Vec<(String, IrType)>,
+    pub size: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnumDef {
+    pub name: String,
+    pub variants: Vec<VariantDef>,
+    pub size: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariantDef {
+    pub name: String,
+    pub tag: usize,
+    pub fields: Vec<(String, IrType)>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TypeTable {
+    pub structs: Vec<StructDef>,
+    pub enums: Vec<EnumDef>,
+}
+
+impl TypeTable {
+    pub fn new() -> Self { TypeTable { structs: vec![], enums: vec![] } }
+
+    pub fn add_struct(&mut self, def: StructDef) { self.structs.push(def); }
+    pub fn add_enum(&mut self, def: EnumDef) { self.enums.push(def); }
+
+    pub fn struct_field_index(&self, name: &str, field: &str) -> Option<usize> {
+        self.structs.iter().find(|s| s.name == name)
+            .and_then(|s| s.fields.iter().position(|(n, _)| n == field))
+    }
+
+    pub fn enum_variant_tag(&self, name: &str, variant: &str) -> Option<usize> {
+        self.enums.iter().find(|e| e.name == name)
+            .and_then(|e| e.variants.iter().find(|v| v.name == variant).map(|v| v.tag))
+    }
 }
