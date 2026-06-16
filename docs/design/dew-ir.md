@@ -223,8 +223,8 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `lambda` | `%r = lambda @name(%0, %1)` | Create heap-allocated closure |
-| `lambda_block` | `%r = lambda_block{fn(Int,Int)} (x, y) { ... }` | Create inlined closure (O1) |
+| `lambda` | `%r = lambda{() -> Int} @name(%0, %1)` | Create heap-allocated closure |
+| `lambda_block` | `%r = lambda_block{() -> Int} (x, y) { ... }` | Create inlined closure (O1) |
 | `call` | `%r = call{Int} @name %a %b` | Call fn by name (static dispatch) |
 | `call` | `%r = call{Int} %f %a %b` | Call closure by register (dynamic dispatch) |
 | `force` | `%r = force{Int} @name` | Force lazy thunk, return cached or computed value |
@@ -242,8 +242,8 @@ def make_adder = fn(x: Int) -> () -> Int { fn { x } }
 // After closure conversion:
 fn @inner(x: Int) { ret{Int} %0 }           // %0 = captured x
 fn @make_adder(x: Int) {
-  %1 = lambda @inner(%0)               // %0 = x, %1 = closure
-  ret{fn(Int)} %1
+  %1 = lambda{() -> Int} @inner(%0)      // %0 = x, %1 = closure
+  ret{() -> Int} %1
 }
 ```
 
@@ -263,8 +263,8 @@ fn @inner(x: Int, r1: Int, r2: Int) {
 }
 
 fn @make_foo(x: Int, r1: Int, r2: Int) {
-  %3 = lambda @inner(%0, %1, %2)   // capture {x, r1, r2}
-  ret{Int} %3
+  %3 = lambda{() -> Int} @inner(%0, %1, %2)   // capture {x, r1, r2}
+  ret{() -> Int} %3
 }
 ```
 
@@ -291,8 +291,8 @@ fn @inner(x: Affine(Int), r1: Affine(Int), r2: Int) {
 }
 
 fn @make_foo(x: Affine(Int), r1: Affine(Int), r2: Int) {
-  %3 = lambda @inner(%0, %1, %2)   // capture {x, r1, r2}
-  ret{Int} %3                          // closure is FnOnce — single call
+  %3 = lambda{() -> Int} @inner(%0, %1, %2)   // capture {x, r1, r2}
+  ret{() -> Int} %3                          // closure is FnOnce — single call
 }
 ```
 
