@@ -126,11 +126,7 @@ def main = fn {
 
 ### 2.2 Entry Point
 
-Dew execution begins at the `main` binding. `main` is expected to have signature `() -> IO Unit` — a zero-argument function with side effects. The evaluator invokes `main()`. Exit code is `0` on success, `1` on error.
-
-**If `main` is pure** (no IO), the compiler issues `[W003]` — the program compiles and runs correctly, but a pure `main` produces no visible output. Side effects are explicit: output comes from `stdout`, input from `stdin`.
-
-**Redefining `main`** produces `[W001]`. Redefining a standard library name produces `[W002]`.
+Dew execution begins at the `main` binding. `main` is expected to have signature `() -> IO Unit` — a zero-argument function with [IO side effects](#35-io-effect-system).
 
 ```dew
 def main = fn { 2026 -> stdout; }
@@ -146,15 +142,13 @@ def main = fn () { 2026 -> stdout; }         // explicit empty params
 def main = fn () -> Unit { 2026 -> stdout; } // fully explicit
 ```
 
-**Execution model.** The compiler collects all top-level definitions, then forces `main`. Definitions appear in source order but are registered before evaluation — forward references between `def` bindings are resolved lazily. Only `main` triggers evaluation; unreferenced definitions remain suspended thunks. This mirrors LLVM's model: `define` for declarations, `@main()` as the runtime entry.
+The empty parameter list `()` is not a `Unit` parameter — `() -> Unit` (zero arguments) is a different type from `(Unit) -> Unit` (one `Unit` argument). See [§4.8](#48-function-types) for the full parameter list vs. tuple discussion.
 
-**Redefining `main`** produces a `[W001]` warning. The compiler accepts the redefinition but the later binding shadows the earlier — only the last `main` executes. Redefining a standard library name (`stdin`, `stdout`, `consume`, `Affine`, etc.) produces a `[W002]` warning.
+**If `main` is pure** (no IO), the compiler issues `[W003]` — the program compiles and runs, but produces no visible output.
 
-The evaluator invokes `main()`. Exit code is `0` on success.
+**Redefining `main`** produces `[W001]`; redefining a standard library name produces `[W002]`.
 
-> `main` returning `Unit` keeps the semantics honest: `main` is an effectful procedure, not a pure function. Returning `Int` conflates "program output" with "process exit code." Rust and Haskell follow the same model: `fn main()` / `IO ()` — side effects are explicit, exit code is separate. The brevity tradeoff (one-liner examples now need `-> stdout`) is addressed by REPL/eval mode for quick experiments.
-
-**Example convention in this specification:** Complete executable programs are annotated with `// stdout: expected`. Fragment examples (showing syntax in isolation) have no annotation, or use `// fragment`.
+**Execution model.** The compiler collects all top-level definitions, then forces `main`. Only `main` triggers evaluation; unreferenced definitions remain suspended thunks. This mirrors LLVM's model: `define` for declarations, `@main()` as the runtime entry.
 
 ### 2.3 REPL Mode (Interactive)
 
@@ -1671,6 +1665,28 @@ def x = 1              // new binding
 def x = x + 1          // new binding, shadows old (NOT mutation)
 ```
 
+**Recursive bindings (`def rec`).** `def rec` registers the name before parsing the RHS, enabling self-reference. The RHS sees the binding being defined — essential for recursive functions:
+
+```dew
+def rec fact = fn(n: Int) -> Int { if n == 0 { 1 } else { n * fact(n - 1) } }
+
+// Without rec — the RHS x refers to a previous x (shadowing)
+def x = 1;
+def x = x + 1;          // x = 2 (rebinding — RHS x is the old x)
+
+// With rec — the RHS x refers to itself (self-reference)
+def rec x = x + 1;      // self-cycle — compiles, blackhole at runtime
+```
+
+**When to use `rec`:**
+
+| Binding | RHS sees | Use case |
+|---------|----------|----------|
+| `def name = expr` | Previous bindings only | Value binding, shadowing |
+| `def rec name = expr` | Itself + previous bindings | Recursive functions, self-referential data |
+
+> `def rec x = x + 1` compiles successfully — the self-cycle is detected at runtime by the thunk blackhole mechanism, not at compile time. This preserves lazy evaluation's ability to define self-referential structures that may never be forced.
+
 **Default initialization.** A `def` with a type annotation but no initializer gets the type's default value:
 
 ```dew
@@ -2148,7 +2164,7 @@ All compiler diagnostics use bracketed codes. `[E###]` for errors (compilation s
 ### Keywords
 
 ```
-def, fn, struct, enum, match, if, else, fix,
+def, fn, struct, enum, match, if, else, fix, rec,
 import, true, false, Unit, affine,
 type_match, typeof
 ```
