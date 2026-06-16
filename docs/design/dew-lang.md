@@ -841,21 +841,23 @@ type_match typeof(x) {
 **Composability with value-level patterns.** `type_match` narrows the type; `match` and `def` patterns then work on the narrowed value. This separation keeps type dispatch and value destructuring orthogonal:
 
 ```dew
-// type_match identifies the type; subsequent code uses the narrowed value
-def process = fn(val: T) -> String {
+// type_match narrows the type → match/def deconstruct the value
+def summary = fn(val: T) -> Int {
   type_match typeof(val) {
-    Option(_)  => match val {             // narrowed to Option, now match on variants
-                    Some(v) => "got value",
-                    None    => "empty",
+    Option(_)  => match val {             // narrowed to Option
+                    Some(v) => 1,          // v is the payload type
+                    None    => 0,
                   },
-    (_, _, _)  => def (a, b, c) = val;    // narrowed to triple, destructure
-                  a + b + c,
-    Point      => def Point { x, y } = val; // narrowed to Point, extract fields
+    (_, _, _)  => def (a, b, c) = val;    // narrowed to triple
+                  a + b + c,               // all Int — type_match guarantees this
+    Point      => def Point { x, y } = val; // narrowed to Point
                   x + y,
-    _          => "unknown",
+    _          => -1,                      // unknown type
   }
 }
 ```
+
+All arms return `Int`. The `Point` arm only compiles if `x` and `y` are `Int` — which the compiler verified when `Point` matched this call site's concrete type. If a different `Point` instantiation had `x: Bool`, the arm would be a compile error at that call site.
 
 > `type_match` answers "what type is this?" — after narrowing, `match` answers "which variant?" and `def` deconstructs the value. The two mechanisms are intentionally separate: type dispatch and value destructuring are different operations.
 
