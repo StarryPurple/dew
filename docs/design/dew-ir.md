@@ -41,7 +41,7 @@ Dew Source → Parser → AST → Desugar → Type Check → Strictness → IR G
 **No pointers, no addresses, no `alloca`.** The Dew IR is a pure functional intermediate representation. All safety analysis (affine checking, provenance tracking, pointer aliasing) occurs in the type system layer above the IR. The IR sees only verified, safe computation.
 
 - **Memory allocation** is owned by the asm backend. `struct_cons` and `array_lit` produce values; the backend determines layout from the module's type table.
-- **Scalar values are 64-bit** in registers (`Int`, `Bool`, `Char`, pointers). Aggregates (structs, tuples, arrays) use register pairs (≤2 fields) or stack allocation (>2 fields). Memory layout comes from the type table at codegen time.
+- **Scalar values are 64-bit** in registers (`Int`, `Bool`, `Char`, pointers). Aggregates (structs, tuples, arrays) are stack-allocated. Memory layout comes from the type table at codegen time.
 - **No type annotations on instructions.** IR types are monomorphic — all generic parameters are resolved before IR generation.
 
 ---
@@ -190,7 +190,7 @@ IR types are a subset of source types — no type variables (monomorphized befor
 | `tuple(ts)` | `(Int, Bool)` | `(Int, Bool)` |
 | `array(t, n)` | `Array(Char, 5)` | `Array(Char, 5)` |
 
-> **Scalar values are 64-bit** in registers. `Int`, `Bool`, `Char`, pointers, and thunk references occupy a single 64-bit GPR. Structs ≤ 2 fields fit in register pairs (rv64gc: `x10`+`x11`); larger aggregates use stack allocation. `Unit` is zero-width — eliminated at codegen. Memory layout (field offsets, element widths) is determined by the type table at codegen time.
+> **Scalar values are 64-bit** in registers. `Int`, `Bool`, `Char`, pointers, and thunk references occupy a single 64-bit GPR. Aggregates (structs, tuples, arrays) are stack-allocated. `Unit` is zero-width — eliminated at codegen. Memory layout is determined by the type table at codegen time.
 
 ---
 
@@ -395,6 +395,8 @@ Example type table entry:
 | Thunk-to-fn | Zero-arg non-recursive with no consumer | Remove cell, emit as fn |
 
 > O1 is intentionally conservative. No speculative optimizations.
+
+**Future:** Register-pair passing for ≤2-field aggregates. On rv64gc, a `struct Point { x: Int, y: Int }` could be passed in `x10`+`x11` instead of on the stack. This is a calling-convention optimization that does not change the IR — only the asm backend.
 
 ---
 
