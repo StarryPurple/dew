@@ -79,7 +79,7 @@ enum Option {
 
 **Struct field names** matter: `fetch %p .x` and `struct_update %p .x=%v` reference fields by name, not by position. The type table maps names to byte offsets. **Enum variant names** matter: `enum_proj @Option::Some %e` references the variant by name. Discriminant tags (0, 1, 2...) are assigned automatically in declaration order — not written explicitly.
 
-The evaluator registers all definitions, then starts execution at `@main`. If `@main` is an `fn`, it is called; if `@main` is a `thunk`, it is forced. If `@main` does not exist, report `[E007]`.
+The evaluator starts execution at `@main`. If `@main` is an `fn`, it is called; if `@main` is a `thunk`, it is forced. If `@main` does not exist, report `[E007]`. See [§3 fn](#3-fn) and [§4 thunk](#4-thunk) for the semantics of each.
 
 > **Why two definition kinds?** Thunks are lazy cells with a 3-state FSM (suspended, evaluating, evaluated). Fns are ordinary functions — called directly, no cell, no memoization. This split reflects the Dew source: `def x = expr` (pure, zero-arg) produces a thunk; everything else produces an fn.
 
@@ -608,7 +608,7 @@ fn @f() {
 
 > `%0`–`%4` are scalar 64-bit GPRs. `%5` is an aggregate — 5 × 8 = 40 bytes, allocated on the stack and passed via stack on return. The IR register `%5` is a virtual name; the asm backend determines the concrete storage location.
 
-### 14.7 Match Expression
+### 14.8 Match Expression
 
 **Source:**
 ```dew
@@ -644,9 +644,6 @@ fn @main() {
 ```
 
 > `enum_disc` reads the variant tag; `enum_proj` extracts the payload. On rv64gc: `ld t0, 0(enum_ptr)` for disc, `ld t0, 8(enum_ptr)` for projection.
-
----
-
 
 ---
 
