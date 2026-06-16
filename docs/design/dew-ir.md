@@ -90,7 +90,7 @@ The evaluator starts execution at `@main`. If `@main` is an `fn`, it is called; 
 An `fn` is an ordinary function — called directly, no cell, no state machine. Parameters map to registers by position.
 
 ```
-fn @add(x: Int, y: Int) {
+fn @add(%0: Int, %1: Int) {
   entry:
     %0 = add %0 %1      // %0 = x, %1 = y (positional)
     ret{Int} %0
@@ -167,7 +167,7 @@ Virtual (unbounded), SSA-like — each register assigned exactly once. Displayed
 
 ### 6.2 Parameters
 
-Parameters map to registers by position: `%0` = first param, `%1` = second, etc. Parameter names in `fn` signatures are for documentation only — the IR body uses register numbers exclusively.
+Parameters are identified by register number in the signature: `%0` = first, `%1` = second. The register numbers serve as both parameter names and position indicators — the body uses the same register numbers to reference parameter values.
 
 ### 6.3 Block Labels
 
@@ -240,8 +240,8 @@ The closure body is always a top-level `fn` — `lambda` does not define the bod
 def make_adder = fn(x: Int) -> () -> Int { fn { x } }
 
 // After closure conversion:
-fn @inner(x: Int) { ret{Int} %0 }           // %0 = captured x
-fn @make_adder(x: Int) {
+fn @inner(%0: Int) { ret{Int} %0 }           // %0 = captured x
+fn @make_adder(%0: Int) {
   %1 = lambda{() -> Int} @inner(%0)      // %0 = x, %1 = closure
   ret{() -> Int} %1
 }
@@ -256,13 +256,13 @@ def r2 = 2;
 def make_foo = fn(x: Int) -> () -> Int { fn { x + r1 - r2 } };
 
 // IR — environment contains all captured variables:
-fn @inner(x: Int, r1: Int, r2: Int) {
+fn @inner(%0: Int, %1: Int, %2: Int) {
   %3 = add %0 %1           // x + r1
   %4 = sub %3 %2           // (x + r1) - r2
   ret{Int} %4
 }
 
-fn @make_foo(x: Int, r1: Int, r2: Int) {
+fn @make_foo(%0: Int, %1: Int, %2: Int) {
   %3 = lambda{() -> Int} @inner(%0, %1, %2)   // capture {x, r1, r2}
   ret{() -> Int} %3
 }
@@ -282,7 +282,7 @@ def make_foo = fn(x: Affine(Int)) -> () -> Int {
 The closure captures two affine values — it is `FnOnce`. After the closure is called once, both are consumed:
 
 ```
-fn @inner(x: Affine(Int), r1: Affine(Int), r2: Int) {
+fn @inner(%0: Affine(Int), %1: Affine(Int), %2: Int) {
   %3 = field{Int} %0 .data       // consume x → Int
   %4 = field{Int} %1 .data       // consume r1 → Int
   %5 = add %3 %4                 // x.data + r1.data
@@ -290,7 +290,7 @@ fn @inner(x: Affine(Int), r1: Affine(Int), r2: Int) {
   ret{Int} %6
 }
 
-fn @make_foo(x: Affine(Int), r1: Affine(Int), r2: Int) {
+fn @make_foo(%0: Affine(Int), %1: Affine(Int), %2: Int) {
   %3 = lambda{() -> Int} @inner(%0, %1, %2)   // capture {x, r1, r2}
   ret{() -> Int} %3                          // closure is FnOnce — single call
 }
@@ -315,18 +315,18 @@ def result = add3(3);         // → 6
 Each `fn` captures the variables in its enclosing scope. After closure conversion, each nested function is lifted to the top level with the captured variables as parameters:
 
 ```
-fn @inner3(a: Int, b: Int, c: Int) {
+fn @inner3(%0: Int, %1: Int, %2: Int) {
   %3 = add %0 %1           // a + b
   %4 = add %3 %2           // (a + b) + c
   ret{Int} %4
 }
 
-fn @inner2(b: Int, a: Int) {
+fn @inner2(%0: Int, %1: Int) {
   %2 = lambda{(Int) -> Int} @inner3(%1, %0)   // capture {b, a} → closure(c){a+b+c}
   ret{(Int) -> Int} %2
 }
 
-fn @curried(a: Int) {
+fn @curried(%0: Int) {
   %1 = lambda{(Int) -> (Int) -> Int} @inner2(%0)   // capture {a} → closure(b){...}
   ret{(Int) -> (Int) -> Int} %1
 }
@@ -478,7 +478,7 @@ Accessor paths navigate compound data structures in `fetch` and `place`:
 2-space indentation. All names in `snake_case`.
 
 ```
-fn @add(x: Int, y: Int) {
+fn @add(%0: Int, %1: Int) {
   entry:
     %0 = add %0 %1
     ret{Int} %0
@@ -603,7 +603,7 @@ def main = fn { add(40, 2) -> stdout; }
 
 **IR:**
 ```
-fn @add(x: Int, y: Int) {
+fn @add(%0: Int, %1: Int) {
   entry:
     %0 = add %0 %1
     ret{Int} %0
@@ -630,7 +630,7 @@ def main = fn { fact(5) -> stdout; }
 
 **IR:**
 ```
-fn @fact(n: Int) {
+fn @fact(%0: Int) {
   entry:
     %0 = lit 0
     %1 = eq %0 %0         // n == 0 (n is %0)
@@ -719,7 +719,7 @@ def translate = fn(&p: Point, dx: Int) -> Point {
 
 **IR:**
 ```
-fn @translate(p: Point, dx: Int) {
+fn @translate(%0: Point, %1: Int) {
   entry:
     %2 = fetch{Int} %0 .x         // p.x (%0 = p)
     %3 = add %2 %1           // p.x + dx (%1 = dx)
