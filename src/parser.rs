@@ -1076,9 +1076,9 @@ impl TokenKind {
     }
 }
 
-// Expression span helper
+// Expression span helper — public for use by other modules
 impl Expr {
-    fn span(&self) -> Span {
+    pub fn span(&self) -> Span {
         match self {
             Expr::IntLit(l) => l.span,
             Expr::BoolLit(l) => l.span,
@@ -1109,7 +1109,7 @@ impl Expr {
 }
 
 impl Type {
-    fn span(&self) -> Span {
+    pub fn span(&self) -> Span {
         match self {
             Type::Named(t) => t.span,
             Type::Fun(t) => t.span,
