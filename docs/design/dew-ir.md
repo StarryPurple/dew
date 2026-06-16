@@ -46,50 +46,6 @@ Dew Source → Parser → AST → Desugar → Type Check → Strictness → IR G
 
 ---
 
-## Instruction Reference
-
-| # | Instruction | Category | § |
-|---|------------|----------|---|
-| 1 | `lit` | Literal | [§8.1](#81-literals) |
-| 2 | `stdout_int` | I/O | [§8.2](#82-io) |
-| 3 | `stdout_char` | I/O | [§8.2](#82-io) |
-| 4 | `stdout_bool` | I/O | [§8.2](#82-io) |
-| 5 | `stdin_int` | I/O | [§8.2](#82-io) |
-| 6 | `stdin_char` | I/O | [§8.2](#82-io) |
-| 7 | `lambda` | Function | [§8.3](#83-functions) |
-| 8 | `lambda_block` | Function | [§8.3](#83-functions) |
-| 9 | `call` | Function | [§8.3](#83-functions) |
-| 10 | `force` | Function | [§8.3](#83-functions) |
-| 11 | `add` | Arithmetic | [§8.4](#84-arithmetic) |
-| 12 | `sub` | Arithmetic | [§8.4](#84-arithmetic) |
-| 13 | `mul` | Arithmetic | [§8.4](#84-arithmetic) |
-| 14 | `div` | Arithmetic | [§8.4](#84-arithmetic) |
-| 15 | `rem` | Arithmetic | [§8.4](#84-arithmetic) |
-| 16 | `lt` | Comparison | [§8.5](#85-comparison) |
-| 17 | `gt` | Comparison | [§8.5](#85-comparison) |
-| 18 | `le` | Comparison | [§8.5](#85-comparison) |
-| 19 | `ge` | Comparison | [§8.5](#85-comparison) |
-| 20 | `eq` | Comparison | [§8.5](#85-comparison) |
-| 21 | `ne` | Comparison | [§8.5](#85-comparison) |
-| 22 | `and` | Logic | [§8.6](#86-logic) |
-| 23 | `or` | Logic | [§8.6](#86-logic) |
-| 24 | `not` | Logic | [§8.6](#86-logic) |
-| 25 | `phi` | Control flow | [§8.7](#87-control-flow) |
-| 26 | `fetch` | Memory access | [§8.8](#88-memory-access--fetch-and-place) |
-| 27 | `place` | Memory access | [§8.8](#88-memory-access--fetch-and-place) |
-| 28 | `field` | Field extraction | [§8.9](#89-structure-construction) |
-| 29 | `struct_cons` | Construction | [§8.9](#89-structure-construction) |
-| 30 | `enum_cons` | Construction | [§8.9](#89-structure-construction) |
-| 31 | `enum_disc` | Enum discriminant | [§8.9](#89-structure-construction) |
-| 32 | `enum_proj` | Enum projection | [§8.9](#89-structure-construction) |
-| 33 | `array_lit` | Construction | [§8.9](#89-structure-construction) |
-| 34 | `tuple_lit` | Construction | [§8.9](#89-structure-construction) |
-| 35 | `struct_update` | Update | [§8.10](#810-structure-update) |
-| 36 | `array_access` | Update | [§8.10](#810-structure-update) |
-| 37 | `array_update` | Update | [§8.10](#810-structure-update) |
-| 38 | `tuple_update` | Update | [§8.10](#810-structure-update) |
-
-*Last updated: 2026-06-16 — v5 with fn/thunk split, 38 instructions.*
 ## 2. Module
 
 The module contains all definitions. Execution always starts at `@main`:
@@ -636,3 +592,50 @@ fn @main() {
 
 ---
 
+
+---
+
+## Instruction Reference
+
+| # | Instruction | Description | § |
+|---|------------|-------------|---|
+| 1 | `lit` | Load literal into register | [§8.1](#81-literals) |
+| 2 | `stdout_int` | Write register as decimal integer | [§8.2](#82-io) |
+| 3 | `stdout_char` | Write register as Unicode character | [§8.2](#82-io) |
+| 4 | `stdout_bool` | Write register as "true"/"false" | [§8.2](#82-io) |
+| 5 | `stdin_int` | Read decimal integer from stdin | [§8.2](#82-io) |
+| 6 | `stdin_char` | Read one character from stdin | [§8.2](#82-io) |
+| 7 | `lambda` | Create closure referencing named fn | [§8.3](#83-functions) |
+| 8 | `lambda_block` | Create closure with inline blocks | [§8.3](#83-functions) |
+| 9 | `call` | Call fn by name or closure | [§8.3](#83-functions) |
+| 10 | `force` | Force lazy thunk | [§8.3](#83-functions) |
+| 11 | `add` | Integer addition | [§8.4](#84-arithmetic) |
+| 12 | `sub` | Integer subtraction | [§8.4](#84-arithmetic) |
+| 13 | `mul` | Integer multiplication | [§8.4](#84-arithmetic) |
+| 14 | `div` | Integer division | [§8.4](#84-arithmetic) |
+| 15 | `rem` | Integer remainder | [§8.4](#84-arithmetic) |
+| 16 | `lt` | Less than | [§8.5](#85-comparison) |
+| 17 | `gt` | Greater than | [§8.5](#85-comparison) |
+| 18 | `le` | Less or equal | [§8.5](#85-comparison) |
+| 19 | `ge` | Greater or equal | [§8.5](#85-comparison) |
+| 20 | `eq` | Equal | [§8.5](#85-comparison) |
+| 21 | `ne` | Not equal | [§8.5](#85-comparison) |
+| 22 | `and` | Logical AND | [§8.6](#86-logic) |
+| 23 | `or` | Logical OR | [§8.6](#86-logic) |
+| 24 | `not` | Logical NOT | [§8.6](#86-logic) |
+| 25 | `phi` | SSA merge from predecessors | [§8.7](#87-control-flow) |
+| 26 | `fetch` | Walk accessor path, read sub-value | [§8.8](#88-memory-access--fetch-and-place) |
+| 27 | `place` | Walk accessor path, replace sub-value | [§8.8](#88-memory-access--fetch-and-place) |
+| 28 | `field` | Extract named field from struct | [§8.9](#89-structure-construction) |
+| 29 | `struct_cons` | Construct struct value | [§8.9](#89-structure-construction) |
+| 30 | `enum_cons` | Construct enum variant | [§8.9](#89-structure-construction) |
+| 31 | `enum_disc` | Read enum discriminant | [§8.9](#89-structure-construction) |
+| 32 | `enum_proj` | Extract variant payload | [§8.9](#89-structure-construction) |
+| 33 | `array_lit` | Construct array value | [§8.9](#89-structure-construction) |
+| 34 | `tuple_lit` | Construct tuple value | [§8.9](#89-structure-construction) |
+| 35 | `struct_update` | New struct with updated fields | [§8.10](#810-structure-update) |
+| 36 | `array_access` | Read array element | [§8.10](#810-structure-update) |
+| 37 | `array_update` | New array with updated element | [§8.10](#810-structure-update) |
+| 38 | `tuple_update` | New tuple with updated element | [§8.10](#810-structure-update) |
+
+*Last updated: 2026-06-16 — v5 with fn/thunk split, 38 instructions.*
