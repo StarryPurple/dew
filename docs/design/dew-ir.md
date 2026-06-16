@@ -257,9 +257,9 @@ def make_foo = fn(x: Int) -> () -> Int { fn { x + r1 - r2 } };
 
 // IR — environment contains all captured variables:
 fn @inner(x: Int, r1: Int, r2: Int) {
-  %0 = add %0 %1           // x + r1
-  %3 = sub %0 %2           // (x + r1) - r2
-  ret{Int} %3
+  %3 = add %0 %1           // x + r1
+  %4 = sub %3 %2           // (x + r1) - r2
+  ret{Int} %4
 }
 
 fn @make_foo(x: Int, r1: Int, r2: Int) {
@@ -283,11 +283,11 @@ The closure captures two affine values — it is `FnOnce`. After the closure is 
 
 ```
 fn @inner(x: Affine(Int), r1: Affine(Int), r2: Int) {
-  %0 = field %0 .data       // consume x → Int
-  %1 = field %1 .data       // consume r1 → Int
-  %3 = add %0 %1            // x.data + r1.data
-  %4 = sub %3 %2            // (x+r1) - r2
-  ret{Int} %4
+  %3 = field{Int} %0 .data       // consume x → Int
+  %4 = field{Int} %1 .data       // consume r1 → Int
+  %5 = add %3 %4                 // x.data + r1.data
+  %6 = sub %5 %2                 // (x+r1) - r2
+  ret{Int} %6
 }
 
 fn @make_foo(x: Affine(Int), r1: Affine(Int), r2: Int) {
@@ -316,9 +316,9 @@ Each `fn` captures the variables in its enclosing scope. After closure conversio
 
 ```
 fn @inner3(a: Int, b: Int, c: Int) {
-  %0 = add %0 %1           // a + b
-  %3 = add %0 %2           // (a + b) + c
-  ret{Int} %3
+  %3 = add %0 %1           // a + b
+  %4 = add %3 %2           // (a + b) + c
+  ret{Int} %4
 }
 
 fn @inner2(b: Int, a: Int) {
