@@ -30,10 +30,11 @@ pub fn run(module: &Module) -> Result<Value, String> {
 
 pub struct EvalFrame {
     regs: Vec<Value>,
+    last_label: Option<String>,
 }
 
 impl EvalFrame {
-    pub fn new() -> Self { EvalFrame { regs: Vec::new() } }
+    pub fn new() -> Self { EvalFrame { regs: Vec::new(), last_label: None } }
     fn get(&self, r: usize) -> &Value { self.regs.get(r).unwrap_or(&Value::Unit) }
     fn set(&mut self, r: usize, v: Value) {
         if r >= self.regs.len() { self.regs.resize(r + 1, Value::Unit); }
@@ -69,10 +70,12 @@ fn eval_block(
             let v = frame.get(*cond).as_bool().unwrap_or(false);
             let target = if v { t } else { f };
             let next = blocks.iter().find(|b| &b.label == target).ok_or("block not found")?;
+            frame.last_label = Some(block.label.clone());
             eval_block(next, blocks, fns, thunks, frame, runtime)
         }
         Terminator::Jmp(target) => {
             let next = blocks.iter().find(|b| &b.label == target).ok_or("block not found")?;
+            frame.last_label = Some(block.label.clone());
             eval_block(next, blocks, fns, thunks, frame, runtime)
         }
     }
@@ -210,9 +213,12 @@ fn eval_instr(
             frame.set(*r, val);
         }
         Instr::Phi(r, pairs) => {
-            // Phi: select value from the predecessor block that was actually executed.
-            // Since the evaluator walks blocks sequentially, just use the first value.
-            let val = pairs.first().map(|(reg, _)| frame.get(*reg).clone()).unwrap_or(Value::Int(0));
+            let val = if let Some(ref pred) = frame.last_label {
+                pairs.iter().find(|(_, l)| l == pred)
+                    .map(|(reg, _)| frame.get(*reg).clone())
+            } else {
+                pairs.first().map(|(reg, _)| frame.get(*reg).clone())
+            }.unwrap_or(Value::Int(0));
             frame.set(*r, val);
         }
         Instr::StructCons(r, _name, fields) => {
