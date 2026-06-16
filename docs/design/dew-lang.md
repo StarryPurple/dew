@@ -812,43 +812,31 @@ type_match typeof(x) {
   None        => Unit,                   // None
 }
 
-// Struct field patterns — match specific field types, ignore the rest
-type_match typeof(x) {
-  Point { x: Int, y: Int } => x.x + x.y, // both fields Int
-  Point { x: Int, .. }     => x.x,       // x is Int, don't care about y
-  _                        => 0,
+// Named type patterns — the type name alone uniquely identifies the type
+type_match typeof(shape) {
+  Point   => dist(shape),                // shape narrows to Point
+  Circle  => area(shape),                // shape narrows to Circle
+  _       => 0,
 }
 ```
 
-**Struct pattern rules:**
-- Named fields identify which fields to match. Order does not matter.
-- `Point { x: Int, y: _ }` — field `x` must be `Int`, field `y` is wild
-- `Point { .. }` — all fields wild (any `Point`)
-- `..` rest pattern discards remaining unmentioned fields
+**Type patterns are type constructors only.** `type_match` arms are **types**, not value patterns. A struct type name (`Point`) or enum variant (`Some(Int)`) is sufficient to uniquely identify the type — struct field-level patterns (`Point { x: Int, .. }`) are unnecessary because the type name already narrows the whole type. `type_match` does not do field-level type selection; it dispatches entirely by type identity and type constructor structure.
 - Field patterns use `_` (wildcard), not variable binding — type_match matches types, not values
 
-**How type_match works.** The compiler resolves the concrete type at the call site, then matches each arm pattern against it. Only the matching arm survives; unmatched arms are dead code eliminated. There are no runtime type tags, no vtable, no reflection:
+**How type_match works.** The compiler resolves the concrete type at the call site, then matches each arm pattern against it. Only the matching arm survives; unmatched arms are dead code eliminated. No runtime type tags, no vtable, no reflection:
 
 ```
-Given: type_match typeof(point_val) {
-        Point { x: Int, .. } => x.x + x.y,
-        _ => 0,
+Given: type_match typeof(shape) {
+        Point  => dist(shape),
+        Circle => area(shape),
+        _      => 0,
        }
 
-1. Resolve concrete type → Point { x: Int, y: Int }
-2. Match arm 1: "Point? Yes. Field x exists? Yes. Field x is Int? Yes. → SELECT"
+1. Resolve concrete type → Point
+2. Match arm 1: "Point? Yes. → SELECT"
 3. Match arm 2: skipped (arm 1 matched)
-4. Generate code: point_val.x + point_val.y
+4. Generate code: dist(shape)
 ```
-
-A pattern referencing a non-existent field is a compile error:
-```dew
-type_match typeof(point_val) {
-  Point { z: Char, .. } => ...  // ERROR: field 'z' does not exist in Point
-}
-```
-
-The `..` rest pattern suppresses errors for unmentioned fields — `Point { x: Int, .. }` only cares about `x`; all other fields pass silently.
 
 **Type parameter dispatch** — `type_match` can match on a type parameter directly, with no value needed:
 
