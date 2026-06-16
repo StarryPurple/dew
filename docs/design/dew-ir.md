@@ -48,13 +48,18 @@ Dew Source → Parser → AST → Desugar → Type Check → Strictness → IR G
 
 ## 2. Module
 
-The module contains all definitions. Execution always starts at `@main`:
+The module contains all definitions, a type table, and the entry point. Execution always starts at `@main`:
 
 ```
 module:
-  fns: [Fn]          // ordinary functions (parametrized pure, IO)
-  thunks: [Thunk]    // lazy memoized values (pure zero-arg only)
+  types: [TypeDef]     // struct/enum/array layouts
+  fns: [Fn]            // ordinary functions (parametrized pure, IO)
+  thunks: [Thunk]      // lazy memoized values (pure zero-arg only)
 ```
+
+**Type table.** The `types` section defines the memory layout of every aggregate type used in the program. Fns and thunks reference types by name (`@Point`, `@Option::Some`); the type table provides field offsets, discriminant tags, element sizes, and alignment. Emitted alongside fns and thunks in `--emit=text` mode for debugging. The asm backend reads the same table to determine stack layouts and register packing.
+
+> The type table is part of the IR module, not a separate artifact. It is generated during type checking and consumed by both the evaluator (for field access) and the asm backend (for memory layout). Struct/enum definitions do not appear as IR instructions — the IR references names; the type table provides the structural details.
 
 The evaluator registers all definitions, then starts execution at `@main`. If `@main` is an `fn`, it is called; if `@main` is a `thunk`, it is forced. If `@main` does not exist, report `[E007]`.
 
@@ -347,7 +352,12 @@ fn @main() {
 All IR types derive `Serialize`/`Deserialize`. JSON emission via `--emit=json`:
 
 ```json
-{"fns":[...], "thunks":[...]}
+{"types":[...], "fns":[...], "thunks":[...]}
+```
+
+Example type table entry:
+```json
+{"name":"Point","kind":"struct","fields":[{"name":"x","type":"Int","offset":0},{"name":"y","type":"Int","offset":8}],"size":16}
 ```
 
 ---
