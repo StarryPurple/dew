@@ -42,7 +42,7 @@ Dew Source → Parser → AST → Desugar → Type Check → Strictness → IR G
 
 - **Memory allocation** is owned by the asm backend. `struct_cons` and `array_lit` produce values; the backend determines layout from the module's type table.
 - **Scalar values are 64-bit** in registers (`Int`, `Bool`, `Char`, pointers). Aggregates (structs, tuples, arrays) are stack-allocated. Memory layout comes from the type table at codegen time.
-- **No type annotations on instructions.** IR types are monomorphic — all generic parameters are resolved before IR generation. Instruction return types are determined by the instruction itself (`add` → Int, `tuple_lit` → tuple) or by the type table (`fetch %p .x` → depends on field `x`'s type). A single instruction line is not self-describing; the module as a whole (types + fns + thunks) is complete.
+- **Type annotations on register-producing instructions.** Instructions that produce registers carry `{Type}` annotations for the asm backend: `%r = add{Int} %a %b`, `%r = fetch{Int} %p .x`. Fixed-output instructions (`add` → always Int, `lt` → always Bool) use the same format for consistency.
 
 ---
 
@@ -92,15 +92,15 @@ An `fn` is an ordinary function — called directly, no cell, no state machine. 
 ```
 fn @add(x: Int, y: Int) {
   entry:
-    %0 = add %0 %1      // %0 = x, %1 = y (positional)
-    ret %0
+    %0 = add{Int} %0 %1      // %0 = x, %1 = y (positional)
+    ret{Int} %0
 }
 
 fn @main() {
   entry:
-    %0 = lit 40
-    %1 = lit 2
-    %2 = call @add %0 %1
+    %0 = lit{Int} 40
+    %1 = lit{Int} 2
+    %2 = call{Int} @add %0 %1
     stdout_int %2
 }
 ```
@@ -129,10 +129,10 @@ suspended ──force──► evaluating ──complete──► evaluated(valu
 ```
 thunk @x() {
   entry:
-    %0 = lit 40
-    %1 = lit 2
-    %2 = add %0 %1
-    ret %2
+    %0 = lit{Int} 40
+    %1 = lit{Int} 2
+    %2 = add{Int} %0 %1
+    ret{Int} %2
 }
 ```
 
@@ -153,7 +153,7 @@ A basic block is a straight-line sequence of instructions ending with a terminat
 
 | Terminator | Text | Semantics |
 |-----------|------|-----------|
-| `ret` | `ret %r` | Return value from fn/thunk |
+| `ret` | `ret{T} %r` | Return value from fn/thunk |
 | `br` | `br %cond L_then L_else` | Branch on boolean |
 | `jmp` | `jmp L_target` | Unconditional jump |
 
@@ -202,9 +202,9 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `lit` | `%r = lit 42` | Load integer literal |
-| `lit` | `%r = lit true` | Load Bool literal (`true` = 1, `false` = 0) |
-| `lit` | `%r = lit '字'` | Load Char literal (Unicode scalar value) |
+| `lit` | `%r = lit{Int} 42` | Load integer literal |
+| `lit` | `%r = lit{Bool} true` | Load Bool literal (`true` = 1, `false` = 0) |
+| `lit` | `%r = lit{Char} '字'` | Load Char literal (Unicode scalar value) |
 
 > **Why `lit` exists despite LLVM not needing it.** LLVM allows immediate operands on any instruction (`add i64 %0, 42`). Dew IR requires all operands to be registers — `lit` is the only way to introduce a constant. This keeps the evaluator simple: every instruction operand is a `Reg`, never an immediate. The asm backend folds `lit`+`add` into `addi` as an independent optimization pass, not as an IR concern.
 >
@@ -227,10 +227,10 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 | Instruction | Text | Semantics |
 |------------|------|-----------|
 | `lambda` | `%r = lambda @name(%0, %1)` | Create heap-allocated closure |
-| `lambda_block` | `%r = lambda(x, y) { ... }` | Create inlined closure (O1) |
-| `call` | `%r = call @name %a %b` | Call fn by name (static dispatch) |
-| `call` | `%r = call %f %a %b` | Call closure by register (dynamic dispatch) |
-| `force` | `%r = force @name` | Force lazy thunk, return cached or computed value |
+| `lambda_block` | `%r = lambda_block{fn(Int,Int)} (x, y) { ... }` | Create inlined closure (O1) |
+| `call` | `%r = call{Int} @name %a %b` | Call fn by name (static dispatch) |
+| `call` | `%r = call{Int} %f %a %b` | Call closure by register (dynamic dispatch) |
+| `force` | `%r = force{Int} @name` | Force lazy thunk, return cached or computed value |
 
 #### `lambda` — Closure Construction
 
@@ -243,10 +243,10 @@ The closure body is always a top-level `fn` — `lambda` does not define the bod
 def make_adder = fn(x: Int) -> () -> Int { fn { x } }
 
 // After closure conversion:
-fn @inner(x: Int) { ret %0 }           // %0 = captured x
+fn @inner(x: Int) { ret{Int} %0 }           // %0 = captured x
 fn @make_adder(x: Int) {
   %1 = lambda @inner(%0)               // %0 = x, %1 = closure
-  ret %1
+  ret{fn(Int)} %1
 }
 ```
 
@@ -260,14 +260,14 @@ def make_foo = fn(x: Int) -> () -> Int { fn { x + r1 - r2 } };
 
 // IR — environment contains all captured variables:
 fn @inner(x: Int, r1: Int, r2: Int) {
-  %0 = add %0 %1           // x + r1
-  %3 = sub %0 %2           // (x + r1) - r2
-  ret %3
+  %0 = add{Int} %0 %1           // x + r1
+  %3 = sub{Int} %0 %2           // (x + r1) - r2
+  ret{Int} %3
 }
 
 fn @make_foo(x: Int, r1: Int, r2: Int) {
   %3 = lambda @inner(%0, %1, %2)   // capture {x, r1, r2}
-  ret %3
+  ret{Int} %3
 }
 ```
 
@@ -288,14 +288,14 @@ The closure captures two affine values — it is `FnOnce`. After the closure is 
 fn @inner(x: Affine(Int), r1: Affine(Int), r2: Int) {
   %0 = field %0 .data       // consume x → Int
   %1 = field %1 .data       // consume r1 → Int
-  %3 = add %0 %1            // x.data + r1.data
-  %4 = sub %3 %2            // (x+r1) - r2
-  ret %4
+  %3 = add{Int} %0 %1            // x.data + r1.data
+  %4 = sub{Int} %3 %2            // (x+r1) - r2
+  ret{Int} %4
 }
 
 fn @make_foo(x: Affine(Int), r1: Affine(Int), r2: Int) {
   %3 = lambda @inner(%0, %1, %2)   // capture {x, r1, r2}
-  ret %3                          // closure is FnOnce — single call
+  ret{Int} %3                          // closure is FnOnce — single call
 }
 ```
 
@@ -349,30 +349,30 @@ fn @main() {
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `add` | `%r = add %a %b` | `%r := %a + %b` |
-| `sub` | `%r = sub %a %b` | `%r := %a - %b` |
-| `mul` | `%r = mul %a %b` | `%r := %a * %b` |
-| `div` | `%r = div %a %b` | `%r := %a / %b` (integer division) |
-| `rem` | `%r = rem %a %b` | `%r := %a % %b` |
+| `add` | `%r = add{Int} %a %b` | `%r := %a + %b` |
+| `sub` | `%r = sub{Int} %a %b` | `%r := %a - %b` |
+| `mul` | `%r = mul{Int} %a %b` | `%r := %a * %b` |
+| `div` | `%r = div{Int} %a %b` | `%r := %a / %b` (integer division) |
+| `rem` | `%r = rem{Int} %a %b` | `%r := %a % %b` |
 
 ### 8.5 Comparison
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `lt` | `%r = lt %a %b` | `%r := %a < %b` |
-| `gt` | `%r = gt %a %b` | `%r := %a > %b` |
-| `le` | `%r = le %a %b` | `%r := %a <= %b` |
-| `ge` | `%r = ge %a %b` | `%r := %a >= %b` |
-| `eq` | `%r = eq %a %b` | `%r := %a == %b` |
-| `ne` | `%r = ne %a %b` | `%r := %a != %b` |
+| `lt` | `%r = lt{Bool} %a %b` | `%r := %a < %b` |
+| `gt` | `%r = gt{Bool} %a %b` | `%r := %a > %b` |
+| `le` | `%r = le{Bool} %a %b` | `%r := %a <= %b` |
+| `ge` | `%r = ge{Bool} %a %b` | `%r := %a >= %b` |
+| `eq` | `%r = eq{Bool} %a %b` | `%r := %a == %b` |
+| `ne` | `%r = ne{Bool} %a %b` | `%r := %a != %b` |
 
 ### 8.6 Logic
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `and` | `%r = and %a %b` | `%r := %a && %b` |
-| `or` | `%r = or %a %b` | `%r := %a \|\| %b` |
-| `not` | `%r = not %a` | `%r := !%a` |
+| `and` | `%r = and{Bool} %a %b` | `%r := %a && %b` |
+| `or` | `%r = or{Bool} %a %b` | `%r := %a \|\| %b` |
+| `not` | `%r = not{Bool} %a` | `%r := !%a` |
 
 ### 8.7 Control Flow
 
@@ -387,7 +387,7 @@ The `phi` instruction is the standard SSA mechanism for merging values from diff
 Both use **accessor paths** to navigate compound data structures.
 
 ```
-%r = fetch %base .field [%idx] .subfield
+%r = fetch{T} %base .field [%idx] .subfield
 ```
 
 Walks the accessor path on the base value, returning the selected sub-value.
@@ -404,14 +404,14 @@ Creates a new value equal to `%base` but with the value at the given path replac
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `field` | `%r = field %e .x` | Extract field from struct |
-| `struct_cons` | `%r = struct @Point %x %y` | Construct struct value |
-| `enum_cons` | `%r = enum @Option::Some %v` | Construct enum variant |
-| `enum_disc` | `%r = enum_disc %e` | Read enum discriminant tag |
-| `enum_proj` | `%r = enum_proj @Option::Some %e` | Extract variant payload |
-| `array_lit` | `%r = array %a %b %c` | Construct array value |
-| `array_fill` | `%r = array_fill %v N` | Construct array with all elements = %v |
-| `tuple_lit` | `%r = tuple %a %b` | Construct tuple value |
+| `field` | `%r = field{Int} %e .x` | Extract field from struct |
+| `struct_cons` | `%r = struct_cons{Point} @Point %x %y` | Construct struct value |
+| `enum_cons` | `%r = enum_cons{Option} @Option::Some %v` | Construct enum variant |
+| `enum_disc` | `%r = enum_disc{Int} %e` | Read enum discriminant tag |
+| `enum_proj` | `%r = enum_proj{Int} @Option::Some %e` | Extract variant payload |
+| `array_lit` | `%r = array_lit{Array(Int,3)} %a %b %c` | Construct array value |
+| `array_fill` | `%r = array_fill{Array(Int,N)} %v N` | Construct array with all elements = %v |
+| `tuple_lit` | `%r = tuple_lit{(Int,Int)} %a %b` | Construct tuple value |
 
 > **Why per-type instructions?** Each aggregate type has different memory layout. `struct_cons` packs named fields at known offsets; `enum_cons` prepends a discriminant tag; `array_lit` packs N uniform elements at stride; `tuple_lit` packs heterogeneous elements contiguously.
 
@@ -420,9 +420,9 @@ Creates a new value equal to `%base` but with the value at the given path replac
 | Instruction | Text | Semantics |
 |------------|------|-----------|
 | `struct_update` | `%r = struct_update %s .x=%a .y=%b` | New struct with updated fields |
-| `array_access` | `%r = array_access %a %i` | Read array element |
-| `array_update` | `%r = array_update %a %i %v` | New array with updated element |
-| `tuple_update` | `%r = tuple_update %t 0 %v` | New tuple with updated element |
+| `array_access` | `%r = array_access{Int} %a %i` | Read array element |
+| `array_update` | `%r = array_update{Array(Int,N)} %a %i %v` | New array with updated element |
+| `tuple_update` | `%r = tuple_update{(Int,Int)} %t .0=%v` | New tuple with updated element |
 
 > **Why dedicated update instructions?** `array_access %a %i` is the common case — a single instruction the evaluator matches directly. `fetch %a [%i]` with an accessor path would also work but requires path parsing. The dedicated forms are sugar for the common patterns; `fetch`/`place` are the general mechanism.
 
@@ -447,21 +447,21 @@ Accessor paths navigate compound data structures in `fetch` and `place`:
 ```
 fn @add(x: Int, y: Int) {
   entry:
-    %0 = add %0 %1
-    ret %0
+    %0 = add{Int} %0 %1
+    ret{Int} %0
 }
 
 thunk @x() {
   entry:
-    %0 = lit 42
-    ret %0
+    %0 = lit{Int} 42
+    ret{Int} %0
 }
 
 fn @main() {
   entry:
-    %0 = lit 40
-    %1 = lit 2
-    %2 = call @add %0 %1
+    %0 = lit{Int} 40
+    %1 = lit{Int} 2
+    %2 = call{Int} @add %0 %1
     stdout_int %2
 }
 ```
@@ -555,7 +555,7 @@ def main = fn { 2026 -> stdout; }
 ```
 fn @main() {
   entry:
-    %0 = lit 2026
+    %0 = lit{Int} 2026
     stdout_int %0
 }
 ```
@@ -572,15 +572,15 @@ def main = fn { add(40, 2) -> stdout; }
 ```
 fn @add(x: Int, y: Int) {
   entry:
-    %0 = add %0 %1
-    ret %0
+    %0 = add{Int} %0 %1
+    ret{Int} %0
 }
 
 fn @main() {
   entry:
-    %0 = lit 40
-    %1 = lit 2
-    %2 = call @add %0 %1
+    %0 = lit{Int} 40
+    %1 = lit{Int} 2
+    %2 = call{Int} @add %0 %1
     stdout_int %2
 }
 ```
@@ -599,24 +599,24 @@ def main = fn { fact(5) -> stdout; }
 ```
 fn @fact(n: Int) {
   entry:
-    %0 = lit 0
-    %1 = eq %0 %0         // n == 0 (n is %0)
+    %0 = lit{Int} 0
+    %1 = eq{Bool} %0 %0         // n == 0 (n is %0)
     br %1 L_then L_else
   L_then:
-    %2 = lit 1
-    ret %2
+    %2 = lit{Int} 1
+    ret{Int} %2
   L_else:
-    %3 = lit 1
-    %4 = sub %0 %3
-    %5 = call @fact %4
-    %6 = mul %0 %5
-    ret %6
+    %3 = lit{Int} 1
+    %4 = sub{Int} %0 %3
+    %5 = call{Int} @fact %4
+    %6 = mul{Int} %0 %5
+    ret{Int} %6
 }
 
 fn @main() {
   entry:
-    %0 = lit 5
-    %1 = call @fact %0
+    %0 = lit{Int} 5
+    %1 = call{Int} @fact %0
     stdout_int %1
 }
 ```
@@ -633,15 +633,15 @@ def main = fn { x -> stdout; }
 ```
 thunk @x() {
   entry:
-    %0 = lit 40
-    %1 = lit 2
-    %2 = add %0 %1
-    ret %2
+    %0 = lit{Int} 40
+    %1 = lit{Int} 2
+    %2 = add{Int} %0 %1
+    ret{Int} %2
 }
 
 fn @main() {
   entry:
-    %0 = force @x
+    %0 = force{Int} @x
     stdout_int %0
 }
 ```
@@ -659,18 +659,18 @@ def main = fn { if 1 > 0 { 10 } else { 20 } -> stdout; }
 ```
 fn @main() {
   entry:
-    %0 = lit 1
-    %1 = lit 0
-    %2 = gt %0 %1
+    %0 = lit{Int} 1
+    %1 = lit{Int} 0
+    %2 = gt{Bool} %0 %1
     br %2 L_then L_else
   L_then:
-    %3 = lit 10
+    %3 = lit{Int} 10
     jmp L_merge
   L_else:
-    %4 = lit 20
+    %4 = lit{Int} 20
     jmp L_merge
   L_merge:
-    %5 = phi [%3, L_then] [%4, L_else]
+%5 = phi{Int} [ [%3, L_then] [%4, L_else]
     stdout_int %5
 }
 ```
@@ -688,10 +688,10 @@ def translate = fn(&p: Point, dx: Int) -> Point {
 ```
 fn @translate(p: Point, dx: Int) {
   entry:
-    %2 = fetch %0 .x         // p.x (%0 = p)
-    %3 = add %2 %1           // p.x + dx (%1 = dx)
-    %4 = struct_update %0 .x=%3
-    ret %4
+    %2 = fetch{Int} %0 .x         // p.x (%0 = p)
+    %3 = add{Int} %2 %1           // p.x + dx (%1 = dx)
+    %4 = struct_update{Point} %0 .x=%3
+    ret{Int} %4
 }
 ```
 
@@ -708,13 +708,13 @@ def f = fn -> (Int, Int, Int, Int, Int) { (1, 2, 3, 4, 5) }
 ```
 fn @f() {
   entry:
-    %0 = lit 1
-    %1 = lit 2
-    %2 = lit 3
-    %3 = lit 4
-    %4 = lit 5
-    %5 = tuple_lit %0 %1 %2 %3 %4   // 40 bytes — stack allocated
-    ret %5
+    %0 = lit{Int} 1
+    %1 = lit{Int} 2
+    %2 = lit{Int} 3
+    %3 = lit{Int} 4
+    %4 = lit{Int} 5
+    %5 = tuple_lit{(Int,Int,Int,Int,Int)} %0 %1 %2 %3 %4   // 40 bytes — stack allocated
+    ret{(Int,Int,Int,Int,Int)} %5
 }
 ```
 
@@ -737,20 +737,20 @@ enum Option { None, Some(Int) }
 
 fn @main() {
   entry:
-    %0 = lit 2026
+    %0 = lit{Int} 2026
     %1 = enum_cons @Option::Some %0
-    %2 = enum_disc %1
-    %3 = lit 0
-    %4 = eq %2 %3
+    %2 = enum_disc{Int} %1
+    %3 = lit{Int} 0
+    %4 = eq{Bool} %2 %3
     br %4 L_some L_none
   L_some:
-    %5 = enum_proj @Option::Some %1
+    %5 = enum_proj{Int} @Option::Some %1
     jmp L_merge
   L_none:
-    %6 = lit 0
+    %6 = lit{Int} 0
     jmp L_merge
   L_merge:
-    %7 = phi [%5, L_some] [%6, L_none]
+%7 = phi{Int} [ [%5, L_some] [%6, L_none]
     stdout_int %7
 }
 ```
@@ -763,44 +763,44 @@ fn @main() {
 
 | # | Instruction | Description | § |
 |---|------------|-------------|---|
-| 1 | `lit` | Load literal into register | [§8.1](#81-literals) |
-| 2 | `stdout_int` | Write register as decimal integer | [§8.2](#82-io) |
-| 3 | `stdout_char` | Write register as Unicode character | [§8.2](#82-io) |
-| 4 | `stdout_bool` | Write register as "true"/"false" | [§8.2](#82-io) |
-| 5 | `stdin_int` | Read decimal integer from stdin | [§8.2](#82-io) |
-| 6 | `stdin_char` | Read one character from stdin | [§8.2](#82-io) |
-| 7 | `lambda` | Create closure referencing named fn | [§8.3](#83-functions) |
-| 8 | `lambda_block` | Create closure with inline blocks | [§8.3](#83-functions) |
-| 9 | `call` | Call fn by name or closure | [§8.3](#83-functions) |
-| 10 | `force` | Force lazy thunk | [§8.3](#83-functions) |
-| 11 | `add` | Integer addition | [§8.4](#84-arithmetic) |
-| 12 | `sub` | Integer subtraction | [§8.4](#84-arithmetic) |
-| 13 | `mul` | Integer multiplication | [§8.4](#84-arithmetic) |
-| 14 | `div` | Integer division | [§8.4](#84-arithmetic) |
-| 15 | `rem` | Integer remainder | [§8.4](#84-arithmetic) |
-| 16 | `lt` | Less than | [§8.5](#85-comparison) |
-| 17 | `gt` | Greater than | [§8.5](#85-comparison) |
-| 18 | `le` | Less or equal | [§8.5](#85-comparison) |
-| 19 | `ge` | Greater or equal | [§8.5](#85-comparison) |
-| 20 | `eq` | Equal | [§8.5](#85-comparison) |
-| 21 | `ne` | Not equal | [§8.5](#85-comparison) |
-| 22 | `and` | Logical AND | [§8.6](#86-logic) |
-| 23 | `or` | Logical OR | [§8.6](#86-logic) |
-| 24 | `not` | Logical NOT | [§8.6](#86-logic) |
-| 25 | `phi` | SSA merge from predecessors | [§8.7](#87-control-flow) |
-| 26 | `fetch` | Walk accessor path, read sub-value | [§8.8](#88-memory-access--fetch-and-place) |
-| 27 | `place` | Walk accessor path, replace sub-value | [§8.8](#88-memory-access--fetch-and-place) |
-| 28 | `field` | Extract named field from struct | [§8.9](#89-structure-construction) |
-| 29 | `struct_cons` | Construct struct value | [§8.9](#89-structure-construction) |
-| 30 | `enum_cons` | Construct enum variant | [§8.9](#89-structure-construction) |
-| 31 | `enum_disc` | Read enum discriminant | [§8.9](#89-structure-construction) |
-| 32 | `enum_proj` | Extract variant payload | [§8.9](#89-structure-construction) |
-| 33 | `array_lit` | Construct array value | [§8.9](#89-structure-construction) |
-| 34 | `array_fill` | Construct array filled with value | [§8.9](#89-structure-construction) |
-| 35 | `tuple_lit` | Construct tuple value | [§8.9](#89-structure-construction) |
-| 36 | `struct_update` | New struct with updated fields | [§8.10](#810-structure-update) |
-| 37 | `array_access` | Read array element | [§8.10](#810-structure-update) |
-| 38 | `array_update` | New array with updated element | [§8.10](#810-structure-update) |
-| 39 | `tuple_update` | New tuple with updated element | [§8.10](#810-structure-update) |
+| 1 | `lit` | `%r = lit{Type} val` | | [§8.1](#81-literals) |
+| 2 | `stdout_int` | `stdout_int %r` | | [§8.2](#82-io) |
+| 3 | `stdout_char` | `stdout_char %r` | | [§8.2](#82-io) |
+| 4 | `stdout_bool` | `stdout_bool %r` | | [§8.2](#82-io) |
+| 5 | `stdin_int` | `%r = stdin_int` | | [§8.2](#82-io) |
+| 6 | `stdin_char` | `%r = stdin_char` | | [§8.2](#82-io) |
+| 7 | `lambda` | `%r = lambda{T} @name(..)` | | [§8.3](#83-functions) |
+| 8 | `lambda_block` | `%r = lambda_block{T} (..) { .. }` | | [§8.3](#83-functions) |
+| 9 | `call` | `%r = call{T} @name ..` or `call{T} %f ..` | | [§8.3](#83-functions) |
+| 10 | `force` | `%r = force{T} @name` | | [§8.3](#83-functions) |
+| 11 | `add` | `%r = add{Int} %a %b` | | [§8.4](#84-arithmetic) |
+| 12 | `sub` | `%r = sub{Int} %a %b` | | [§8.4](#84-arithmetic) |
+| 13 | `mul` | `%r = mul{Int} %a %b` | | [§8.4](#84-arithmetic) |
+| 14 | `div` | `%r = div{Int} %a %b` | | [§8.4](#84-arithmetic) |
+| 15 | `rem` | `%r = rem{Int} %a %b` | | [§8.4](#84-arithmetic) |
+| 16 | `lt` | `%r = lt{Bool} %a %b` | | [§8.5](#85-comparison) |
+| 17 | `gt` | `%r = gt{Bool} %a %b` | | [§8.5](#85-comparison) |
+| 18 | `le` | `%r = le{Bool} %a %b` | | [§8.5](#85-comparison) |
+| 19 | `ge` | `%r = ge{Bool} %a %b` | | [§8.5](#85-comparison) |
+| 20 | `eq` | `%r = eq{Bool} %a %b` | | [§8.5](#85-comparison) |
+| 21 | `ne` | `%r = ne{Bool} %a %b` | | [§8.5](#85-comparison) |
+| 22 | `and` | `%r = and{Bool} %a %b` | | [§8.6](#86-logic) |
+| 23 | `or` | `%r = or{Bool} %a %b` | | [§8.6](#86-logic) |
+| 24 | `not` | `%r = not{Bool} %a` | | [§8.6](#86-logic) |
+| 25 | `phi` | `%r = phi{T} [%v1,L1] [%v2,L2]` | | [§8.7](#87-control-flow) |
+| 26 | `fetch` | `%r = fetch{T} %base .f [%i] .0` | | [§8.8](#88-memory-access--fetch-and-place) |
+| 27 | `place` | `%r = place{T} %base .f = %v` | | [§8.8](#88-memory-access--fetch-and-place) |
+| 28 | `field` | `%r = field{T} %e .x` | | [§8.9](#89-structure-construction) |
+| 29 | `struct_cons` | `%r = struct_cons{Name} @N %x %y` | | [§8.9](#89-structure-construction) |
+| 30 | `enum_cons` | `%r = enum_cons{Name} @N::V %v` | | [§8.9](#89-structure-construction) |
+| 31 | `enum_disc` | `%r = enum_disc{Int} %e` | | [§8.9](#89-structure-construction) |
+| 32 | `enum_proj` | `%r = enum_proj{T} @N::V %e` | | [§8.9](#89-structure-construction) |
+| 33 | `array_lit` | `%r = array_lit{Array(T,N)} %a %b` | | [§8.9](#89-structure-construction) |
+| 34 | `array_fill` | `%r = array_fill{Array(T,N)} %v N` | | [§8.9](#89-structure-construction) |
+| 35 | `tuple_lit` | `%r = tuple_lit{(T,U,...)} %a %b` | | [§8.9](#89-structure-construction) |
+| 36 | `struct_update` | `%r = struct_update{T} %s .x=%a` | | [§8.10](#810-structure-update) |
+| 37 | `array_access` | `%r = array_access{T} %a %i` | | [§8.10](#810-structure-update) |
+| 38 | `array_update` | `%r = array_update{Array(T,N)} %a %i %v` | | [§8.10](#810-structure-update) |
+| 39 | `tuple_update` | `%r = tuple_update{(T,U)} %t .0=%v` | | [§8.10](#810-structure-update) |
 
 *Last updated: 2026-06-16 — v5 with fn/thunk split, 39 instructions.*
