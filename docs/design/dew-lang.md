@@ -789,10 +789,43 @@ type_match typeof(x) {
 type_match typeof(x) {
   Int      => x + 1,          // x narrows to Int
   Bool     => not x,          // x narrows to Bool
-  Array(Char, _) => x -> stdout,  // x narrows to Array(Char, N)
+  Array(Char, _) => x -> stdout,  // x narrows to Array(Char, N) — N is wild
   _        => Unit,           // fallback
 }
 ```
+
+**Type patterns** support the full range of type constructors. `_` is the wildcard in any position — match any type:
+
+```dew
+// Tuple patterns — match on tuple structure
+type_match typeof(x) {
+  (Int, Int)     => x.0 + x.1,          // pair of Ints
+  (Int, _)       => x.0,                 // first element is Int, second anything
+  (_, Bool)      => not x.1,             // second element is Bool
+  _              => Unit,                // anything else
+}
+
+// Enum variant patterns
+type_match typeof(x) {
+  Some(Int)   => x,                      // Some carrying Int — x narrows to Int
+  Some(_)     => 0,                      // Some carrying anything else
+  None        => Unit,                   // None
+}
+
+// Struct field patterns — match specific field types, ignore the rest
+type_match typeof(x) {
+  Point { x: Int, y: Int } => x.x + x.y, // both fields Int
+  Point { x: Int, .. }     => x.x,       // x is Int, don't care about y
+  _                        => 0,
+}
+```
+
+**Struct pattern rules:**
+- Named fields identify which fields to match. Order does not matter.
+- `Point { x: Int, y: _ }` — field `x` must be `Int`, field `y` is wild
+- `Point { .. }` — all fields wild (any `Point`)
+- `..` rest pattern discards remaining unmentioned fields
+- Field patterns use `_` (wildcard), not variable binding — type_match matches types, not values
 
 **Type parameter dispatch** — `type_match` can match on a type parameter directly, with no value needed:
 
