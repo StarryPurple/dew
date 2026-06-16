@@ -1191,6 +1191,19 @@ process();
 // process();          // ERROR: FnOnce already called
 ```
 
+**Higher-order functions — returning a closure.** A function can return a closure that captures variables from its scope:
+
+```dew
+def make_adder = fn(x: Int) -> () -> Int {
+  fn { x }             // captures x, returns a zero-arg closure
+};
+
+def add_3 = make_adder(3);
+def result = add_3();   // → 3
+```
+
+The returned closure captures `x` by value. When `make_adder(3)` is called, `x = 3` is captured in the closure's environment. Calling the closure returns the captured value.
+
 ### 5.3 Recursion
 
 ```dew
