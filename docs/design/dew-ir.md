@@ -1,7 +1,7 @@
 # Dew IR Specification
 
 > **Canonical specification** for the Dew Thunk Graph IR.
-> All primitives use `snake_case` naming. Target: rv64gc (primary), x86-64 (secondary).
+> All primitives use `snake_case` naming. Backends: tree-walking evaluator (dev), LLVM IR (production).
 > Last updated: 2026-06-16.
 
 - [§1 Architecture](#1-architecture)
@@ -26,9 +26,11 @@ The Dew IR is a flat, label-based, SSA-like intermediate representation. It has 
 ## 1. Architecture
 
 ```
-Dew Source → Parser → AST → Desugar → Type Check → Strictness → IR Gen → Module ──► Evaluator (tree-walking)
-                                                                              ──► Asm (rv64gc / x86-64)
-```
+Dew Source → ... → IR Gen → Module ──► Evaluator (tree-walking, development)
+                                    ──► LLVM IR (optimization + codegen, production)
+**Two backends, one IR.** The IR is the single source of truth between the Dew type checker and both execution targets. The tree-walking evaluator is for development and testing — it directly interprets IR instructions in Rust. The LLVM backend translates IR to LLVM IR for optimized native code generation. Both consume the same module format.
+
+> **Why LLVM IR, not direct asm?** Direct rv64gc/x86-64 codegen requires handwriting register allocation, stack layout, ABI compliance, and all optimizations (inlining, constant folding, dead code elimination). LLVM provides all of this for free. The translation layer maps Dew IR constructs to LLVM primitives: thunks → `switch` + `phi`, closures → `struct{ptr, ptr}`, aggregates → LLVM `insertvalue`/`extractvalue`. The translation is ~10% of the effort of a native asm backend.
 
 | Level | Type | Description |
 |-------|------|-------------|
@@ -55,8 +57,6 @@ module:
   types: [TypeDef]     // struct/enum/array layouts
   fns: [Fn]            // ordinary functions (parametrized pure, IO)
   thunks: [Thunk]      // lazy memoized values (pure zero-arg only)
-```
-
 **Type table.** The `types` section defines the memory layout of every aggregate type used in the program. Fns and thunks reference types by name (`@Point`, `@Option::Some`); the type table provides field offsets, discriminant tags, element sizes, and alignment. Emitted alongside fns and thunks in `--emit=text` mode for debugging. The asm backend reads the same table to determine stack layouts and register packing.
 
 > The type table is part of the IR module, not a separate artifact. It is generated during type checking and consumed by both the evaluator (for field access) and the asm backend (for memory layout). Struct/enum definitions do not appear as IR instructions — the IR references names; the type table provides the structural details.
@@ -75,8 +75,6 @@ enum Option {
   None,
   Some(Int),
 }
-```
-
 **Struct field names** matter: `fetch %p .x` and `struct_update %p .x=%v` reference fields by name, not by position. The type table maps names to byte offsets. **Enum variant names** matter: `enum_proj @Option::Some %e` references the variant by name. Discriminant tags (0, 1, 2...) are assigned automatically in declaration order — not written explicitly.
 
 The evaluator starts execution at `@main`. If `@main` is an `fn`, it is called; if `@main` is a `thunk`, it is forced. If `@main` does not exist, report `[E007]`. See [§3 fn](#3-fn) and [§4 thunk](#4-thunk) for the semantics of each.
@@ -103,8 +101,6 @@ fn @main() {
     %2 = call{Int} @add %0 %1
     stdout{Int} %2
 }
-```
-
 **Call convention:** `call @name %args` invokes the fn directly. No thunk cell allocation, no state check. Fns include:
 - IO functions (`@main`, any function calling `stdin`/`stdout`)
 - Parameterized pure functions (`@add`, `@fact`)
@@ -125,8 +121,6 @@ suspended ──force──► evaluating ──complete──► evaluated(valu
                          ▼
                       cycle error
 ```
-
-```
 thunk @x() {
   entry:
     %0 = lit 40
@@ -134,8 +128,6 @@ thunk @x() {
     %2 = add %0 %1
     ret{Int} %2
 }
-```
-
 **Force convention:** `force @name` reads the thunk cell:
 - `suspended` → evaluate blocks, write result, transition to `evaluated`
 - `evaluating` → cycle detected, error
@@ -245,8 +237,6 @@ fn @make_adder(%0: Int) {
   %1 = lambda{() -> Int} @inner(%0)      // %0 = x, %1 = closure
   ret{() -> Int} %1
 }
-```
-
 **Multiple captures:**
 
 ```dew
@@ -266,8 +256,6 @@ fn @make_foo(%0: Int, %1: Int, %2: Int) {
   %3 = lambda{() -> Int} @inner(%0, %1, %2)   // capture {x, r1, r2}
   ret{() -> Int} %3
 }
-```
-
 **Affine captures — FnOnce:**
 
 ```dew
@@ -277,8 +265,6 @@ def r2 = 2;
 def make_foo = fn(x: Affine(Int)) -> () -> Int {
   fn { consume(x) + consume(r1) - r2 }
 };
-```
-
 The closure captures two affine values — it is `FnOnce`. After the closure is called once, both are consumed:
 
 ```
@@ -294,8 +280,6 @@ fn @make_foo(%0: Affine(Int), %1: Affine(Int), %2: Int) {
   %3 = lambda{() -> Int} @inner(%0, %1, %2)   // capture {x, r1, r2}
   ret{() -> Int} %3                          // closure is FnOnce — single call
 }
-```
-
 > The environment size grows with the number of captured variables — each captured value adds one slot. The evaluator allocates the environment on the heap (Rust `Vec<Value>` in the tree-walking evaluator; `malloc` in the asm backend). For affine closures, calling the closure consumes the captured affine values from the environment.
 
 **Curried closures — nested lambda construction:**
@@ -310,8 +294,6 @@ def curried = fn(a: Int) -> (Int) -> (Int) -> Int {
 
 def add3 = curried(1)(2);    // two calls → closure capturing {a=1, b=2}
 def result = add3(3);         // → 6
-```
-
 Each `fn` captures the variables in its enclosing scope. After closure conversion, each nested function is lifted to the top level with the captured variables as parameters:
 
 ```
@@ -330,8 +312,6 @@ fn @curried(%0: Int) {
   %1 = lambda{(Int) -> (Int) -> Int} @inner2(%0)   // capture {a} → closure(b){...}
   ret{(Int) -> (Int) -> Int} %1
 }
-```
-
 > Each `lambda` creates a closure that packages the captured environment. The returned closure `%2` captures both `a` and `b` — `a` was captured by `@inner2`'s closure, and `b` is captured when `@inner2` is called. The environment chain is flattened: `@inner3` receives all three captured values directly as parameters.
 
 #### `lambda_block` — Inlined Closure (O1 Optimization)
@@ -347,8 +327,6 @@ fn @main() {
   %0 = stdin{Int}
   stdout{Int} %0
 }
-```
-
 When the closure does not escape, `lambda_block` is fully eliminated — the body is inlined at the call site and no allocation occurs. When escape cannot be proven, the compiler falls back to `lambda` for correctness.
 
 > **Why not always use `lambda`?** `lambda` requires heap allocation. `lambda_block` is a zero-cost optimization — it signals to the evaluator and asm backend that the closure can be stack-allocated or entirely inlined. The distinction is purely a performance hint with no semantic difference.
@@ -359,7 +337,7 @@ When the closure does not escape, `lambda_block` is fully eliminated — the bod
 
 `call %f %a %b` performs a dynamic call through a closure. The evaluator unpacks the closure value `%f` into `(code_ptr, env)`, installs the environment as the first implicit parameter, and jumps to `code_ptr`.
 
-> **Why two forms?** Static calls are simpler and faster — no unpacking, no indirection. Dynamic calls are necessary for higher-order functions where the callee is not known until runtime. The IR distinguishes them so the asm backend can emit `jal @name` (static) vs `jalr %f` (dynamic).
+> **Why two forms?** Static calls are simpler and faster — no unpacking, no indirection. Dynamic calls are necessary for higher-order functions where the callee is not known until runtime. The IR distinguishes them so the LLVM backend emits `call @name` (static) vs indirect `call` (dynamic).
 
 #### `force` — Lazy Thunk Evaluation
 
@@ -374,8 +352,6 @@ fn @main() {
   %0 = force @x          // x is a thunk — eval once, cache forever
   stdout{Int} %0
 }
-```
-
 > **Why separate from `call`?** Thunks have no parameters and maintain mutable state (the 3-state FSM cell). `call` is stateless — each invocation is independent. Conflating them would require every `call` to check for a thunk cell that doesn't exist for ordinary fns.
 
 ### 8.4 Arithmetic
@@ -421,14 +397,10 @@ Both use **accessor paths** to navigate compound data structures.
 
 ```
 %r = fetch{T} %base .field [%idx] .subfield
-```
-
 Walks the accessor path on the base value, returning the selected sub-value.
 
 ```
 %r = place %base .field [%idx] = %value
-```
-
 Creates a new value equal to `%base` but with the value at the given path replaced by `%value`. Returns the new value. Copy-on-write: only the modified path is allocated fresh.
 
 > **Why not LLVM's `getelementptr`?** GEP computes addresses; `load`/`store` access memory. Dew has no mutable memory — all values are immutable. `fetch`/`place` operate on values, not addresses. No pointers, no loads, no stores — this is a functional IR.
@@ -461,8 +433,6 @@ fn @main() {
   %2 = struct_cons{Point} @Point %0 %1   // 16 bytes on stack
   ret{Point} %2
 }
-```
-
 > **Why separate from `tuple_lit`?** Structs have named fields (accessed by `.x`, `.y`), tuples have positional indices (`.0`, `.1`). Different accessor syntax, different layout semantics — the IR distinguishes them so the asm backend can emit correct field-offset GEPs without ambiguity.
 
 #### `enum_cons` / `enum_disc` / `enum_proj` — Enum Handling
@@ -483,8 +453,6 @@ enum Option { None, Some(Int) }
 br %4 L_some L_none
 L_some:
   %5 = enum_proj{Int} @Option::Some %1      // → 42
-```
-
 - `enum_cons{Option} @Option::V %payload` — creates an enum of type `Option` using variant `V`. The tag is implicit (V's position in declaration order).
 - `enum_disc %e` — reads the discriminant (always Int). Used to branch on which variant is present.
 - `enum_proj{Int} @Option::Some %e` — extracts the payload as type `Int`. Requires the variant name for type safety.
@@ -499,8 +467,6 @@ L_some:
 // Fill with single value:
 %0 = lit 0
 %1 = array_fill{Array(Int,100)} %0 100      // [0, 0, ..., 0] — 100 zeros
-```
-
 `array_lit` takes N register operands — one per element. `array_fill` takes one value and a size literal — the asm backend emits `memset`-style initialization. Both instructions carry the array type in `{Array(T,N)}` so the backend knows element width and total size.
 
 #### `tuple_lit` — Tuple Construction
@@ -511,8 +477,6 @@ L_some:
 
 %0 = lit 1; %1 = lit 2; %2 = lit 3
 %3 = tuple_lit{(Int,Int,Int)} %0 %1 %2     // (1, 2, 3)
-```
-
 Tuples are anonymous structs — accessed by position (`.0`, `.1`), not name. The type annotation `{(Int,Int)}` provides element count and types for the asm backend's layout.
 
 #### `field` — Field Extraction
@@ -537,8 +501,6 @@ Tuples are anonymous structs — accessed by position (`.0`, `.1`), not name. Th
 %1 = lit 10
 %2 = struct_update{Point} %0 .x=%1          // Point { x: 10, y: 4 }
 // %0 unchanged; %2 is independent
-```
-
 > **Copy-on-write optimization.** When the asm backend can prove `%0` is never used after `%2`, the update becomes in-place — `struct_update` compiles to a single `sd` at the field offset, no copy.
 
 #### `array_access` / `array_update` — Array Operations
@@ -551,8 +513,6 @@ Tuples are anonymous structs — accessed by position (`.0`, `.1`), not name. Th
 %6 = lit 99
 %7 = array_update{Array(Int,3)} %0 %4 %6    // [10, 99, 30]
 // %0 unchanged
-```
-
 `array_access{Int}` reads one element. `array_update{Array(Int,N)}` creates a new array with one element changed. The type annotation provides element type (for access width) and array size (for bounds validation in the evaluator).
 
 #### `tuple_update` — Immutable Tuple Element Update
@@ -561,8 +521,6 @@ Tuples are anonymous structs — accessed by position (`.0`, `.1`), not name. Th
 %0 = tuple_lit{(Int,Int,Int)} %1 %2 %3      // (10, 20, 30)
 %4 = lit 99
 %5 = tuple_update{(Int,Int,Int)} %0 .1=%4   // (10, 99, 30)
-```
-
 Same copy-on-write semantics as `struct_update`. The `.1` dot-notation identifies the positional index. The type annotation `{(Int,Int,Int)}` carries element types and count.
 
 ---
@@ -603,8 +561,6 @@ fn @main() {
     %2 = call{Int} @add %0 %1
     stdout{Int} %2
 }
-```
-
 ### 10.1 Formatting Rules
 
 - Block labels end with `:`
@@ -622,13 +578,9 @@ All IR types derive `Serialize`/`Deserialize`. JSON emission via `--emit=json`:
 
 ```json
 {"types":[...], "fns":[...], "thunks":[...]}
-```
-
 Example type table entry:
 ```json
 {"name":"Point","kind":"struct","fields":[{"name":"x","type":"Int","offset":0},{"name":"y","type":"Int","offset":8}],"size":16}
-```
-
 ---
 
 ## 12. Optimization Levels
@@ -647,38 +599,39 @@ Example type table entry:
 
 > O1 is intentionally conservative. No speculative optimizations.
 
-**Future:** Register-pair passing for ≤2-field aggregates. On rv64gc, a `struct Point { x: Int, y: Int }` could be passed in `x10`+`x11` instead of on the stack. This is a calling-convention optimization that does not change the IR — only the asm backend.
+**Future:** Register-pair passing for ≤2-field aggregates. LLVM's ABI lowering can be tuned to pass small structs in registers rather than on the stack. This is a codegen option, not an IR change.
 
 ---
 
-## 13. Evaluator Integration
+## 13. Backends
 
-### 13.1 fn Evaluation
+### 13.1 Tree-Walking Evaluator (Development)
 
-`call @name %args` pushes a new evaluation frame, evaluates blocks, returns result. No cell lookup, no state machine. Equivalent to a standard function call.
+The evaluator is a Rust program that directly interprets IR instructions. It maintains a register file (`Vec<Value>`), walks basic blocks, and dispatches on instruction variants. Used for development, testing, and `--emit=text` debugging.
 
-### 13.2 thunk Evaluation
+**fn call:** pushes a new evaluation frame with the callee's blocks and register file.  
+**thunk force:** checks the thunk cell's state tag — `suspended` → evaluate, `evaluating` → cycle error, `evaluated` → return cached.  
+**heap allocation:** closures (`lambda`) allocate on the Rust heap via `Box`; thunk cells are `HashMap<Name, ThunkState>` entries.
 
-`force @name` reads the thunk's cell:
-1. `suspended` → mark `evaluating`, evaluate blocks, write result, mark `evaluated`
-2. `evaluating` → cycle error
-3. `evaluated` → return cached value
+### 13.2 LLVM IR Backend (Production)
 
-### 13.3 Asm Mapping — rv64gc
+The LLVM backend translates the Dew IR module to LLVM IR for optimized native code generation. Each Dew IR construct maps to an LLVM equivalent:
 
-**fn call:** standard `jal` / `jalr`. No cell overhead.  
-**thunk force:** A thunk cell is 16 bytes: `[state_tag: i64, value: i64]`. Check tag before evaluating.
+| Dew IR | LLVM IR |
+|--------|---------|
+| `fn @name(%0: T, %1: U)` | `define T @name(i64 %0, i64 %1)` |
+| `thunk @x()` | `%struct.thunk = type { i64, i64 }` + global cell |
+| `force @x` | `load` cell tag → `switch` (suspended: call body, evaluating: trap, evaluated: load value) |
+| `call @name %0 %1` | `call T @name(i64 %0, i64 %1)` |
+| `lambda @name(%0)` | `malloc(sizeof({ptr, i64}))` + store code ptr and env |
+| `struct_cons{Point} @Point %0 %1` | `insertvalue %Point { %0, %1 }` |
+| `br %cond L1 L2` | `br i1 %cond, label %L1, label %L2` |
+| `phi{T} [%v1, L1] [%v2, L2]` | `phi T [ %v1, %L1 ], [ %v2, %L2 ]` |
 
-```
-// force @x on rv64gc:
-ld t0, 0(thunk_ptr)       // load state tag
-beqz t0, .evaluate        // 0 = suspended → evaluate
-li t1, EVALUATING_TAG
-beq t0, t1, .cycle_error  // already evaluating → cycle
-ld a0, 8(thunk_ptr)       // evaluated → return cached value
-ret
-```
-
+**Advantages over direct asm:**
+- All optimizations (inlining, constant folding, dead code elimination, register allocation) come for free
+- Multi-target support (x86-64, ARM64, RISC-V) via LLVM's backend
+- No handwritten ABI code — LLVM handles calling conventions, stack layout, and aggregate passing
 ---
 
 ## 14. Source → IR Examples
@@ -688,8 +641,6 @@ ret
 **Source:**
 ```dew
 def main = fn { 2026 -> stdout; }
-```
-
 **IR:**
 ```
 fn @main() {
@@ -697,16 +648,12 @@ fn @main() {
     %0 = lit 2026
     stdout{Int} %0
 }
-```
-
 ### 14.2 Function Definition and Call
 
 **Source:**
 ```dew
 def add = fn(x: Int, y: Int) -> Int { x + y }
 def main = fn { add(40, 2) -> stdout; }
-```
-
 **IR:**
 ```
 fn @add(%0: Int, %1: Int) {
@@ -722,8 +669,6 @@ fn @main() {
     %2 = call{Int} @add %0 %1
     stdout{Int} %2
 }
-```
-
 ### 14.3 Recursive Function
 
 **Source:**
@@ -732,8 +677,6 @@ def fact = fn(n: Int) -> Int {
   if n == 0 { 1 } else { n * fact(n - 1) }
 }
 def main = fn { fact(5) -> stdout; }
-```
-
 **IR:**
 ```
 fn @fact(%0: Int) {
@@ -758,16 +701,12 @@ fn @main() {
     %1 = call{Int} @fact %0
     stdout{Int} %1
 }
-```
-
 ### 14.4 Lazy Pure Value (Thunk)
 
 **Source:**
 ```dew
 def x = 40 + 2       // pure, zero-arg → thunk
 def main = fn { x -> stdout; }
-```
-
 **IR:**
 ```
 thunk @x() {
@@ -783,8 +722,6 @@ fn @main() {
     %0 = force{Int} @x
     stdout{Int} %0
 }
-```
-
 > `def x = 40 + 2` produces a thunk — evaluated once, result cached. `main` forces it via `force @x`. If `x` were declared with an argument (`def f = fn(n: Int) -> Int { ... }`) or were IO (`def read = fn { stdin() }`), it would be an `fn`.
 
 ### 14.5 If/Else Branching
@@ -792,8 +729,6 @@ fn @main() {
 **Source:**
 ```dew
 def main = fn { if 1 > 0 { 10 } else { 20 } -> stdout; }
-```
-
 **IR:**
 ```
 fn @main() {
@@ -812,8 +747,6 @@ fn @main() {
 %5 = phi{Int} [ [%3, L_then] [%4, L_else]
     stdout{Int} %5
 }
-```
-
 ### 14.6 Borrow Sugar
 
 **Source:**
@@ -821,8 +754,6 @@ fn @main() {
 def translate = fn(&p: Point, dx: Int) -> Point {
   &p { x = p.x + dx }
 }
-```
-
 **IR:**
 ```
 fn @translate(%0: Point, %1: Int) {
@@ -832,8 +763,6 @@ fn @translate(%0: Point, %1: Int) {
     %4 = struct_update{Point} %0 .x=%3
     ret{Int} %4
 }
-```
-
 > Borrow sugar desugars before IR gen. The body becomes a normal fn taking `p` by value and returning the updated struct.
 
 ### 14.7 Large Tuple (Stack Allocation)
@@ -841,8 +770,6 @@ fn @translate(%0: Point, %1: Int) {
 **Source:**
 ```dew
 def f = fn -> (Int, Int, Int, Int, Int) { (1, 2, 3, 4, 5) }
-```
-
 **IR:**
 ```
 fn @f() {
@@ -855,8 +782,6 @@ fn @f() {
     %5 = tuple_lit{(Int,Int,Int,Int,Int)} %0 %1 %2 %3 %4   // 40 bytes — stack allocated
     ret{(Int,Int,Int,Int,Int)} %5
 }
-```
-
 > `%0`–`%4` are scalar 64-bit GPRs. `%5` is an aggregate — 5 × 8 = 40 bytes, allocated on the stack and passed via stack on return. The IR register `%5` is a virtual name; the asm backend determines the concrete storage location.
 
 ### 14.8 Match Expression
@@ -868,8 +793,6 @@ def main = fn {
   def x = Some(2026);
   match x { Some(v) => v, None => 0 } -> stdout;
 }
-```
-
 **IR:**
 ```
 enum Option { None, Some(Int) }
@@ -892,9 +815,7 @@ fn @main() {
 %7 = phi{Int} [ [%5, L_some] [%6, L_none]
     stdout{Int} %7
 }
-```
-
-> `enum_disc` reads the variant tag; `enum_proj` extracts the payload. On rv64gc: `ld t0, 0(enum_ptr)` for disc, `ld t0, 8(enum_ptr)` for projection.
+> `enum_disc` reads the variant tag; `enum_proj` extracts the payload. LLVM lowering: disc → `extractvalue` at index 0, proj → `extractvalue` at index 1.
 
 ---
 
