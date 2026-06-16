@@ -822,37 +822,36 @@ type_match typeof(shape) {
 
 **Type patterns are type constructors only.** `type_match` arms are **types**, not value patterns. A struct type name (`Point`) or enum variant (`Some(Int)`) is sufficient to uniquely identify the type. `type_match` does not do field-level type selection; it dispatches entirely by type identity and type constructor structure.
 
-**Branch return types must be consistent** — same as `match`. All arms unify to the same type:
+**Branch type checking.** `type_match` generates only the matching arm — the code is substituted and checked under HM for the concrete type. No inter-arm unification is performed:
 
 ```dew
-// OK: both arms return Int
-type_match typeof(x) {
-  Int => x + 1,
-  _   => 0,
-}
-
-// ERROR: type mismatch (Int vs Bool)
-type_match typeof(x) {
-  Int => x + 1,
-  _   => true,
+// Each arm checked independently against the function's return type
+def default_value = fn -> T {
+  type_match T {
+    Int     => 0,          // T=Int → returns Int
+    Bool    => false,      // T=Bool → returns Bool
+    _       => Unit,       // T=Unit → returns Unit
+  }
 }
 ```
 
-**Composability with value-level patterns.** `type_match` narrows the type; `match` and `def` patterns then work on the narrowed value. This separation keeps type dispatch and value destructuring orthogonal:
+The function's return type `T` is satisfied by whatever the generated arm produces. If an arm's code violates HM under the concrete instantiation (e.g., `x + 1` where `x` is `Bool`), the compiler reports an error for that specific monomorphization — before code generation.
+
+**Composability with value-level patterns.** `type_match` narrows the type; `match` and `def` patterns then work on the narrowed value. Each arm is a single expression — use `{ }` blocks for multiple statements:
 
 ```dew
 // type_match narrows the type → match/def deconstruct the value
 def summary = fn(val: T) -> Int {
   type_match typeof(val) {
-    Option(_)  => match val {             // narrowed to Option
-                    Some(v) => 1,          // v is the payload type
-                    None    => 0,
-                  },
-    (Int, Int, Int) => def (a, b, c) = val;  // narrowed to triple of Ints
-                  a + b + c,                  // all Int — + is valid
-    Point      => def Point { x, y } = val; // narrowed to Point
-                  x + y,
-    _          => -1,                      // unknown type
+    Option(_)  => { match val {             // narrowed to Option
+                     Some(v) => 1,
+                     None    => 0,
+                   } },
+    (Int, Int, Int) => { def (a, b, c) = val;  // narrowed to triple
+                         a + b + c },
+    Point      => { def Point { x, y } = val;  // narrowed to Point
+                    x + y },
+    _          => -1,                         // unknown type
   }
 }
 ```
