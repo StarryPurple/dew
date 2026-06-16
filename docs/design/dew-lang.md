@@ -827,6 +827,29 @@ type_match typeof(x) {
 - `..` rest pattern discards remaining unmentioned fields
 - Field patterns use `_` (wildcard), not variable binding — type_match matches types, not values
 
+**How type_match works.** The compiler resolves the concrete type at the call site, then matches each arm pattern against it. Only the matching arm survives; unmatched arms are dead code eliminated. There are no runtime type tags, no vtable, no reflection:
+
+```
+Given: type_match typeof(point_val) {
+        Point { x: Int, .. } => x.x + x.y,
+        _ => 0,
+       }
+
+1. Resolve concrete type → Point { x: Int, y: Int }
+2. Match arm 1: "Point? Yes. Field x exists? Yes. Field x is Int? Yes. → SELECT"
+3. Match arm 2: skipped (arm 1 matched)
+4. Generate code: point_val.x + point_val.y
+```
+
+A pattern referencing a non-existent field is a compile error:
+```dew
+type_match typeof(point_val) {
+  Point { z: Char, .. } => ...  // ERROR: field 'z' does not exist in Point
+}
+```
+
+The `..` rest pattern suppresses errors for unmentioned fields — `Point { x: Int, .. }` only cares about `x`; all other fields pass silently.
+
 **Type parameter dispatch** — `type_match` can match on a type parameter directly, with no value needed:
 
 ```dew
@@ -842,6 +865,8 @@ def default_value = fn -> T {
 def x: Int = default_value();    // T=Int → compiles to: 0
 def f: Bool = default_value();   // T=Bool → compiles to: false
 ```
+
+> No `::<T>` turbofish syntax needed. HM inference resolves the type parameter from the call context — `def x: Int` determines `T = Int` at the binding site. This is a defining feature of Hindley-Milner: type parameters are inferred from usage, not annotated at call sites. Explicit type instantiation syntax (`default_value::<Int>()`) would be redundant for all current use cases.
 
 #### How It Works — Compile-Time Monomorphization
 
