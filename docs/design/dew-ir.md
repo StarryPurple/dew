@@ -63,21 +63,21 @@ module:
 
 ### 2.1 Type Table Format
 
-```
-type Point: struct {
-  x: Int @ 0,
-  y: Int @ 8,
-} size=16
+The type table uses the same syntax as Dew source — no separate notation:
 
-type Option: enum {
-  None @ 0,
-  Some(Int) @ 1,
+```
+struct Point {
+  x: Int,
+  y: Int,
 }
 
-type Rgb: tuple(Int, Int, Int)
+enum Option {
+  None,
+  Some(Int),
+}
 ```
 
-Each type entry lists its fields, variants, or elements with their sizes and offsets. The asm backend uses this to generate `sb`/`sd`/`ld` instructions at the correct offsets.
+**Struct field names** matter: `fetch %p .x` and `struct_update %p .x=%v` reference fields by name, not by position. The type table maps names to byte offsets. **Enum variant names** matter: `enum_proj @Option::Some %e` references the variant by name. Discriminant tags (0, 1, 2...) are assigned automatically in declaration order — not written explicitly.
 
 The evaluator registers all definitions, then starts execution at `@main`. If `@main` is an `fn`, it is called; if `@main` is a `thunk`, it is forced. If `@main` does not exist, report `[E007]`.
 
@@ -596,7 +596,7 @@ def main = fn {
 
 **IR:**
 ```
-type Option: enum { None @ 0, Some(Int) @ 1 }
+enum Option { None, Some(Int) }
 
 fn @main() {
   entry:
