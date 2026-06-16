@@ -243,14 +243,63 @@ The closure body is always a top-level `fn` — `lambda` does not define the bod
 def make_adder = fn(x: Int) -> () -> Int { fn { x } }
 
 // After closure conversion:
-fn @inner(x: Int) { ret %0 }           // body lifted to top level
+fn @inner(x: Int) { ret %0 }           // %0 = captured x
 fn @make_adder(x: Int) {
-  %0 = lambda @inner(%0)               // capture x in environment
-  ret %0
+  %1 = lambda @inner(%0)               // %0 = x, %1 = closure
+  ret %1
 }
 ```
 
-> **Why a dedicated instruction?** `lambda` is not syntactic sugar for `struct_cons`. It allocates on the heap (the closure may outlive the creating function's stack frame), and the produced closure value is callable via `call %closure`. Expressing this with general-purpose memory primitives would require `alloc` + `store` in the IR — violating the no-memory-operations design. `lambda` is the minimal abstraction for "create a callable value with captured state."
+**Multiple captures:**
+
+```dew
+// Source:
+def r1 = 1;
+def r2 = 2;
+def make_foo = fn(x: Int) -> () -> Int { fn { x + r1 - r2 } };
+
+// IR — environment contains all captured variables:
+fn @inner(x: Int, r1: Int, r2: Int) {
+  %0 = add %0 %1           // x + r1
+  %3 = sub %0 %2           // (x + r1) - r2
+  ret %3
+}
+
+fn @make_foo(x: Int, r1: Int, r2: Int) {
+  %3 = lambda @inner(%0, %1, %2)   // capture {x, r1, r2}
+  ret %3
+}
+```
+
+**Affine captures — FnOnce:**
+
+```dew
+// Source:
+def r1 = Affine(1);
+def r2 = 2;
+def make_foo = fn(x: Affine(Int)) -> () -> Int {
+  fn { consume(x) + consume(r1) - r2 }
+};
+```
+
+The closure captures two affine values — it is `FnOnce`. After the closure is called once, both are consumed:
+
+```
+fn @inner(x: Affine(Int), r1: Affine(Int), r2: Int) {
+  %0 = field %0 .data       // consume x → Int
+  %1 = field %1 .data       // consume r1 → Int
+  %3 = add %0 %1            // x.data + r1.data
+  %4 = sub %3 %2            // (x+r1) - r2
+  ret %4
+}
+
+fn @make_foo(x: Affine(Int), r1: Affine(Int), r2: Int) {
+  %3 = lambda @inner(%0, %1, %2)   // capture {x, r1, r2}
+  ret %3                          // closure is FnOnce — single call
+}
+```
+
+> The environment size grows with the number of captured variables — each captured value adds one slot. The evaluator allocates the environment on the heap (Rust `Vec<Value>` in the tree-walking evaluator; `malloc` in the asm backend). For affine closures, calling the closure consumes the captured affine values from the environment.
 
 #### `lambda_block` — Inlined Closure (O1 Optimization)
 
