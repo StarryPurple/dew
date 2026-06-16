@@ -409,8 +409,8 @@ Creates a new value equal to `%base` but with the value at the given path replac
 | `enum_cons` | `%r = enum_cons{Option} @Option::Some %v` | Construct enum variant |
 | `enum_disc` | `%r = enum_disc %e` | Read enum discriminant tag |
 | `enum_proj` | `%r = enum_proj{Int} @Option::Some %e` | Extract variant payload |
-| `array_lit` | `%r = array_lit{Array(Int,3)} %a %b %c` | Construct array value |
-| `array_fill` | `%r = array_fill{Array(Int,N)} %v N` | Construct array with all elements = %v |
+| `array_lit` | `%r = array_lit{Int,3} %a %b %c` | Construct array value |
+| `array_fill` | `%r = array_fill{Int,N} %v N` | Construct array with all elements = %v |
 | `tuple_lit` | `%r = tuple_lit{(Int,Int)} %a %b` | Construct tuple value |
 
 > **Why per-type instructions?** Each aggregate type has different memory layout. `struct_cons` packs named fields at known offsets; `enum_cons` prepends a discriminant tag; `array_lit` packs N uniform elements at stride; `tuple_lit` packs heterogeneous elements contiguously.
@@ -421,7 +421,7 @@ Creates a new value equal to `%base` but with the value at the given path replac
 |------------|------|-----------|
 | `struct_update` | `%r = struct_update %s .x=%a .y=%b` | New struct with updated fields |
 | `array_access` | `%r = array_access{Int} %a %i` | Read array element |
-| `array_update` | `%r = array_update{Array(Int,N)} %a %i %v` | New array with updated element |
+| `array_update` | `%r = array_update{Int,N} %a %i %v` | New array with updated element |
 | `tuple_update` | `%r = tuple_update{(Int,Int)} %t .0=%v` | New tuple with updated element |
 
 > **Why dedicated update instructions?** `array_access %a %i` is the common case — a single instruction the evaluator matches directly. `fetch %a [%i]` with an accessor path would also work but requires path parsing. The dedicated forms are sugar for the common patterns; `fetch`/`place` are the general mechanism.
@@ -795,12 +795,12 @@ fn @main() {
 | 30 | `enum_cons` | `%r = enum_cons{Name} @N::V %v` | | [§8.9](#89-structure-construction) |
 | 31 | `enum_disc` | `%r = enum_disc %e` | | [§8.9](#89-structure-construction) |
 | 32 | `enum_proj` | `%r = enum_proj{T} @N::V %e` | | [§8.9](#89-structure-construction) |
-| 33 | `array_lit` | `%r = array_lit{Array(T,N)} %a %b` | | [§8.9](#89-structure-construction) |
-| 34 | `array_fill` | `%r = array_fill{Array(T,N)} %v N` | | [§8.9](#89-structure-construction) |
+| 33 | `array_lit` | `%r = array_lit{T,N} %a %b` | | [§8.9](#89-structure-construction) |
+| 34 | `array_fill` | `%r = array_fill{T,N} %v N` | | [§8.9](#89-structure-construction) |
 | 35 | `tuple_lit` | `%r = tuple_lit{(T,U,...)} %a %b` | | [§8.9](#89-structure-construction) |
 | 36 | `struct_update` | `%r = struct_update{T} %s .x=%a` | | [§8.10](#810-structure-update) |
 | 37 | `array_access` | `%r = array_access{T} %a %i` | | [§8.10](#810-structure-update) |
-| 38 | `array_update` | `%r = array_update{Array(T,N)} %a %i %v` | | [§8.10](#810-structure-update) |
+| 38 | `array_update` | `%r = array_update{T,N} %a %i %v` | | [§8.10](#810-structure-update) |
 | 39 | `tuple_update` | `%r = tuple_update{(T,U)} %t .0=%v` | | [§8.10](#810-structure-update) |
 
 *Last updated: 2026-06-16 — v5 with fn/thunk split, 39 instructions.*
