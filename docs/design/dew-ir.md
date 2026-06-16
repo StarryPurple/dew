@@ -98,8 +98,8 @@ fn @add(x: Int, y: Int) {
 
 fn @main() {
   entry:
-    %0 = lit{Int} 40
-    %1 = lit{Int} 2
+    %0 = lit 40
+    %1 = lit 2
     %2 = call{Int} @add %0 %1
     stdout_int %2
 }
@@ -129,8 +129,8 @@ suspended ──force──► evaluating ──complete──► evaluated(valu
 ```
 thunk @x() {
   entry:
-    %0 = lit{Int} 40
-    %1 = lit{Int} 2
+    %0 = lit 40
+    %1 = lit 2
     %2 = add %0 %1
     ret{Int} %2
 }
@@ -202,9 +202,9 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 
 | Instruction | Text | Semantics |
 |------------|------|-----------|
-| `lit` | `%r = lit{Int} 42` | Load integer literal |
-| `lit` | `%r = lit{Bool} true` | Load Bool literal (`true` = 1, `false` = 0) |
-| `lit` | `%r = lit{Char} '字'` | Load Char literal (Unicode scalar value) |
+| `lit` | `%r = lit 42` | Load integer literal |
+| `lit` | `%r = lit true` | Load Bool literal (`true` = 1, `false` = 0) |
+| `lit` | `%r = lit '字'` | Load Char literal (Unicode scalar value) |
 
 > **Why `lit` exists despite LLVM not needing it.** LLVM allows immediate operands on any instruction (`add i64 %0, 42`). Dew IR requires all operands to be registers — `lit` is the only way to introduce a constant. This keeps the evaluator simple: every instruction operand is a `Reg`, never an immediate. The asm backend folds `lit`+`add` into `addi` as an independent optimization pass, not as an IR concern.
 >
@@ -453,14 +453,14 @@ fn @add(x: Int, y: Int) {
 
 thunk @x() {
   entry:
-    %0 = lit{Int} 42
+    %0 = lit 42
     ret{Int} %0
 }
 
 fn @main() {
   entry:
-    %0 = lit{Int} 40
-    %1 = lit{Int} 2
+    %0 = lit 40
+    %1 = lit 2
     %2 = call{Int} @add %0 %1
     stdout_int %2
 }
@@ -555,7 +555,7 @@ def main = fn { 2026 -> stdout; }
 ```
 fn @main() {
   entry:
-    %0 = lit{Int} 2026
+    %0 = lit 2026
     stdout_int %0
 }
 ```
@@ -578,8 +578,8 @@ fn @add(x: Int, y: Int) {
 
 fn @main() {
   entry:
-    %0 = lit{Int} 40
-    %1 = lit{Int} 2
+    %0 = lit 40
+    %1 = lit 2
     %2 = call{Int} @add %0 %1
     stdout_int %2
 }
@@ -599,14 +599,14 @@ def main = fn { fact(5) -> stdout; }
 ```
 fn @fact(n: Int) {
   entry:
-    %0 = lit{Int} 0
+    %0 = lit 0
     %1 = eq %0 %0         // n == 0 (n is %0)
     br %1 L_then L_else
   L_then:
-    %2 = lit{Int} 1
+    %2 = lit 1
     ret{Int} %2
   L_else:
-    %3 = lit{Int} 1
+    %3 = lit 1
     %4 = sub %0 %3
     %5 = call{Int} @fact %4
     %6 = mul %0 %5
@@ -615,7 +615,7 @@ fn @fact(n: Int) {
 
 fn @main() {
   entry:
-    %0 = lit{Int} 5
+    %0 = lit 5
     %1 = call{Int} @fact %0
     stdout_int %1
 }
@@ -633,8 +633,8 @@ def main = fn { x -> stdout; }
 ```
 thunk @x() {
   entry:
-    %0 = lit{Int} 40
-    %1 = lit{Int} 2
+    %0 = lit 40
+    %1 = lit 2
     %2 = add %0 %1
     ret{Int} %2
 }
@@ -659,15 +659,15 @@ def main = fn { if 1 > 0 { 10 } else { 20 } -> stdout; }
 ```
 fn @main() {
   entry:
-    %0 = lit{Int} 1
-    %1 = lit{Int} 0
+    %0 = lit 1
+    %1 = lit 0
     %2 = gt %0 %1
     br %2 L_then L_else
   L_then:
-    %3 = lit{Int} 10
+    %3 = lit 10
     jmp L_merge
   L_else:
-    %4 = lit{Int} 20
+    %4 = lit 20
     jmp L_merge
   L_merge:
 %5 = phi{Int} [ [%3, L_then] [%4, L_else]
@@ -708,11 +708,11 @@ def f = fn -> (Int, Int, Int, Int, Int) { (1, 2, 3, 4, 5) }
 ```
 fn @f() {
   entry:
-    %0 = lit{Int} 1
-    %1 = lit{Int} 2
-    %2 = lit{Int} 3
-    %3 = lit{Int} 4
-    %4 = lit{Int} 5
+    %0 = lit 1
+    %1 = lit 2
+    %2 = lit 3
+    %3 = lit 4
+    %4 = lit 5
     %5 = tuple_lit{(Int,Int,Int,Int,Int)} %0 %1 %2 %3 %4   // 40 bytes — stack allocated
     ret{(Int,Int,Int,Int,Int)} %5
 }
@@ -737,17 +737,17 @@ enum Option { None, Some(Int) }
 
 fn @main() {
   entry:
-    %0 = lit{Int} 2026
+    %0 = lit 2026
     %1 = enum_cons @Option::Some %0
     %2 = enum_disc %1
-    %3 = lit{Int} 0
+    %3 = lit 0
     %4 = eq %2 %3
     br %4 L_some L_none
   L_some:
     %5 = enum_proj{Int} @Option::Some %1
     jmp L_merge
   L_none:
-    %6 = lit{Int} 0
+    %6 = lit 0
     jmp L_merge
   L_merge:
 %7 = phi{Int} [ [%5, L_some] [%6, L_none]
@@ -763,7 +763,7 @@ fn @main() {
 
 | # | Instruction | Description | § |
 |---|------------|-------------|---|
-| 1 | `lit` | `%r = lit{Type} val` | | [§8.1](#81-literals) |
+| 1 | `lit` | `%r = lit val` | | [§8.1](#81-literals) |
 | 2 | `stdout_int` | `stdout_int %r` | | [§8.2](#82-io) |
 | 3 | `stdout_char` | `stdout_char %r` | | [§8.2](#82-io) |
 | 4 | `stdout_bool` | `stdout_bool %r` | | [§8.2](#82-io) |
