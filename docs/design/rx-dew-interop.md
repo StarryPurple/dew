@@ -319,7 +319,76 @@ Analysis results are mapped back to Rx source locations through span tracking.
 
 ---
 
-## 5. Translation Invariants
+## 5. Safety Analysis Layers
+
+Dew's safety analysis for Rx code operates across three independent layers. The Dew IR contains no pointer or allocation primitives — all safety detection happens above the IR.
+
+| Layer | Mechanism | Detects |
+|-------|-----------|---------|
+| **Type system** (§6.1) | Poison value encoding | Use-after-move, double-free |
+| **Affine checker** (§6.2) | Ownership transfer encoding | Resource leaks, non-linear use |
+| **Provenance encoding** (§6.3) | Address + metadata wrapping | Pointer aliasing, out-of-bounds access, use-after-free across aliases |
+
+> The Dew IR layer is irrelevant to safety analysis. The evaluation and compilation phases operate on a type-checked program. The Dew IR sees only (pure) computation.
+
+### 6.1 Affiliation to Poison Value Mapping
+
+In the Dew type system, variables that represent consumed or uninitialized objects are encoded as **poison values**. These are type-safe `Unit` tokens whose existence and destruction certify that the referenced object is alive.
+
+```
+Rx source:
+  let a = allocate::<T>();
+  // operations using *a
+
+Dew translation:
+  def (a, _a_token) = allocate.dup();
+  // The token `_a_token` must be alive while the affine type `a` exists.
+```
+
+**Affiliation check** verifies that no affine variable is used after it has been deallocated or moved.
+
+### 6.2 Owned Pointer Encoding
+
+For each `*mut T` in Rx, the translator produces an **owned pointer** in Dew:
+
+```rust
+// Rx:
+struct OwnedPtr<T> {
+    ptr: *mut T,
+    _tag: PoisonTag,
+}
+```
+
+Poison tags are represented by `affine struct PoisonTag`, ensuring the checker can verify correct usage. When the Rx variable goes out of scope, the poison tag must be alive — the affine checker will produce a type error if it was consumed earlier.
+
+### 6.3 Provenance Encoding
+
+**Provenance** is the metadata that tracks where a pointer came from and what memory range it may access. This is needed for detecting pointer aliasing (`p1 + 1` and `p2` pointing to the same address) and out-of-bounds access.
+
+Each Rx pointer `*T` translates to a Dew struct carrying:
+
+```
+affine struct ProvenancePtr(T) {
+  addr: Int,              // raw address (integer)
+  base: Int,              // allocation base address
+  size: Int,              // allocation size in bytes
+  _token: PoisonTag,      // affine tag for this pointer instance
+}
+```
+
+**Detection rules** applied by the translator:
+
+| Rx Pattern | Translation Strategy |
+|-------------|---------------------|
+| `p1 + offset` | Produces new `ProvenancePtr` with same `base`/`size`, updated `addr`. If `addr` falls outside `[base, base+size)` → compile error `[E010]` |
+| `*p1` (deref) | Consumes the `_token`. Two derefs of the same pointer → affine error `[E004]` |
+| `p2 = p1 + 1` + `*(p1 + 1)` vs `*p2` | Both produce provenance tokens from `p1`. The affine checker detects double-use of the same provenance |
+
+> **Aliasing detection** works through provenance token reuse: `p1 + 1` and `p2` both derive from `p1`'s provenance. If either is dereferenced after the other, the shared token is consumed — the affine checker reports `[E004]`. This is not a full borrow-checker but covers the common aliasing patterns found in safety-critical code.
+
+---
+
+## 6. Translation Invariants
 
 These must hold for the round-trip to be correct:
 
@@ -333,7 +402,7 @@ These must hold for the round-trip to be correct:
 
 ---
 
-## 6. Limitations and Future Work
+## 8. Limitations and Future Work
 
 | Limitation | Status | Plan |
 |-----------|--------|------|
@@ -346,7 +415,7 @@ These must hold for the round-trip to be correct:
 
 ---
 
-## 7. Reference
+## 9. Reference
 
 - Rx Grammar: `RustShard-Compiler/docs/semantic_rules.md`
 - Dew Language: `docs/design/dew-lang.md`

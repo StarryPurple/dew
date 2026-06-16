@@ -43,6 +43,15 @@ The IR is structured in three levels:
 | Thunk | `Thunk` | Named entity with basic blocks |
 | Instruction | `Instr` | Flat single-operation instruction within a block |
 
+### 1.1 IR Philosophy
+
+**No pointers, no addresses, no memory allocation primitives.** The Dew IR is a pure functional intermediate representation. All safety analysis (affine checking, provenance tracking, pointer aliasing) occurs in the type system layer above the IR. The IR sees only verified, safe computation.
+
+- **Memory allocation** is owned by the asm backend, not the IR. `struct_cons` and `array_lit` produce values; the backend determines layout from the module's type table and generates `alloca`/`store`/`load` as needed.
+- **Pointer safety** for Rx→Dew interop is handled by the translation layer (`rx-dew-interop.md` §5). The IR never sees raw pointers.
+- **All values are 64-bit** in registers. Memory layout (struct field offsets, array element widths) is determined by the type table at codegen time, not by IR type annotations on each instruction.
+- **No `alloca` instruction.** The tree-walking evaluator manages memory via Rust's `Vec`/`Box`. The asm backend inserts stack allocations during codegen. The IR stays allocation-free.
+
 ---
 
 ## 2. Module
