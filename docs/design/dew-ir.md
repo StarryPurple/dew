@@ -42,7 +42,7 @@ Dew Source → Parser → AST → Desugar → Type Check → Strictness → IR G
 
 - **Memory allocation** is owned by the asm backend. `struct_cons` and `array_lit` produce values; the backend determines layout from the module's type table.
 - **Scalar values are 64-bit** in registers (`Int`, `Bool`, `Char`, pointers). Aggregates (structs, tuples, arrays) are stack-allocated. Memory layout comes from the type table at codegen time.
-- **No type annotations on instructions.** IR types are monomorphic — all generic parameters are resolved before IR generation.
+- **No type annotations on instructions.** IR types are monomorphic — all generic parameters are resolved before IR generation. Instruction return types are determined by the instruction itself (`add` → Int, `tuple_lit` → tuple) or by the type table (`fetch %p .x` → depends on field `x`'s type). A single instruction line is not self-describing; the module as a whole (types + fns + thunks) is complete.
 
 ---
 
