@@ -8,7 +8,7 @@ RustShard-Compiler/
 target/
 
 # Old project remnants (pre-refactor)
-src/
+# src/ — re-enabled for new Rust compiler
 vscode-dew/
 docs/en/
 docs/zh/
