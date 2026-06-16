@@ -191,7 +191,15 @@ impl<'a> TypeChecker<'a> {
             .collect();
 
         let expected = Ty::fun(param_tys.clone(), ret_ty.clone());
-        unify_expr(&func_ty, &expected, c.span, self.diag, "function call");
+        let ret_ty = match unify(&func_ty, &expected) {
+            Ok(s) => s.apply(&ret_ty),
+            Err(msg) => {
+                self.diag.error("E003",
+                    format!("type mismatch in function call: {}", msg),
+                    Some(c.span));
+                ret_ty
+            }
+        };
         ret_ty
     }
 
@@ -351,8 +359,10 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn register_builtins(&mut self) {
-        self.env.insert("stdout".into(), Scheme { vars: vec![], ty: Ty::Fun(Box::new(Ty::Int), Box::new(Ty::Unit)) });
-        self.env.insert("stdin".into(), Scheme { vars: vec![], ty: Ty::Fun(Box::new(Ty::Unit), Box::new(Ty::Int)) });
+        let a = self.tvg.fresh_ty();
+        self.env.insert("stdout".into(), Scheme { vars: vec![], ty: Ty::Fun(Box::new(a), Box::new(Ty::Unit)) });
+        let b = self.tvg.fresh_ty();
+        self.env.insert("stdin".into(), Scheme { vars: vec![], ty: Ty::Fun(Box::new(b.clone()), Box::new(b)) });
         self.env.insert("not".into(), Scheme { vars: vec![], ty: Ty::Fun(Box::new(Ty::Bool), Box::new(Ty::Bool)) });
     }
 

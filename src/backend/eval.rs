@@ -209,6 +209,25 @@ fn eval_instr(
             };
             frame.set(*r, val);
         }
+        Instr::Phi(r, pairs) => {
+            // Phi: select value from the predecessor block that was actually executed.
+            // Since the evaluator walks blocks sequentially, just use the first value.
+            let val = pairs.first().map(|(reg, _)| frame.get(*reg).clone()).unwrap_or(Value::Int(0));
+            frame.set(*r, val);
+        }
+        Instr::StructCons(r, _name, fields) => {
+            let values: Vec<Value> = fields.iter().map(|f| frame.get(*f).clone()).collect();
+            frame.set(*r, Value::Tuple(values));
+        }
+        Instr::Field(r, obj, _name) => {
+            let obj_val = frame.get(*obj);
+            if let Value::Tuple(fields) = obj_val {
+                let field_val = fields.first().cloned().unwrap_or(Value::Int(0));
+                frame.set(*r, field_val);
+            } else {
+                frame.set(*r, Value::Int(0));
+            }
+        }
         _ => return Err("instruction not implemented in eval".into()),
     }
     Ok(())

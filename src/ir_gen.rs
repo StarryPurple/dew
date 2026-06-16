@@ -20,6 +20,7 @@ pub struct IrGenerator<'a> {
     next_label: usize,
     var_map: std::collections::HashMap<String, usize>,
     thunk_names: std::collections::HashSet<String>,
+    extra_blocks: Vec<BasicBlock>,
 }
 
 impl<'a> IrGenerator<'a> {
@@ -31,6 +32,7 @@ impl<'a> IrGenerator<'a> {
             next_label: 0,
             var_map: std::collections::HashMap::new(),
             thunk_names: std::collections::HashSet::new(),
+            extra_blocks: Vec::new(),
         }
     }
 
@@ -121,9 +123,8 @@ impl<'a> IrGenerator<'a> {
         }
 
         let result_reg = self.compile_expr(&f.body, &mut block);
-
-        block.terminator = Terminator::Ret(result_reg);
-        ir_fn.blocks.push(block);
+        self.compile_finish(&mut block, &mut ir_fn.blocks, result_reg);
+        self.extra_blocks.clear();
 
         self.module.fns.push(ir_fn);
     }
@@ -141,11 +142,9 @@ impl<'a> IrGenerator<'a> {
         let mut block = BasicBlock::new("entry".into());
         self.next_reg = 0;
 
-        self.compile_expr(&d.value, &mut block);
-
-        let result_reg = self.next_reg - 1;
-        block.terminator = Terminator::Ret(result_reg);
-        t.blocks.push(block);
+        let result_reg = self.compile_expr(&d.value, &mut block);
+        self.compile_finish(&mut block, &mut t.blocks, result_reg);
+        self.extra_blocks.clear();
 
         self.module.thunks.push(t);
     }
@@ -270,6 +269,29 @@ impl<'a> IrGenerator<'a> {
                 0
             }
 
+            Expr::Match(m) => {
+                self.compile_match(m, block)
+            }
+
+            Expr::StructLit(s) => {
+                let mut field_regs = Vec::new();
+                for f in &s.fields {
+                    if let Some(v) = &f.value {
+                        field_regs.push(self.compile_expr(v, block));
+                    }
+                }
+                let result_r = self.fresh_reg();
+                block.instrs.push(Instr::StructCons(result_r, s.name.name.clone(), field_regs));
+                result_r
+            }
+
+            Expr::Field(f) => {
+                let obj_r = self.compile_expr(&f.object, block);
+                let result_r = self.fresh_reg();
+                block.instrs.push(Instr::Field(result_r, obj_r, f.field.name.clone()));
+                result_r
+            }
+
             _ => {
                 self.diag.error("E003",
                     format!("IR gen not implemented for this expression"),
@@ -277,6 +299,45 @@ impl<'a> IrGenerator<'a> {
                 0
             }
         }
+    }
+
+    fn compile_finish(&mut self, block: &mut BasicBlock, blocks: &mut Vec<BasicBlock>, result_reg: usize) {
+        block.terminator = Terminator::Ret(result_reg);
+        blocks.push(block.clone());
+        blocks.append(&mut self.extra_blocks);
+    }
+
+    fn compile_match(&mut self, m: &MatchExpr, block: &mut BasicBlock) -> usize {
+        if m.arms.len() != 2 {
+            self.diag.error("E003", "match must have exactly 2 arms (if/else desugaring)", None);
+            return 0;
+        }
+        let cond_reg = self.compile_expr(&m.scrutinee, block);
+
+        let l_true = self.fresh_label("L");
+        let l_false = self.fresh_label("L");
+        let l_merge = self.fresh_label("merge");
+
+        block.terminator = Terminator::Br(cond_reg, l_true.clone(), l_false.clone());
+
+        let mut block_true = BasicBlock::new(l_true.clone());
+        let true_reg = self.compile_expr(&m.arms[0].body, &mut block_true);
+        block_true.terminator = Terminator::Jmp(l_merge.clone());
+        self.extra_blocks.push(block_true);
+
+        let mut block_false = BasicBlock::new(l_false.clone());
+        let false_reg = self.compile_expr(&m.arms[1].body, &mut block_false);
+        block_false.terminator = Terminator::Jmp(l_merge.clone());
+        self.extra_blocks.push(block_false);
+
+        let mut block_merge = BasicBlock::new(l_merge);
+        let result_r = self.fresh_reg();
+        block_merge.instrs.push(Instr::Phi(result_r, vec![
+            (true_reg, l_true),
+            (false_reg, l_false),
+        ]));
+        *block = block_merge;
+        result_r
     }
 
     fn ast_ty_to_ir(&self, ty: &Type) -> IrType {

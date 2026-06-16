@@ -211,6 +211,52 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_expr_no_postfix(&mut self) -> Result<Expr, Span> {
+        self.parse_expr_no_postfix_bp(0)
+    }
+
+    fn parse_expr_no_postfix_bp(&mut self, min_bp: u8) -> Result<Expr, Span> {
+        let mut lhs = self.parse_atom()?;
+        loop {
+            let (op, lbp, rbp): (BinaryOp, u8, u8) = match self.peek_kind() {
+                TokenKind::OrOr => (BinaryOp::Or, 1, 2),
+                TokenKind::AndAnd => (BinaryOp::And, 3, 4),
+                TokenKind::EqEq | TokenKind::Ne => {
+                    let op = if self.peek_kind() == TokenKind::EqEq { BinaryOp::Eq } else { BinaryOp::Ne };
+                    (op, 5, 6)
+                }
+                TokenKind::Lt | TokenKind::Gt | TokenKind::Le | TokenKind::Ge => {
+                    let op = match self.peek_kind() {
+                        TokenKind::Lt => BinaryOp::Lt, TokenKind::Gt => BinaryOp::Gt,
+                        TokenKind::Le => BinaryOp::Le, TokenKind::Ge => BinaryOp::Ge,
+                        _ => unreachable!(),
+                    };
+                    (op, 7, 8)
+                }
+                TokenKind::Plus => (BinaryOp::Add, 9, 10),
+                TokenKind::Minus => (BinaryOp::Sub, 9, 10),
+                TokenKind::Star | TokenKind::Slash | TokenKind::Percent => {
+                    let op = match self.peek_kind() {
+                        TokenKind::Star => BinaryOp::Mul,
+                        TokenKind::Slash => BinaryOp::Div,
+                        TokenKind::Percent => BinaryOp::Rem,
+                        _ => unreachable!(),
+                    };
+                    (op, 11, 12)
+                }
+                _ => break,
+            };
+            if lbp < min_bp { break; }
+            self.advance();
+            let rhs = self.parse_expr_no_postfix_bp(rbp)?;
+            let span = lhs.span().merge(rhs.span());
+            lhs = Expr::Binary(BinaryExpr {
+                span, op, left: Box::new(lhs), right: Box::new(rhs),
+            });
+        }
+        Ok(lhs)
+    }
+
     fn parse_pratt(&mut self, min_bp: u8) -> Result<Expr, Span> {
         let mut lhs = self.parse_prefix()?;
         loop {
@@ -488,7 +534,7 @@ impl<'a> Parser<'a> {
 
     fn parse_if(&mut self) -> Result<Expr, Span> {
         let start = self.advance().start; // if
-        let condition = self.parse_expr();
+        let condition = self.parse_expr_no_postfix()?;
         let then_branch = self.parse_block()?;
         self.expect(TokenKind::Else)?;
         let else_branch = self.parse_block()?;
@@ -502,7 +548,7 @@ impl<'a> Parser<'a> {
 
     fn parse_match(&mut self) -> Result<Expr, Span> {
         let start = self.advance().start;
-        let scrutinee = self.parse_expr();
+        let scrutinee = self.parse_expr_no_postfix()?;
         self.expect(TokenKind::LBrace)?;
         let mut arms = Vec::new();
         while !self.check(TokenKind::RBrace) && !self.is_eof() {
