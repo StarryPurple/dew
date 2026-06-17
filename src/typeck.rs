@@ -34,6 +34,7 @@ pub struct TypeChecker<'a> {
     affine_types: HashMap<String, Affinity>,
     consumed: HashMap<String, bool>,
     var_affine_hint: HashMap<String, bool>,
+    enum_variants: HashMap<String, Vec<String>>,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -48,6 +49,7 @@ impl<'a> TypeChecker<'a> {
             affine_types: HashMap::new(),
             consumed: HashMap::new(),
             var_affine_hint: HashMap::new(),
+            enum_variants: HashMap::new(),
         }
     }
 
@@ -365,6 +367,9 @@ impl<'a> TypeChecker<'a> {
                 self.consumed.insert(ident.name.clone(), true);
             }
         }
+
+        // E005: non-exhaustive match check
+        self.check_exhaustiveness(&scrutinee_ty, &m.arms, m.span);
 
         for arm in &m.arms {
             self.infer_pattern(&arm.pattern, &scrutinee_ty);
@@ -705,6 +710,32 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn check_exhaustiveness(&mut self, scrutinee_ty: &Ty, arms: &[MatchArm], span: Span) {
+        let enum_name = match scrutinee_ty {
+            Ty::Named(n, _) => n.clone(),
+            _ => return, // int/bool/char matches don't use enum exhaustiveness
+        };
+        let Some(variants) = self.enum_variants.get(&enum_name) else { return };
+        // Has wildcard arm → always exhaustive
+        if arms.iter().any(|a| matches!(a.pattern, Pattern::Wildcard(_))) { return; }
+        // Collect covered variant names (Variant patterns + Var patterns that match variant names)
+        let covered: Vec<&str> = arms.iter().filter_map(|a| match &a.pattern {
+            Pattern::Variant(vp) => Some(vp.name.name.as_str()),
+            Pattern::Struct(sp) => Some(sp.name.name.as_str()),
+            Pattern::Var(ip) => {
+                if variants.contains(&ip.name) { Some(ip.name.as_str()) } else { None }
+            }
+            _ => None,
+        }).collect();
+        for v in variants {
+            if !covered.contains(&v.as_str()) {
+                self.diag.error("E005",
+                    format!("non-exhaustive match: variant '{}' of enum '{}' is not covered", v, enum_name),
+                    Some(span));
+            }
+        }
+    }
+
     fn register_enum(&mut self, e: &EnumDecl) {
         let arity = e.params.len();
         let param_vars: Vec<Ty> = (0..arity).map(|i| Ty::Var(TypeVar(2000 + i))).collect();
@@ -718,13 +749,16 @@ impl<'a> TypeChecker<'a> {
         }
 
         let enum_name = e.name.name.clone();
+        let mut variant_names = Vec::new();
         for variant in &e.variants {
             let vname = match variant {
                 Variant::Single { name, .. } | Variant::Struct { name, .. } | Variant::Unit { name, .. } => name,
             };
+            variant_names.push(vname.name.clone());
             let variant_ty = Ty::Named(enum_name.clone(), param_vars.clone());
             self.env.insert(vname.name.clone(), Scheme { vars: Vec::new(), ty: variant_ty });
         }
+        self.enum_variants.insert(enum_name, variant_names);
     }
 }
 

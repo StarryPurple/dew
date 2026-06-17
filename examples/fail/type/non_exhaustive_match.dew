@@ -1,0 +1,10 @@
+// expect error: [E005]
+// Non-exhaustive match on enum — missing a variant arm.
+enum Color { Red, Green, Blue }
+def to_int = fn(c: Color) -> Int {
+  match c {
+    Red => 0,
+    Green => 1,
+  }
+};
+def main = fn { to_int(Blue) -> stdout; };
