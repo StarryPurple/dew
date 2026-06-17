@@ -317,8 +317,11 @@ impl<'a> IrGenerator<'a> {
                                     (CallTarget::Static(ident.name.clone()), ret)
                                 }
                             } else {
-                                // Forward reference — assume static
-                                (CallTarget::Static(ident.name.clone()), IrType::Int)
+                                let ret = self.module.fns.iter()
+                                    .find(|f| f.name == ident.name)
+                                    .map(|f| f.return_type.clone())
+                                    .unwrap_or(IrType::Int);
+                                (CallTarget::Static(ident.name.clone()), ret)
                             }
                         }
                         _ => (CallTarget::Dynamic(0), IrType::Int),
