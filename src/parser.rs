@@ -669,33 +669,31 @@ impl<'a> Parser<'a> {
             };
         }
 
-        let mut body = self.parse_expr();
-        // If postfix consumed IIFE args (Call(Block, args)), extract them.
-        // parse_expr() inside a fn body can greedily parse fn{body}(args) as
-        // Call(Block{body}, args). We need the Call at the Fn level.
-        let iife_args: Option<Vec<ExprArg>> = if let Expr::Call(c) = &body {
-            if matches!(&*c.func, Expr::Block(_)) {
-                let args = c.args.clone();
-                body = (*c.func).clone();
-                Some(args)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        let span = Span { start, end: start, line: 0, col: start }.merge(body.span());
+        let body = self.parse_expr();
+        // parse_expr() greedily consumes IIFE args and pipelines.
+        // {body}(args) -> f becomes Pipeline(Call(Block{body}, args), f).
+        // Extract the Block, args, and pipeline func for reconstruction.
+        let (inner_body, iife_args, outer_pipe) = extract_iife(&body);
+
+        let span = Span { start, end: start, line: 0, col: start }.merge(inner_body.span());
         let fn_expr = Expr::Fn(FnExpr {
-            span, params, return_ty, body: Box::new(body),
+            span, params, return_ty, body: Box::new(inner_body),
         });
-        match iife_args {
-            Some(args) => Ok(Expr::Call(CallExpr {
-                span: fn_expr.span().merge(
-                    self.tokens.get(self.pos).map(|t| t.span).unwrap_or(fn_expr.span())),
+        let result = match iife_args {
+            Some(args) => Expr::Call(CallExpr {
+                span: fn_expr.span(),
                 func: Box::new(fn_expr),
                 args,
+            }),
+            None => fn_expr,
+        };
+        match outer_pipe {
+            Some(f) => Ok(Expr::Pipeline(PipelineExpr {
+                span: result.span().merge(f.span()),
+                value: Box::new(result),
+                func: f,
             })),
-            None => Ok(fn_expr),
+            None => Ok(result),
         }
     }
 
@@ -1400,6 +1398,29 @@ mod tests {
             _ => panic!("expected Enum"),
         }
     }
+}
+
+/// Extract IIFE structure from a parsed function body.
+/// Returns (inner_body, iife_args, outer_pipeline_func).
+fn extract_iife(body: &Expr) -> (Expr, Option<Vec<ExprArg>>, Option<Box<Expr>>) {
+    // Case 1: Pipeline(Call(Block{body}, args), func) — {body}(args) -> func
+    if let Expr::Pipeline(p) = body {
+        if let Expr::Call(c) = &*p.value {
+            if matches!(&*c.func, Expr::Block(_)) {
+                let inner = (*c.func).clone();
+                return (inner, Some(c.args.clone()), Some(p.func.clone()));
+            }
+        }
+    }
+    // Case 2: Call(Block{body}, args) — {body}(args)
+    if let Expr::Call(c) = body {
+        if matches!(&*c.func, Expr::Block(_)) {
+            let inner = (*c.func).clone();
+            return (inner, Some(c.args.clone()), None);
+        }
+    }
+    // No IIFE pattern found
+    (body.clone(), None, None)
 }
 
 trait IsDummy {
