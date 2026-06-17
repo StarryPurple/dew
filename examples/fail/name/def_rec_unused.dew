@@ -1,0 +1,4 @@
+// expect error: [W006]
+// def rec that never references itself — unnecessary recursion marker.
+def rec x = 42;
+def main = fn { x -> stdout; };

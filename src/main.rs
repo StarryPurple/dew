@@ -60,6 +60,9 @@ fn run_file(path: &str, emit_text: bool, emit_json: bool, use_llvm: bool) -> Res
         diag.emit_all(&src);
         return Ok(1);
     }
+    if diag.has_warnings() {
+        diag.emit_all(&src);
+    }
 
     if emit_json {
         println!("{}", serde_json::to_string_pretty(&module).map_err(|e| format!("json: {}", e))?);

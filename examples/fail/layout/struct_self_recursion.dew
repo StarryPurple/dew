@@ -1,5 +1,4 @@
-// expect error: [E003]
-// Struct with self-recursive type: causes type mismatch when used wrong.
+// expect error: [E008]
+// Struct with self-referential field causes infinite layout.
 struct Node { value: Int, next: Node }
-def sub = fn(x: Node) -> Int { x.value + true };
 def main = fn { 42 -> stdout; };

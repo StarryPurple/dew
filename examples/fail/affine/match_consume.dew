@@ -1,0 +1,14 @@
+// expect error: [E004]
+// Affine enum consumed by match, cannot be used after.
+affine enum Option { Some(Int), None }
+def main = fn {
+  def opt = Some(42);
+  match opt {
+    Some(v) => v,
+    None => 0,
+  };
+  match opt {
+    Some(v) => v,
+    None => 0,
+  } -> stdout;
+};

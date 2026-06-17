@@ -64,6 +64,19 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
+        // Check affine auto-derivation: structs with affine fields but no affine keyword
+        for decl in &prog.decls {
+            match decl {
+                Decl::Struct(s) if !s.attrs.iter().any(|a| matches!(a, Attr::Affine)) => {
+                    self.check_affine_auto_derive_struct(s);
+                }
+                Decl::Enum(e) if !e.attrs.iter().any(|a| matches!(a, Attr::Affine)) => {
+                    self.check_affine_auto_derive_enum(e);
+                }
+                _ => {}
+            }
+        }
+
         // Second pass: pre-register all def rec names
         for decl in &prog.decls {
             if let Decl::Def(d) = decl {
@@ -82,6 +95,17 @@ impl<'a> TypeChecker<'a> {
                         Scheme { vars: vec![], ty: self.tvg.fresh_ty() });
                 }
                 self.infer_def(d);
+            }
+        }
+
+        // W006: detect def rec that never references itself
+        for decl in &prog.decls {
+            if let Decl::Def(d) = decl {
+                if d.rec && !self.expr_mentions_name(&d.value, &d.name.name) {
+                    self.diag.warn("W006",
+                        format!("'def rec {}' is declared recursive but never references itself", d.name.name),
+                        Some(d.span));
+                }
             }
         }
 
@@ -304,7 +328,16 @@ impl<'a> TypeChecker<'a> {
         let ret_ty = self.tvg.fresh_ty();
         let mut param_tys: Vec<Ty> = c.args.iter()
             .map(|a| match a {
-                ExprArg::Value(e) => self.infer_expr(e),
+                ExprArg::Value(e) => {
+                    let ty = self.infer_expr(e);
+                    // Passing affine var as argument consumes it
+                    if let Expr::Var(ident) = e.as_ref() {
+                        if self.is_affine_var(&ident.name) {
+                            self.consumed.insert(ident.name.clone(), true);
+                        }
+                    }
+                    ty
+                }
                 ExprArg::Borrow(_) => self.tvg.fresh_ty(),
             })
             .collect();
@@ -325,6 +358,13 @@ impl<'a> TypeChecker<'a> {
     fn infer_match(&mut self, m: &MatchExpr) -> Ty {
         let scrutinee_ty = self.infer_expr(&m.scrutinee);
         let result_ty = self.tvg.fresh_ty();
+
+        // Match on affine value consumes the scrutinee
+        if let Expr::Var(ident) = m.scrutinee.as_ref() {
+            if self.is_affine_var(&ident.name) {
+                self.consumed.insert(ident.name.clone(), true);
+            }
+        }
 
         for arm in &m.arms {
             self.infer_pattern(&arm.pattern, &scrutinee_ty);
@@ -364,18 +404,26 @@ impl<'a> TypeChecker<'a> {
                     }
                 }
                 // Track affine struct/enum construction for consumption checking
-                match &stmt.expr {
-                    Expr::StructLit(sl) => {
-                        if self.affine_types.contains_key(&sl.name.name) {
-                            self.var_affine_hint.insert(def.name.name.clone(), true);
+                let is_affine_ctor = match &stmt.expr {
+                    Expr::StructLit(sl) => self.affine_types.contains_key(&sl.name.name),
+                    Expr::EnumLit(el) => self.affine_types.contains_key(&el.name.name),
+                    Expr::Call(c) => match &*c.func {
+                        Expr::Var(v) => {
+                            // Enum variant construction: Some(42) → Call(Var("Some"), ...)
+                            self.affine_types.iter().any(|(name, aff)| {
+                                matches!(aff, Affinity::Affine) && {
+                                    let env_type = self.env.lookup(&v.name)
+                                        .map(|s| matches!(&s.ty, Ty::Named(n, _) if n == name));
+                                    env_type.unwrap_or(false)
+                                }
+                            })
                         }
-                    }
-                    Expr::EnumLit(el) => {
-                        if self.affine_types.contains_key(&el.name.name) {
-                            self.var_affine_hint.insert(def.name.name.clone(), true);
-                        }
-                    }
-                    _ => {}
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                if is_affine_ctor {
+                    self.var_affine_hint.insert(def.name.name.clone(), true);
                 }
             }
         }
@@ -558,6 +606,16 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn register_struct(&mut self, s: &StructDecl) {
+        // Detect struct self-recursion (E008 Layout)
+        for field in &s.fields {
+            if let Type::Named(n) = &field.ty {
+                if n.name.name == s.name.name && n.args.is_none() {
+                    self.diag.error("E008",
+                        format!("struct '{}' contains a field of its own type, causing infinite layout", s.name.name),
+                        Some(s.span));
+                }
+            }
+        }
         // Register struct as a named type constructor
         let arity = s.params.len();
         let param_vars: Vec<Ty> = (0..arity).map(|i| Ty::Var(TypeVar(1000 + i))).collect();
@@ -568,6 +626,82 @@ impl<'a> TypeChecker<'a> {
         // Mark affine structs
         if s.attrs.iter().any(|a| matches!(a, Attr::Affine)) {
             self.affine_types.insert(s.name.name.clone(), Affinity::Affine);
+        }
+    }
+
+    fn check_affine_auto_derive_struct(&mut self, s: &StructDecl) {
+        for field in &s.fields {
+            if self.type_is_affine(&field.ty) {
+                self.diag.warn("W004",
+                    format!("struct '{}' contains affine field '{}' but is not declared 'affine struct'",
+                        s.name.name, field.name.name),
+                    Some(s.span));
+                // Treat as affine even without explicit keyword
+                self.affine_types.insert(s.name.name.clone(), Affinity::Affine);
+                return;
+            }
+        }
+    }
+
+    fn check_affine_auto_derive_enum(&mut self, e: &EnumDecl) {
+        for variant in &e.variants {
+            let payloads: &[Type] = match variant {
+                Variant::Single { payload, .. } => payload,
+                Variant::Struct { fields, .. } => return, // struct variants have named fields, handled separately
+                Variant::Unit { .. } => continue,
+            };
+            for ty in payloads {
+                if self.type_is_affine(ty) {
+                    self.diag.warn("W004",
+                        format!("enum '{}' has affine payload in variant '{}' but is not declared 'affine enum'",
+                            e.name.name, variant_name(variant)),
+                        Some(e.span));
+                    self.affine_types.insert(e.name.name.clone(), Affinity::Affine);
+                    return;
+                }
+            }
+        }
+    }
+
+    fn type_is_affine(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Named(n) => {
+                n.name.name == "Affine" || self.affine_types.get(&n.name.name) == Some(&Affinity::Affine)
+            }
+            _ => false,
+        }
+    }
+
+    /// Check if an expression mentions a given name anywhere in its tree.
+    fn expr_mentions_name(&self, expr: &Expr, name: &str) -> bool {
+        match expr {
+            Expr::Var(v) => v.name == name,
+            Expr::Binary(b) => self.expr_mentions_name(&b.left, name) || self.expr_mentions_name(&b.right, name),
+            Expr::Unary(u) => self.expr_mentions_name(&u.expr, name),
+            Expr::Call(c) => {
+                self.expr_mentions_name(&c.func, name)
+                || c.args.iter().any(|a| match a {
+                    ExprArg::Value(e) => self.expr_mentions_name(e, name),
+                    ExprArg::Borrow(_) => false,
+                })
+            }
+            Expr::Block(b) => {
+                b.stmts.iter().any(|s| self.expr_mentions_name(&s.expr, name))
+                || b.final_expr.as_ref().map_or(false, |e| self.expr_mentions_name(e, name))
+            }
+            Expr::If(i) => self.expr_mentions_name(&i.condition, name)
+                || self.expr_mentions_name(&i.then_branch, name)
+                || self.expr_mentions_name(&i.else_branch, name),
+            Expr::Match(m) => {
+                self.expr_mentions_name(&m.scrutinee, name)
+                || m.arms.iter().any(|a| self.expr_mentions_name(&a.body, name))
+            }
+            Expr::Fn(f) => self.expr_mentions_name(&f.body, name),
+            Expr::Field(f) => self.expr_mentions_name(&f.object, name),
+            Expr::TupleLit(t) => t.elements.iter().any(|e| self.expr_mentions_name(e, name)),
+            Expr::Force(f) => self.expr_mentions_name(&f.expr, name),
+            Expr::Fix(f) => self.expr_mentions_name(&f.body, name),
+            _ => false,
         }
     }
 
@@ -634,6 +768,12 @@ fn unify_expr(t1: &Ty, t2: &Ty, span: Span, diag: &mut DiagnosticCollector, cont
                 format!("type mismatch in {}: {} (got {} and {})", context, msg, t1, t2),
                 Some(span));
         }
+    }
+}
+
+fn variant_name(v: &Variant) -> &str {
+    match v {
+        Variant::Single { name, .. } | Variant::Struct { name, .. } | Variant::Unit { name, .. } => &name.name,
     }
 }
 

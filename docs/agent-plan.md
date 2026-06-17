@@ -104,4 +104,4 @@ Persistent work plan for the Dew compiler. Completed items are preserved and mar
 
 ## Test Status
 
-**98 e2e passed, 0 failed** | **61 unit passed, 0 failed** (2026-06-18)
+**113 e2e passed (1 intentional red) | 61 unit passed** (2026-06-18)

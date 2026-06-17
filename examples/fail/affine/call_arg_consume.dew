@@ -1,0 +1,9 @@
+// expect error: [E004]
+// Affine value consumed when passed as function argument.
+affine struct Token { value: Int }
+def consume = fn(t: Token) -> Int { t.value }
+def main = fn {
+  def tok = Token { value: 42 };
+  consume(tok);
+  consume(tok);
+};

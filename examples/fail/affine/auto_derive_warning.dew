@@ -1,0 +1,5 @@
+// expect error: [W004]
+// Struct with affine field but no affine keyword — triggers W004 auto-derivation warning.
+affine struct Token { value: Int }
+struct Container { t: Token }
+def main = fn { 42 -> stdout; };
