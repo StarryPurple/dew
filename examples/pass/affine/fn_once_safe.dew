@@ -1,0 +1,10 @@
+// expect: 42
+// Tier: Medium
+// Feature: FnOnce, closure capture, affine, safe single call
+// Closure capturing affine value, called once — safe.
+affine struct Token { value: Int }
+def main = fn {
+  def tok = Token { value: 42 };
+  def read = fn { tok.value };
+  read() -> stdout;
+};

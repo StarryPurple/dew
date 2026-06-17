@@ -35,6 +35,8 @@ pub struct TypeChecker<'a> {
     consumed: HashMap<String, bool>,
     var_affine_hint: HashMap<String, bool>,
     enum_variants: HashMap<String, Vec<String>>,
+    fn_once_closures: HashMap<String, bool>,
+    fn_once_called: HashMap<String, bool>,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -50,6 +52,8 @@ impl<'a> TypeChecker<'a> {
             consumed: HashMap::new(),
             var_affine_hint: HashMap::new(),
             enum_variants: HashMap::new(),
+            fn_once_closures: HashMap::new(),
+            fn_once_called: HashMap::new(),
         }
     }
 
@@ -313,6 +317,15 @@ impl<'a> TypeChecker<'a> {
                     }
                 }
             }
+            // FnOnce check: closure with affine captures called more than once
+            if self.fn_once_closures.get(&ident.name) == Some(&true) {
+                if self.fn_once_called.get(&ident.name) == Some(&true) {
+                    self.diag.error("E004",
+                        format!("FnOnce closure '{}' called more than once (captures affine value)", ident.name),
+                        Some(c.span));
+                }
+                self.fn_once_called.insert(ident.name.clone(), true);
+            }
         }
         let func_ty = self.infer_expr(&c.func);
         if let Ty::Named(_, _) = &func_ty {
@@ -407,22 +420,24 @@ impl<'a> TypeChecker<'a> {
                     Expr::StructLit(sl) => self.affine_types.contains_key(&sl.name.name),
                     Expr::EnumLit(el) => self.affine_types.contains_key(&el.name.name),
                     Expr::Call(c) => match &*c.func {
-                        Expr::Var(v) => {
-                            // Enum variant construction: Some(42) → Call(Var("Some"), ...)
-                            self.affine_types.iter().any(|(name, aff)| {
-                                matches!(aff, Affinity::Affine) && {
-                                    let env_type = self.env.lookup(&v.name)
-                                        .map(|s| matches!(&s.ty, Ty::Named(n, _) if n == name));
-                                    env_type.unwrap_or(false)
-                                }
-                            })
-                        }
+                        Expr::Var(v) => self.affine_types.iter().any(|(name, aff)| {
+                            *aff == Affinity::Affine
+                                && self.env.lookup(&v.name)
+                                    .map(|s| matches!(&s.ty, Ty::Named(n, _) if n == name))
+                                    .unwrap_or(false)
+                        }),
                         _ => false,
                     },
                     _ => false,
                 };
                 if is_affine_ctor {
                     self.var_affine_hint.insert(def.name.name.clone(), true);
+                }
+                // FnOnce detection: closure capturing affine variables
+                if let Expr::Fn(fn_expr) = &stmt.expr {
+                    if self.fn_captures_affine(fn_expr) {
+                        self.fn_once_closures.insert(def.name.name.clone(), true);
+                    }
                 }
             }
         }
@@ -660,6 +675,44 @@ impl<'a> TypeChecker<'a> {
                 }
             }
         }
+    }
+
+    /// Check if a function expression captures any affine variable from the outer scope.
+    fn fn_captures_affine(&self, f: &FnExpr) -> bool {
+        let param_names: std::collections::HashSet<&str> =
+            f.params.iter().map(|p| p.name.name.as_str()).collect();
+        fn collect_captures(expr: &Expr, bound: &std::collections::HashSet<&str>,
+                             fvs: &mut std::collections::HashSet<String>) {
+            match expr {
+                Expr::Var(v) => {
+                    if !bound.contains(v.name.as_str())
+                        && v.name != "stdout" && v.name != "stdin" {
+                        fvs.insert(v.name.clone());
+                    }
+                }
+                Expr::Binary(b) => { collect_captures(&b.left, bound, fvs); collect_captures(&b.right, bound, fvs); }
+                Expr::Call(c) => {
+                    collect_captures(&c.func, bound, fvs);
+                    for arg in &c.args {
+                        if let ExprArg::Value(e) = arg { collect_captures(e, bound, fvs); }
+                    }
+                }
+                Expr::Block(b) => {
+                    let mut inner_bound = bound.clone();
+                    for stmt in &b.stmts {
+                        if let Some(def) = &stmt.def { inner_bound.insert(def.name.name.as_str()); }
+                    }
+                    for stmt in &b.stmts { collect_captures(&stmt.expr, &inner_bound, fvs); }
+                    if let Some(fe) = &b.final_expr { collect_captures(fe, &inner_bound, fvs); }
+                }
+                Expr::Field(f) => { collect_captures(&f.object, bound, fvs); }
+                Expr::If(i) => { collect_captures(&i.condition, bound, fvs); collect_captures(&i.then_branch, bound, fvs); collect_captures(&i.else_branch, bound, fvs); }
+                _ => {}
+            }
+        }
+        let mut fvs = std::collections::HashSet::new();
+        collect_captures(&f.body, &param_names, &mut fvs);
+        fvs.iter().any(|name| self.is_affine_var(name))
     }
 
     fn type_is_affine(&self, ty: &Type) -> bool {

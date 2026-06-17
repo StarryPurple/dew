@@ -1,0 +1,11 @@
+// expect error: [E004]
+// Tier: Medium
+// Feature: FnOnce, affine capture, double call detection
+// Closure capturing affine value, called twice — E004 error.
+affine struct Token { value: Int }
+def main = fn {
+  def tok = Token { value: 42 };
+  def read = fn { tok.value };
+  read();
+  read();
+};

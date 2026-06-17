@@ -144,9 +144,19 @@ fn eval_instr(
             frame.set(*r, Value::Bool(va > vb));
         }
         Instr::Le(r, a, b) => {
-            let va = frame.get(*a).compare_key().unwrap_or(0);
-            let vb = frame.get(*b).compare_key().unwrap_or(0);
+            let va = frame.get(*a).as_int().unwrap_or(0);
+            let vb = frame.get(*b).as_int().unwrap_or(0);
             frame.set(*r, Value::Bool(va <= vb));
+        }
+        Instr::Lambda(r, fn_name, captures) => {
+            let mut cap_values = Vec::new();
+            for cap_reg in captures {
+                cap_values.push(frame.get(*cap_reg).clone());
+            }
+            frame.set(*r, Value::Closure(ClosureValue {
+                fn_name: fn_name.clone(),
+                captures: cap_values,
+            }));
         }
         Instr::Ge(r, a, b) => {
             let va = frame.get(*a).compare_key().unwrap_or(0);
@@ -188,7 +198,26 @@ fn eval_instr(
                     let result = eval_fn(callee, fns, thunks, types, &mut callee_frame, runtime)?;
                     frame.set(*r, result);
                 }
-                CallTarget::Dynamic(_) => return Err("dynamic call not yet supported".into()),
+                CallTarget::Dynamic(reg) => {
+                    let closure = match frame.get(*reg) {
+                        Value::Closure(cv) => cv.clone(),
+                        _ => return Err("dynamic call target is not a closure".into()),
+                    };
+                    let callee = fns.iter().find(|f| f.name == closure.fn_name)
+                        .ok_or(format!("closure fn '{}' not found", closure.fn_name))?;
+                    let mut callee_frame = EvalFrame::new();
+                    let original_param_count = callee.params.len() - closure.captures.len();
+                    // Set call arguments (original params)
+                    for (i, arg_reg) in args.iter().enumerate() {
+                        callee_frame.set(i, frame.get(*arg_reg).clone());
+                    }
+                    // Set captured values after original params
+                    for (i, cap_val) in closure.captures.iter().enumerate() {
+                        callee_frame.set(original_param_count + i, cap_val.clone());
+                    }
+                    let result = eval_fn(callee, fns, thunks, types, &mut callee_frame, runtime)?;
+                    frame.set(*r, result);
+                }
             }
         }
         Instr::Force(r, target) => {

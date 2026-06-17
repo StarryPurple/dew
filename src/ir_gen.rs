@@ -18,6 +18,7 @@ pub struct IrGenerator<'a> {
     module: Module,
     next_reg: usize,
     next_label: usize,
+    next_closure: usize,
     var_map: std::collections::HashMap<String, usize>,
     thunk_names: std::collections::HashSet<String>,
     extra_blocks: Vec<BasicBlock>,
@@ -32,6 +33,7 @@ impl<'a> IrGenerator<'a> {
             module: Module::new(),
             next_reg: 0,
             next_label: 0,
+            next_closure: 0,
             var_map: std::collections::HashMap::new(),
             thunk_names: std::collections::HashSet::new(),
             extra_blocks: Vec::new(),
@@ -301,17 +303,26 @@ impl<'a> IrGenerator<'a> {
                         }
                     }
                     let result_r = self.fresh_reg();
-                    let fn_name = match &*c.func {
-                        Expr::Var(ident) => Some(ident.name.clone()),
-                        _ => None,
+                    let (target, ret_ty) = match &*c.func {
+                        Expr::Var(ident) => {
+                            // If var is in var_map (closure), use Dynamic call
+                            if let Some(&reg) = self.var_map.get(&ident.name) {
+                                if !self.module.fns.iter().any(|f| f.name == ident.name) {
+                                    (CallTarget::Dynamic(reg), IrType::Int)
+                                } else {
+                                    let ret = self.module.fns.iter()
+                                        .find(|f| f.name == ident.name)
+                                        .map(|f| f.return_type.clone())
+                                        .unwrap_or(IrType::Int);
+                                    (CallTarget::Static(ident.name.clone()), ret)
+                                }
+                            } else {
+                                // Forward reference — assume static
+                                (CallTarget::Static(ident.name.clone()), IrType::Int)
+                            }
+                        }
+                        _ => (CallTarget::Dynamic(0), IrType::Int),
                     };
-                    let target = fn_name.clone()
-                        .map(CallTarget::Static)
-                        .unwrap_or(CallTarget::Dynamic(0));
-                    let ret_ty = fn_name.as_ref()
-                        .and_then(|n| self.module.fns.iter().find(|f| f.name == *n))
-                        .map(|f| f.return_type.clone())
-                        .unwrap_or(IrType::Int);
                     block.instrs.push(Instr::Call(result_r, target, arg_regs, ret_ty.clone()));
                     // Track return type so Field can resolve tuple element types
                     if let IrType::Tuple(elements) = &ret_ty {
@@ -349,10 +360,7 @@ impl<'a> IrGenerator<'a> {
                 last_reg
             }
 
-            Expr::Fn(_f) => {
-                self.diag.error("E003", "nested fn not yet supported in IR gen", None);
-                0
-            }
+            Expr::Fn(f) => self.compile_closure(f, block),
 
             Expr::Match(m) => {
                 self.compile_match(m, block)
@@ -514,6 +522,71 @@ impl<'a> IrGenerator<'a> {
         block.terminator = Terminator::Ret(result_reg);
         blocks.append(&mut self.extra_blocks);
         blocks.push(block.clone());
+    }
+
+    fn compile_closure(&mut self, f: &FnExpr, block: &mut BasicBlock) -> usize {
+        // Find free variables: vars used in body but not params or locally defined
+        let param_names: std::collections::HashSet<&str> =
+            f.params.iter().map(|p| p.name.name.as_str()).collect();
+        let free_vars = collect_free_vars(&f.body, &param_names);
+
+        // Generate unique closure name
+        let closure_name = format!("@closure_{}", self.next_closure);
+        self.next_closure += 1;
+
+        // Build Fn IR: params = original params + captured vars
+        let mut all_params: Vec<(usize, IrType)> = f.params.iter().enumerate()
+            .map(|(i, p)| (i, p.ty.as_ref().map(|t| self.ast_ty_to_ir(t)).unwrap_or(IrType::Int)))
+            .collect();
+        let capture_start = all_params.len();
+
+        // Resolve capture registers from outer scope BEFORE saving var_map
+        let mut lambda_captures: Vec<usize> = Vec::new();
+        for cap_name in &free_vars {
+            if let Some(&outer_reg) = self.var_map.get(cap_name) {
+                lambda_captures.push(outer_reg);
+            }
+            all_params.push((capture_start + lambda_captures.len() - 1, IrType::Int));
+        }
+
+        let return_ty = f.return_ty.as_ref().map(|t| self.ast_ty_to_ir(t)).unwrap_or(IrType::Unit);
+
+        let mut ir_fn = Fn::new(closure_name.clone(), all_params, return_ty);
+        let mut fn_block = BasicBlock::new("entry".into());
+
+        // Save IR gen state
+        let saved_var_map = self.var_map.clone();
+        let saved_reg_struct = self.reg_struct.clone();
+        let saved_tuple_types = self.tuple_elem_types.clone();
+        let saved_reg = self.next_reg;
+        let saved_extra = std::mem::take(&mut self.extra_blocks);
+
+        self.next_reg = f.params.len() + free_vars.len();
+        self.var_map.clear();
+        for (i, param) in f.params.iter().enumerate() {
+            self.var_map.insert(param.name.name.clone(), i);
+        }
+        // Map captured vars to their register slots in inner function
+        for (ci, cap_name) in free_vars.iter().enumerate() {
+            let reg = capture_start + ci;
+            self.var_map.insert(cap_name.clone(), reg);
+        }
+
+        let result_reg = self.compile_expr(&f.body, &mut fn_block);
+        self.compile_finish(&mut fn_block, &mut ir_fn.blocks, result_reg);
+
+        // Restore IR gen state
+        self.var_map = saved_var_map;
+        self.reg_struct = saved_reg_struct;
+        self.tuple_elem_types = saved_tuple_types;
+        self.next_reg = saved_reg;
+        self.extra_blocks = saved_extra;
+
+        // Emit Lambda instruction with outer-scope capture registers
+        let result_r = self.fresh_reg();
+        self.module.fns.push(ir_fn);
+        block.instrs.push(Instr::Lambda(result_r, closure_name, lambda_captures));
+        result_r
     }
 
     fn compile_match(&mut self, m: &MatchExpr, block: &mut BasicBlock) -> usize {
@@ -678,6 +751,75 @@ impl<'a> IrGenerator<'a> {
 
     fn ast_tys_to_ir_array(&self, elements: &[Expr]) -> IrType {
         IrType::Array(Box::new(IrType::Int), elements.len())
+    }
+}
+
+/// Collect free variables in an expression — all Var references that
+/// are not in the given set of locally-bound names (params, local defs).
+fn collect_free_vars(expr: &Expr, bound: &std::collections::HashSet<&str>) -> Vec<String> {
+    let mut fvs = std::collections::HashSet::new();
+    collect_free_vars_impl(expr, bound, &mut fvs);
+    let mut result: Vec<String> = fvs.into_iter().collect();
+    result.sort();
+    result
+}
+
+fn collect_free_vars_impl(expr: &Expr, bound: &std::collections::HashSet<&str>, fvs: &mut std::collections::HashSet<String>) {
+    match expr {
+        Expr::Var(v) => {
+            if !bound.contains(v.name.as_str()) && v.name != "stdout" && v.name != "stdin" {
+                fvs.insert(v.name.clone());
+            }
+        }
+        Expr::Binary(b) => { collect_free_vars_impl(&b.left, bound, fvs); collect_free_vars_impl(&b.right, bound, fvs); }
+        Expr::Unary(u) => { collect_free_vars_impl(&u.expr, bound, fvs); }
+        Expr::Call(c) => {
+            collect_free_vars_impl(&c.func, bound, fvs);
+            for arg in &c.args {
+                if let ExprArg::Value(e) = arg { collect_free_vars_impl(e, bound, fvs); }
+            }
+        }
+        Expr::Block(b) => {
+            // Collect locally-bound names from defs in this block
+            let mut inner_bound = bound.clone();
+            for stmt in &b.stmts {
+                if let Some(def) = &stmt.def { inner_bound.insert(def.name.name.as_str()); }
+            }
+            for stmt in &b.stmts { collect_free_vars_impl(&stmt.expr, &inner_bound, fvs); }
+            if let Some(fe) = &b.final_expr { collect_free_vars_impl(fe, &inner_bound, fvs); }
+        }
+        Expr::If(i) => { collect_free_vars_impl(&i.condition, bound, fvs); collect_free_vars_impl(&i.then_branch, bound, fvs); collect_free_vars_impl(&i.else_branch, bound, fvs); }
+        Expr::Match(m) => {
+            collect_free_vars_impl(&m.scrutinee, bound, fvs);
+            for arm in &m.arms { collect_free_vars_impl(&arm.body, bound, fvs); }
+        }
+        Expr::Fn(f) => {
+            let mut inner_bound = bound.clone();
+            for p in &f.params { inner_bound.insert(p.name.name.as_str()); }
+            collect_free_vars_impl(&f.body, &inner_bound, fvs);
+        }
+        Expr::Field(f) => { collect_free_vars_impl(&f.object, bound, fvs); }
+        Expr::Force(f) => { collect_free_vars_impl(&f.expr, bound, fvs); }
+        Expr::Fix(f) => {
+            let mut inner_bound = bound.clone();
+            inner_bound.insert(f.loop_var.name.as_str());
+            collect_free_vars_impl(&f.body, &inner_bound, fvs);
+        }
+        Expr::TupleLit(t) => { for e in &t.elements { collect_free_vars_impl(e, bound, fvs); } }
+        Expr::StructLit(s) => { for f in &s.fields { if let Some(v) = &f.value { collect_free_vars_impl(v, bound, fvs); } } }
+        Expr::ArrayLit(a) => { for e in &a.elements { collect_free_vars_impl(e, bound, fvs); } }
+        Expr::ArrayFill(a) => { collect_free_vars_impl(&a.value, bound, fvs); }
+        Expr::Update(u) => {
+            collect_free_vars_impl(&u.base, bound, fvs);
+            for uf in &u.updates {
+                match uf {
+                    UpdateField::NamedField { value, .. } | UpdateField::ArrayIndex { value, .. } | UpdateField::TupleIndex { value, .. } => {
+                        collect_free_vars_impl(value, bound, fvs);
+                    }
+                }
+            }
+        }
+        _ => {} // literals, unit — no free vars
     }
 }
 
