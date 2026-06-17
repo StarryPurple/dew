@@ -13,6 +13,7 @@ use dew::strictness;
 use dew::ir::display;
 use dew::ir_gen::IrGenerator;
 use dew::backend;
+use dew::ast::{Decl, Program};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -100,6 +101,9 @@ fn run_eval(expr: &str) -> Result<i32, String> {
         diag.emit_all(&src);
         return Ok(1);
     }
+    if diag.has_warnings() {
+        diag.emit_all(&src);
+    }
     backend::eval::run(&module).map_err(|e| format!("eval: {}", e))?;
     Ok(0)
 }
@@ -134,10 +138,13 @@ fn run_repl() -> Result<i32, String> {
         };
 
         let (module, diag) = compile(&src)?;
-        if diag.has_errors() {
-            diag.emit_all(&src);
-            continue;
-        }
+    if diag.has_errors() {
+        diag.emit_all(&src);
+        return Ok(1);
+    }
+    if diag.has_warnings() {
+        diag.emit_all(&src);
+    }
         backend::eval::run(&module).map_err(|e| format!("eval: {}", e))?;
     }
     Ok(0)
@@ -163,12 +170,54 @@ fn load_stdlib() -> Result<String, String> {
     Ok(src)
 }
 
+fn expand_imports(prog: Program, diag: &mut DiagnosticCollector) -> Result<Program, String> {
+    use std::collections::HashSet;
+    let mut expanded = Vec::new();
+    let mut visited: HashSet<String> = HashSet::new();
+    expand_decls(&prog.decls, &mut expanded, &mut visited, diag)?;
+    Ok(Program { decls: expanded, span: prog.span })
+}
+
+fn expand_decls(
+    decls: &[Decl],
+    out: &mut Vec<Decl>,
+    visited: &mut std::collections::HashSet<String>,
+    diag: &mut DiagnosticCollector,
+) -> Result<(), String> {
+    use std::path::Path;
+    for decl in decls {
+        if let Decl::Import(imp) = decl {
+            let path = Path::new(&imp.path);
+            let canonical = path.canonicalize()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| imp.path.clone());
+            if visited.contains(&canonical) {
+                diag.warn("W007", format!("circular import detected: {}", imp.path), Some(imp.span));
+                continue;
+            }
+            visited.insert(canonical.clone());
+            let content = fs::read_to_string(path)
+                .map_err(|e| format!("cannot import {}: {}", imp.path, e))?;
+            let mut lexer = Lexer::new(&content);
+            let tokens = lexer.lex_all();
+            let mut parser = Parser::new(tokens, diag, &content);
+            let imported = parser.parse_program();
+            expand_decls(&imported.decls, out, visited, diag)?;
+            visited.remove(&canonical);
+        } else {
+            out.push(decl.clone());
+        }
+    }
+    Ok(())
+}
+
 fn compile(src: &str) -> Result<(dew::ir::module::Module, DiagnosticCollector), String> {
     let mut lexer = Lexer::new(src);
     let tokens = lexer.lex_all();
     let mut diag = DiagnosticCollector::new();
     let mut parser = Parser::new(tokens, &mut diag, src);
     let prog = parser.parse_program();
+    let prog = expand_imports(prog, &mut diag)?;
     let prog = desugar_program(&prog, &mut diag);
     let mut resolver = NameResolver::new(&mut diag);
     resolver.resolve(&prog);

@@ -1,0 +1,9 @@
+// expect error: [E004]
+// Affine value consumed twice — second use of tok.value after first use.
+affine struct Token { value: Int }
+def main = fn {
+  def tok = Token { value: 42 };
+  def v = tok.value;
+  def w = tok.value;
+  v + w -> stdout;
+};

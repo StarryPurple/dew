@@ -1,0 +1,6 @@
+// expect: 42
+// Medium: default init with arithmetic and rebinding.
+def x: Int;
+def y: Int;
+def z = x + y + 42;
+def main = fn { z -> stdout; };

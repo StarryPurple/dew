@@ -1,0 +1,6 @@
+// expect: 42
+// Affine(T) wrapper from stdlib: use once, consume via field access.
+def main = fn {
+  def a = Affine { data: 42 };
+  a.data -> stdout;
+};

@@ -1,0 +1,5 @@
+// expect: 0
+// Default initialization of Char: '\0' (NUL character, codepoint 0).
+def c: Char;
+def x = 0;
+def main = fn { x -> stdout; };

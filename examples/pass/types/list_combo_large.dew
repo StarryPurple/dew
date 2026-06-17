@@ -1,0 +1,9 @@
+// expect: 25
+// Large: combine list_sum and list_length with local computation.
+def xs = Cons(1, Cons(2, Cons(3, Cons(4, Cons(5, Nil)))));
+def main = fn {
+  def s = list_sum(xs);
+  def n = list_length(xs);
+  s * n / 3 -> stdout;
+};
+// s = 15, n = 5, 15*5/3 = 25

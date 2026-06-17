@@ -95,6 +95,11 @@ impl DiagnosticCollector {
         self.diagnostics.iter().any(|d| d.severity == Severity::Error)
     }
 
+    /// Returns true if any warnings have been recorded.
+    pub fn has_warnings(&self) -> bool {
+        self.diagnostics.iter().any(|d| d.severity == Severity::Warning)
+    }
+
     /// Returns all diagnostics.
     pub fn all(&self) -> &[Diagnostic] {
         &self.diagnostics

@@ -1,0 +1,3 @@
+// Standard library — affine type wrapper.
+// Wraps any value in an affine container for at-most-once semantics.
+affine struct Affine(T) { data: T }

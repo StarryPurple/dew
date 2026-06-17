@@ -1,0 +1,10 @@
+// expect: 6
+// Medium: sum a list via recursive match.
+def xs = Cons(1, Cons(2, Cons(3, Nil)));
+def rec sum = fn(lst: List(Int)) -> Int {
+  match lst {
+    Cons(h, t) => h + sum(t),
+    Nil => 0,
+  }
+};
+def main = fn { sum(xs) -> stdout; };

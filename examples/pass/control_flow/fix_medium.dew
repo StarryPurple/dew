@@ -1,0 +1,6 @@
+// expect: 10
+// Medium: fix with countdown sum — anonymous recursion summing (0..n).
+def sum_to = fix loop { fn(n: Int) -> Int {
+  if n == 0 { 0 } else { n + loop(n - 1) }
+} };
+def main = fn { sum_to(4) -> stdout; };

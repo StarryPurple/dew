@@ -1,0 +1,9 @@
+// expect error: [E004]
+// Affine struct field consumed twice — tok consumed by first field access.
+affine struct Token { value: Int }
+def use_token = fn(t: Int) -> Int { t }
+def main = fn {
+  def tok = Token { value: 42 };
+  use_token(tok.value);
+  use_token(tok.value);
+};

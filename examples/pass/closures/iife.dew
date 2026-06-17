@@ -1,0 +1,6 @@
+// expect: 84
+// Tier: Small
+// Feature: IIFE, immediate invocation, nested function expression
+// Immediately-invoked function expression: fn(x, y) { x + y }(40, 44).
+// NOTE: currently fails — IR generator does not support nested fn yet (§5.1 spec).
+def main = fn { fn(x: Int, y: Int) -> Int { x + y }(40, 44) -> stdout; };

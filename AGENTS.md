@@ -13,6 +13,8 @@ This document is the entry point for **how we build the Dew programming language
 | [Design Docs](docs/design/README.md) | Index of all design specifications | Navigating the design documentation |
 | [Language Spec](docs/design/dew-lang.md) | Complete Dew language specification (live, single-file) | Any language design or implementation question |
 | [IR Spec](docs/design/dew-ir.md) | Thunk Graph IR specification | Implementing any compiler pass involving IR |
+| [Lang → IR Impl](docs/design/dew-lang-impl.md) | How each language feature lowers to Dew IR | Understanding the compiler pipeline for a specific feature |
+| [IR → LLVM Impl](docs/design/dew-ir-impl.md) | How Dew IR translates to LLVM IR and evaluator | Implementing backend or understanding evaluation |
 | [Rx↔Dew Interop](docs/design/rx-dew-interop.md) | Rx ↔ Dew translation rules and architecture | Working on cross-language translation |
 | [Language Design](docs/methodology/language-design.md) | How to design language features, type rules, syntax | Proposing any new feature or type system change |
 | [Compiler Engineering](docs/methodology/compiler-engineering.md) | Pipeline architecture, IR design, verification | Implementing any compiler pass or IR change |
@@ -162,19 +164,28 @@ For every language feature, write tests at three scales:
 
 | Tier | Name | Lines | Purpose |
 |------|------|-------|---------|
-| **MVP** | `feature_mvp.dew` | 2–5 | The absolute minimum: one expression, one output. Proves the feature exists at all. |
-| **Medium** | `feature_moderate.dew` | 10–30 | Exercises each sub-aspect of the feature: edge cases, variant forms, error paths. Must cover **every syntactic form and semantic rule** defined in the spec for that feature. |
+| **Small** | `feature_small.dew` | 2–8 | The minimum viable test (MVP): one expression, one output. Proves the feature exists at all. |
+| **Medium** | `feature_medium.dew` | 10–30 | Exercises each sub-aspect of the feature: edge cases, variant forms, error paths. Must cover **every syntactic form and semantic rule** defined in the spec for that feature. |
 | **Large** | `feature_integration.dew` | 30–80 | Composes the new feature with already-implemented features (functions, recursion, structs, etc.). Multiple calls, mixed contexts. Proves the feature works **in combination**, not just in isolation. |
+
+Each test file must include a header comment identifying its tier and the features it tests:
+
+```
+// expect: <output>          (pass tests)  or  // expect error: [<CODE>]  (fail tests)
+// Tier: Small | Medium | Large
+// Feature: <feature1>, <feature2>, ...
+// Brief description of what this test covers.
+```
 
 **Why three tiers:**
 
-- MVP alone is deceptive — a single-expression test passes long before the feature is truly complete (e.g., struct construction worked, but field access with nonzero indices returned wrong values).
+- Small alone is deceptive — a single-expression test passes long before the feature is truly complete (e.g., struct construction worked, but field access with nonzero indices returned wrong values).
 - Medium tests catch gaps between partial and full implementation. Write one medium test per sub-feature (e.g., `struct_construction.dew`, `struct_field_access.dew`, `struct_update.dew`).
 - Large tests catch composability bugs — features that work alone often break when combined (nested Phi predecessor tracking was invisible in single-branch tests).
 
 **Anti-patterns (do NOT do):**
 
-- One MVP test and declare the feature done.
+- One Small test and declare the feature done.
 - One giant 200-line test that's impossible to debug.
 - Tests that only exercise the happy path — every feature has edge cases listed in the spec; write a test for each.
 
@@ -184,7 +195,7 @@ Before implementing or fixing a compiler feature, check that the corresponding e
 
 When starting work on a feature:
 
-1. Check `examples/pass/` for the three-tier tests (MVP, medium, large) covering every sub-aspect of the feature.
+1. Check `examples/pass/` for the three-tier tests (Small, Medium, Large) covering every sub-aspect of the feature.
 2. Check `examples/fail/` for negative tests that should produce specific error codes.
 3. If tests are missing or incomplete, write them **from the spec only** before touching any Rust code.
 4. Run the test suite — the new tests should fail (red), proving they test unimplemented behavior.
@@ -207,6 +218,32 @@ Every implementation session must maintain a persistent work plan in [`docs/agen
 - If priorities shift, reorder the In Progress and Backlog sections, but always preserve the history
 
 The plan is the single source of truth for what to do next. No implementation should proceed without checking it first.
+
+### P8. Lazy Evaluation Behavior Tests
+
+Lazy evaluation defers computation until a thunk is forced. Since both lazy and eager evaluation produce identical output for pure expressions, output validation alone cannot verify laziness. Lazy evaluation behavior tests must verify IR-level structural differences.
+
+**Group convention.** Tests in `pass/lazy/` may be organized in sibling groups. Within a group, N `.dew` files differ only in `!` (force operator) placement. All files produce identical stdout output; their IR structures differ in thunk allocation, force instruction placement, and evaluation order.
+
+**File header format.** Each file in a group documents its relationship to sibling files:
+
+```
+// group: <group_name>
+// siblings: file_a.dew, file_b.dew
+// expect: <same_output_for_all>
+```
+
+**Validation.** The test runner (`tools/test_runner.sh`) validates output equality. IR-level verification (differences in thunk structure, force instructions) is done through `--emit=text` comparison — by manual review or a separate diff script.
+
+**Example group:**
+
+```
+pass/lazy/
+├── force_small.dew       // group: basic_force, siblings: force_small.dew, lazy_small.dew
+└── lazy_small.dew        // group: basic_force, siblings: force_small.dew, lazy_small.dew
+```
+
+Both compute `40 + 2` — `force_small` uses `!x` to force immediately; `lazy_small` lets the thunk suspend. Output is `42` for both. Their IR differs: one has `thunk @x` with `force{} @x` in `@main`; the other compiles `x` inline.
 
 ---
 

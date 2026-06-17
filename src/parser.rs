@@ -50,16 +50,18 @@ impl<'a> Parser<'a> {
     fn parse_decl_result(&mut self) -> Result<Decl, Span> {
         self.eat_attribute();
         match self.peek_kind() {
-            TokenKind::Struct | TokenKind::Affine => {
-                if self.peek_kind() == TokenKind::Affine
-                    && self.peek_ahead(1) == Some(&TokenKind::Struct)
-                {
+            TokenKind::Struct => self.parse_struct_decl(),
+            TokenKind::Enum => self.parse_enum_decl(),
+            TokenKind::Affine => {
+                if self.peek_ahead(1) == Some(&TokenKind::Struct) {
                     self.parse_struct_decl()
+                } else if self.peek_ahead(1) == Some(&TokenKind::Enum) {
+                    self.parse_enum_decl()
                 } else {
+                    // affine followed by unknown — try as struct
                     self.parse_struct_decl()
                 }
             }
-            TokenKind::Enum => self.parse_enum_decl(),
             TokenKind::Def => self.parse_def_decl(),
             TokenKind::Import => self.parse_import_decl(),
             _ => {
@@ -173,9 +175,21 @@ impl<'a> Parser<'a> {
         } else if ty.is_some() && !self.check(TokenKind::Eq) {
             // Default init: `def x: Int;`
             let end = self.expect(TokenKind::Semicolon)?.span.end;
+            let default_value = match ty.as_ref() {
+                Some(t) => match t {
+                    Type::Named(n) => match n.name.name.as_str() {
+                        "Bool" => Expr::BoolLit(BoolLit { span: Span::DUMMY, value: false }),
+                        "Char" => Expr::CharLit(CharLit { span: Span::DUMMY, value: '\0' }),
+                        "Unit" => Expr::UnitLit(Span::DUMMY),
+                        _ => Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                    },
+                    _ => Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                },
+                None => Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+            };
             return Ok(Decl::Def(DefDecl {
                 span: Span { start, end, line: 0, col: start },
-                rec, name, ty, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                rec, name, ty, value: default_value,
             }));
         } else {
             self.diag.error("E002", "expected '=' or ';' after def binding",
@@ -206,7 +220,6 @@ impl<'a> Parser<'a> {
                 Some(self.current_span()));
             return Err(self.current_span());
         };
-        self.expect(TokenKind::Semicolon)?;
         Ok(Decl::Import(path))
     }
 

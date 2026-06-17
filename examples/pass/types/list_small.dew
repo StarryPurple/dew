@@ -1,0 +1,9 @@
+// expect: 1
+// MVP: construct a three-element list and match on head.
+def xs = Cons(1, Cons(2, Cons(3, Nil)));
+def main = fn {
+  match xs {
+    Cons(h, t) => h,
+    Nil => 0,
+  } -> stdout;
+};

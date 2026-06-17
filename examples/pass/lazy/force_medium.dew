@@ -1,0 +1,8 @@
+// expect: 21
+// Medium: force operator in conditional and arithmetic contexts.
+def a = 5 + 5;              // suspended — 10
+def b = 3 + 2;              // suspended — 5
+def c = !a + !b;            // force both, add: 10 + 5 = 15
+def d = 7 * 3;              // suspended — 21
+def e = if c > 10 { !d } else { 0 };  // force d: 21
+def main = fn { e -> stdout; };

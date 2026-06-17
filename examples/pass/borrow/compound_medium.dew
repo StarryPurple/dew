@@ -1,0 +1,12 @@
+// expect: 85
+// Medium: compound lvalue with nested struct — field access via compound.
+struct Pos { x: Int, y: Int }
+struct Entity { pos: Pos, hp: Int }
+def shift = fn(&p: Pos, dx: Int, dy: Int) -> Pos {
+  &p { x = p.x + dx, y = p.y + dy }
+};
+def main = fn {
+  def e = Entity { pos: Pos { x: 40, y: 2 }, hp: 100 };
+  def new_pos = shift(&e.pos, 1, 1);
+  new_pos.x + new_pos.y + e.pos.x -> stdout;
+};

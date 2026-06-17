@@ -1,0 +1,9 @@
+// expect: 55
+// Large: force with recursive function — force lazy results in loop.
+def rec sum = fn(n: Int) -> Int {
+  if n == 0 { 0 } else { n + sum(n - 1) }
+};
+def x = sum(5);             // suspended — 15
+def y = sum(10);            // suspended — 55
+def z = !x + !y - 15;       // force both, combine: 15 + 55 - 15 = 55
+def main = fn { z -> stdout; };

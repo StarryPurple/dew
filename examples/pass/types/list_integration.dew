@@ -1,0 +1,23 @@
+// expect: 32
+// Tier: Large
+// Feature: list, enum, recursion, match, arithmetic
+// List length + sum composed with recursive functions and match.
+enum List { Cons(Int, List), Nil }
+def list_len = fn(l: List) -> Int {
+  match l {
+    Cons(h, t) => 1 + list_len(t),
+    Nil => 0,
+  }
+};
+def list_sum = fn(l: List) -> Int {
+  match l {
+    Cons(h, t) => h + list_sum(t),
+    Nil => 0,
+  }
+};
+def main = fn {
+  def xs = Cons(10, Cons(7, Cons(5, Cons(3, Cons(2, Nil)))));
+  def len = list_len(xs);
+  def sum = list_sum(xs);
+  len + sum -> stdout;
+};

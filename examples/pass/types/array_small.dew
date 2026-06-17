@@ -1,0 +1,4 @@
+// expect: 2
+// MVP: array literal and element access.
+def arr = [1, 2, 3];
+def main = fn { arr[1] -> stdout; };

@@ -62,10 +62,11 @@
   - [§10.3 Design Principles](#103-design-principles)
 - [§11 Memory Management](#11-memory-management)
 - [§12 Modules and Imports](#12-modules-and-imports)
-- [§13 (No) Error Handling](#13-no-error-handling)
+- [§13 Error Handling — Compile-Time Detection, Runtime Behavior, and Diagnostics](#13-error-handling--compile-time-detection-runtime-behavior-and-diagnostics)
   - [Compile-Time Detection](#compile-time-detection)
   - [Runtime Behavior](#runtime-behavior)
   - [Exit Codes](#exit-codes)
+  - [Diagnostic Codes](#diagnostic-codes)
 - [§14 Keywords and Built-ins](#14-keywords-and-built-ins)
   - [Keywords](#keywords)
   - [Type Modifiers](#type-modifiers)
@@ -2029,6 +2030,16 @@ stdin:  (T) -> (T, Unit)       // & sugar expands to tuple return
 stdout: (T) -> Unit            // write and return Unit
 ```
 
+**Output semantics.** `stdout` writes raw values without appending a newline. For multi-line or multi-value output, insert `'\n' -> stdout` between writes, or use the stdlib [`println`](#102-functions) function which appends a newline after the value:
+
+```dew
+42 -> stdout;           // outputs "42"
+'\n' -> stdout;          // outputs newline
+println(42);             // outputs "42\n"
+```
+
+> `stdout` intentionally does not append newlines — this gives the user full control over output formatting. A newline-adding `println` is provided in the standard library (§10.2) for convenience, built on top of `stdout`.
+
 The `&v` on `stdin` is Dew's borrow sugar (§5.5): the read value is returned as part of the result tuple, and the caller rebinds `v`:
 
 ```dew
@@ -2149,6 +2160,7 @@ The standard library provides types and functions that are not built into the la
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
+| `println` | `fn(&x: Int) { x -> stdout; '\n' -> stdout }` | Output value followed by newline |
 | `consume` | `fn(x: Affine(T)) -> T { x.data }` | Extract value from affine wrapper |
 | `map` | `(T -> U, Array(T, N)) -> Array(U, N)` | Transform array elements |
 | `map` | `(T -> U, List(T)) -> List(U)` | Transform list elements |
@@ -2195,7 +2207,7 @@ import "stdlib/list.dew"
 
 ---
 
-## 13. (No) Error Handling
+## 13. Error Handling — Compile-Time Detection, Runtime Behavior, and Diagnostics
 
 Dew has **no runtime error handling mechanism.** No `panic`, no `try`/`catch`, no exceptions. The language relies entirely on compile-time guarantees.
 

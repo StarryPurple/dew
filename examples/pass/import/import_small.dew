@@ -1,0 +1,4 @@
+// expect: 42
+// MVP: import a simple math function.
+import "examples/lib/math.dew"
+def main = fn { add(40, 2) -> stdout; };

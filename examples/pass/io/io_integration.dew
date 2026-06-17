@@ -1,0 +1,11 @@
+// expect: 141
+// Tier: Large
+// Feature: IO, pipeline, def binding, arithmetic, function composition
+// Multiple IO functions composed with pipeline and def bindings.
+def compute = fn(x: Int, y: Int) -> Int { x * y + x + y };
+def main = fn {
+  def a = 10;
+  def b = compute(a, 11);
+  def c = a + b;
+  c -> stdout;
+};

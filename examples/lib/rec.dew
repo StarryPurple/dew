@@ -1,0 +1,7 @@
+// Library: recursive helpers.
+def rec fact = fn(n: Int) -> Int {
+  if n == 0 { 1 } else { n * fact(n - 1) }
+};
+def rec sum = fn(n: Int) -> Int {
+  if n == 0 { 0 } else { n + sum(n - 1) }
+};

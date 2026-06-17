@@ -77,18 +77,18 @@ fn display_thunk(t: &Thunk) -> String {
 fn display_instr(instr: &Instr, _return_ty: &IrType) -> String {
     match instr {
         Instr::Lit(r, v) => format!("%{} = lit {}", r, display_lit(v)),
-        Instr::Stdout(r) => format!("stdout{{}} %{}", r),
-        Instr::Stdin(r) => format!("%{} = stdin{{}}", r),
+        Instr::Stdout(r) => format!("stdout{{Int}} %{}", r),
+        Instr::Stdin(r) => format!("%{} = stdin{{Int}}", r),
         Instr::Lambda(r, name, caps) => {
             format!("%{} = lambda{{}} @{}({})", r, name,
                 caps.iter().map(|c| format!("%{}", c)).collect::<Vec<_>>().join(", "))
         }
-        Instr::Call(r, target, args) => {
+        Instr::Call(r, target, args, ret_ty) => {
             let t = match target {
                 CallTarget::Static(n) => format!("@{}", n),
                 CallTarget::Dynamic(reg) => format!("%{}", reg),
             };
-            format!("%{} = call{{}} {} {}", r, t,
+            format!("%{} = call{{{}}} {} {}", r, ret_ty.display(), t,
                 args.iter().map(|a| format!("%{}", a)).collect::<Vec<_>>().join(" "))
         }
         Instr::Force(r, target) => {
@@ -124,18 +124,18 @@ fn display_instr(instr: &Instr, _return_ty: &IrType) -> String {
         Instr::Place(r, base, path, val) => {
             format!("%{} = place %{} {} = %{}", r, base, display_path(path, false), val)
         }
-        Instr::Field(r, base, name) => format!("%{} = field{{}} %{} .{}", r, base, name),
+        Instr::Field(r, base, name, field_ty) => format!("%{} = field{{{}}} %{} .{}", r, field_ty.display(), base, name),
         Instr::StructCons(r, name, fields) => {
-            format!("%{} = struct_cons{{}} @{} {}", r, name,
+            format!("%{} = struct_cons{{{}}} @{} {}", r, name, name,
                 fields.iter().map(|f| format!("%{}", f)).collect::<Vec<_>>().join(" "))
         }
         Instr::EnumCons(r, enum_name, variant, fields) => {
-            format!("%{} = enum_cons{{}} @{}::{} {}", r, enum_name, variant,
+            format!("%{} = enum_cons{{{}}} @{}::{} {}", r, enum_name, enum_name, variant,
                 fields.iter().map(|f| format!("%{}", f)).collect::<Vec<_>>().join(" "))
         }
         Instr::EnumDisc(r, e) => format!("%{} = enum_disc %{}", r, e),
         Instr::EnumProj(r, enum_name, variant, idx, e) => {
-            format!("%{} = enum_proj{{}} @{}::{}[{}] %{}", r, enum_name, variant, idx, e)
+            format!("%{} = enum_proj{{{}}} @{}::{}[{}] %{}", r, enum_name, enum_name, variant, idx, e)
         }
         Instr::ArrayLit(r, ty, elems) => {
             format!("%{} = array_lit{{{}}} {}", r, ty.display(),
@@ -148,8 +148,8 @@ fn display_instr(instr: &Instr, _return_ty: &IrType) -> String {
             format!("%{} = tuple_lit{{{}}} {}", r, ty.display(),
                 elems.iter().map(|e| format!("%{}", e)).collect::<Vec<_>>().join(" "))
         }
-        Instr::StructUpdate(r, base, field, val) => {
-            format!("%{} = struct_update{{}} %{} .{} = %{}", r, base, field, val)
+        Instr::StructUpdate(r, base, field, val, struct_ty) => {
+            format!("%{} = struct_update{{{}}} %{} .{} = %{}", r, struct_ty.display(), base, field, val)
         }
         Instr::ArrayAccess(r, arr, idx) => format!("%{} = array_access{{}} %{} %{}", r, arr, idx),
         Instr::ArrayUpdate(r, arr, idx, val) => {

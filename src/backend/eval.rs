@@ -177,7 +177,7 @@ fn eval_instr(
             let va = frame.get(*a).as_bool().unwrap_or(false);
             frame.set(*r, Value::Bool(!va));
         }
-        Instr::Call(r, target, args) => {
+        Instr::Call(r, target, args, ..) => {
             match target {
                 CallTarget::Static(name) => {
                     let callee = fns.iter().find(|f| &f.name == name).ok_or("fn not found")?;
@@ -237,7 +237,7 @@ fn eval_instr(
             let values: Vec<Value> = fields.iter().map(|f| frame.get(*f).clone()).collect();
             frame.set(*r, Value::Tuple(values));
         }
-        Instr::Field(r, obj, idx) => {
+        Instr::Field(r, obj, idx, ..) => {
             let obj_val = frame.get(*obj);
             if let Value::Tuple(fields) = obj_val {
                 let field_val = fields.get(*idx).cloned().unwrap_or(Value::Int(0));
@@ -246,7 +246,7 @@ fn eval_instr(
                 frame.set(*r, Value::Int(0));
             }
         }
-        Instr::StructUpdate(r, base, fidx, val) => {
+        Instr::StructUpdate(r, base, fidx, val, ..) => {
             let base_val = frame.get(*base);
             let val_val = frame.get(*val).clone();
             if let Value::Tuple(fields) = base_val {
@@ -284,6 +284,34 @@ fn eval_instr(
                 frame.set(*r, Value::Unit);
             }
         }
+        Instr::ArrayLit(r, _ty, elems) => {
+            let values: Vec<Value> = elems.iter().map(|e| frame.get(*e).clone()).collect();
+            frame.set(*r, Value::Array(values));
+        }
+        Instr::ArrayFill(r, _ty, val, n) => {
+            let v = frame.get(*val).clone();
+            frame.set(*r, Value::Array(vec![v; *n]));
+        }
+        Instr::ArrayAccess(r, arr, idx) => {
+            if let Value::Array(elems) = frame.get(*arr) {
+                let i = frame.get(*idx).as_int().unwrap_or(0) as usize;
+                frame.set(*r, elems.get(i).cloned().unwrap_or(Value::Int(0)));
+            } else {
+                frame.set(*r, Value::Int(0));
+            }
+        }
+        Instr::ArrayUpdate(r, arr, idx, val) => {
+            if let Value::Array(elems) = frame.get(*arr) {
+                let mut new_elems = elems.clone();
+                let i = frame.get(*idx).as_int().unwrap_or(0) as usize;
+                if i < new_elems.len() {
+                    new_elems[i] = frame.get(*val).clone();
+                }
+                frame.set(*r, Value::Array(new_elems));
+            } else {
+                frame.set(*r, frame.get(*val).clone());
+            }
+        }
         _ => return Err("instruction not implemented in eval".into()),
     }
     Ok(())
@@ -304,7 +332,8 @@ fn force_thunk(
         _ => {
             runtime.thunks.insert(thunk.name.clone(), ThunkState::Evaluating);
             let entry = thunk.blocks.first().ok_or("no entry block")?;
-            let result = eval_block(entry, &thunk.blocks, fns, thunks, types, frame, runtime)?;
+            let mut thunk_frame = EvalFrame::new();
+            let result = eval_block(entry, &thunk.blocks, fns, thunks, types, &mut thunk_frame, runtime)?;
             runtime.thunks.insert(thunk.name.clone(), ThunkState::Evaluated(result.clone()));
             Ok(result)
         }
@@ -343,7 +372,7 @@ mod tests {
         let mut mblock = BasicBlock::new("entry".into());
         mblock.instrs.push(Instr::Lit(0, LitValue::Int(40)));
         mblock.instrs.push(Instr::Lit(1, LitValue::Int(2)));
-        mblock.instrs.push(Instr::Call(2, CallTarget::Static("add".into()), vec![0, 1]));
+        mblock.instrs.push(Instr::Call(2, CallTarget::Static("add".into()), vec![0, 1], IrType::Int));
         mblock.instrs.push(Instr::Stdout(2));
         mblock.terminator = Terminator::Ret(2);
         main.blocks.push(mblock);

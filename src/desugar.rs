@@ -26,9 +26,16 @@ pub fn desugar_program(prog: &Program, diag: &mut DiagnosticCollector) -> Progra
 fn desugar_decl(decl: &Decl, _diag: &mut DiagnosticCollector) -> Vec<Decl> {
     match decl {
         Decl::Def(d) => {
+            // Handle top-level fix: extract Fn from fix body (possibly wrapped in Block)
             if matches!(&d.value, Expr::Fix(_)) {
                 let Expr::Fix(fix) = &d.value else { unreachable!() };
-                if let Expr::Fn(fn_expr) = fix.body.as_ref() {
+                let fn_expr: Option<&FnExpr> = match fix.body.as_ref() {
+                    Expr::Fn(f) => Some(f),
+                    Expr::Block(b) => b.final_expr.as_ref()
+                        .and_then(|e| if let Expr::Fn(f) = e.as_ref() { Some(f) } else { None }),
+                    _ => None,
+                };
+                if let Some(fn_expr) = fn_expr {
                     let new_body = substitute_var(&fn_expr.body, &fix.loop_var.name, &d.name.name);
                     let new_fn = Expr::Fn(FnExpr {
                         span: fn_expr.span,
@@ -78,14 +85,14 @@ fn desugar_expr(expr: &Expr) -> Expr {
             match func {
                 Expr::Call(mut call) => {
                     call.args.push(piped_arg);
-                    Expr::Call(call)
+                    desugar_expr(&Expr::Call(call))
                 }
                 func_expr => {
-                    Expr::Call(CallExpr {
+                    desugar_expr(&Expr::Call(CallExpr {
                         span: p.span,
                         func: Box::new(func_expr),
                         args: vec![piped_arg],
-                    })
+                    }))
                 }
             }
         }
@@ -149,7 +156,29 @@ fn desugar_expr(expr: &Expr) -> Expr {
             }
             let new_func = desugar_expr(&c.func);
             let new_args: Vec<ExprArg> = c.args.iter().map(|a| match a {
-                ExprArg::Borrow(b) => ExprArg::Value(Box::new(Expr::Var(b.lvalue.root.clone()))),
+                ExprArg::Borrow(b) => {
+                    let mut expr = Expr::Var(b.lvalue.root.clone());
+                    for accessor in &b.lvalue.path {
+                        expr = match accessor {
+                            LValueAccessor::Field(name) => Expr::Field(FieldExpr {
+                                span: b.lvalue.span,
+                                object: Box::new(expr),
+                                field: name.clone(),
+                            }),
+                            LValueAccessor::Index(idx) => Expr::Subscript(SubscriptExpr {
+                                span: b.lvalue.span,
+                                array: Box::new(expr),
+                                index: Box::new(idx.clone()),
+                            }),
+                            LValueAccessor::TupleIndex(i) => Expr::Field(FieldExpr {
+                                span: b.lvalue.span,
+                                object: Box::new(expr),
+                                field: Ident::new(format!("{}", i), Span::DUMMY),
+                            }),
+                        };
+                    }
+                    ExprArg::Value(Box::new(expr))
+                }
                 other => other.clone(),
             }).collect();
             let call_expr = Expr::Call(CallExpr {
@@ -172,13 +201,46 @@ fn desugar_expr(expr: &Expr) -> Expr {
                     object: Box::new(Expr::Var(tmp.clone())),
                     field: Ident::new(ci.to_string(), Span::DUMMY),
                 });
-                block_stmts.push(BlockStmt {
-                    span: c.span, expr: field,
-                    def: Some(DefDecl {
-                        span: c.span, rec: false, name: name.clone(),
-                        ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
-                    }),
-                });
+                
+                // Check if this is a compound lvalue (has path)
+                let borrow_arg = c.args.iter().filter_map(|a| match a {
+                    ExprArg::Borrow(b) if &b.lvalue.root == name => Some(b),
+                    _ => None,
+                }).next().unwrap();
+                
+                if borrow_arg.lvalue.path.is_empty() {
+                    // Simple lvalue: just rebind the root name
+                    block_stmts.push(BlockStmt {
+                        span: c.span, expr: field,
+                        def: Some(DefDecl {
+                            span: c.span, rec: false, name: name.clone(),
+                            ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                        }),
+                    });
+                } else {
+                    // Compound lvalue: rebuild the outer struct with updated inner field
+                    let last_accessor = borrow_arg.lvalue.path.last().unwrap();
+                    let field_name = match last_accessor {
+                        LValueAccessor::Field(ident) => ident.clone(),
+                        LValueAccessor::Index(_) => Ident::new("0", Span::DUMMY),
+                        LValueAccessor::TupleIndex(i) => Ident::new(format!("{}", i), Span::DUMMY),
+                    };
+                    let root_expr = Expr::Var(name.clone());
+                    let update = build_nested_update(&borrow_arg.lvalue, root_expr, &[
+                        UpdateField::NamedField {
+                            span: c.span,
+                            name: field_name,
+                            value: field,
+                        }
+                    ]);
+                    block_stmts.push(BlockStmt {
+                        span: c.span, expr: update,
+                        def: Some(DefDecl {
+                            span: c.span, rec: false, name: name.clone(),
+                            ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                        }),
+                    });
+                }
             }
             let result_idx = borrow_names.len();
             Expr::Block(BlockExpr {
@@ -252,10 +314,19 @@ fn desugar_expr(expr: &Expr) -> Expr {
             value: Box::new(desugar_expr(&a.value)),
             count: a.count,
         }),
-        Expr::Fix(f) => Expr::Fix(FixExpr {
+        Expr::Fix(f) => {
+            let body = desugar_expr(&f.body);
+            let loop_ident = f.loop_var.clone();
+            Expr::Block(BlockExpr {
                 span: f.span,
-                loop_var: f.loop_var.clone(),
-                body: Box::new(desugar_expr(&f.body)),
+                stmts: vec![BlockStmt {
+                    span: f.span, expr: body.clone(),
+                    def: Some(DefDecl {
+                        span: f.span, rec: true, name: loop_ident.clone(),
+                        ty: None, value: body,
+                    }),
+                }],
+                final_expr: Some(Box::new(Expr::Var(loop_ident))),
             })
         },
         Expr::Borrow(b) => desugar_borrow_stmt(b),
@@ -310,25 +381,64 @@ fn desugar_fn(f: &FnExpr) -> Expr {
     let new_body = if let Expr::Block(mut b) = body {
         let orig_final = b.final_expr.take()
             .map(|e| (*e).clone())
-            .unwrap_or(Expr::UnitLit(Span::DUMMY));
+            .unwrap_or_else(|| {
+                if borrow_params.len() == 1 {
+                    Expr::Var(f.params[borrow_params[0].0].name.clone())
+                } else {
+                    Expr::UnitLit(Span::DUMMY)
+                }
+            });
+        // If orig_final is a bare expr from borrow desugar (not Unit/Var),
+        // insert a def rebinding before the final tuple.
+        let result = if !matches!(&orig_final, Expr::UnitLit(_) | Expr::Var(_)) {
+            let p_name = f.params[borrow_params[0].0].name.clone();
+            b.stmts.push(BlockStmt {
+                span: body_span,
+                expr: orig_final,
+                def: Some(DefDecl {
+                    span: body_span, rec: false,
+                    name: p_name.clone(),
+                    ty: None,
+                    value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                }),
+            });
+            Expr::Var(p_name)
+        } else {
+            orig_final
+        };
         let mut elements: Vec<Expr> = borrow_params.iter().map(|&(i, _)| {
             Expr::Var(f.params[i].name.clone())
         }).collect();
-        elements.push(orig_final);
+        elements.push(result);
         b.final_expr = Some(Box::new(Expr::TupleLit(TupleLit {
             span: body_span,
             elements,
         })));
         Expr::Block(b)
     } else {
-        let mut elements: Vec<Expr> = borrow_params.iter().map(|&(i, _)| {
-            Expr::Var(f.params[i].name.clone())
-        }).collect();
-        let last = borrow_params.iter().map(|&(i, _)| {
-            Expr::Var(f.params[i].name.clone())
-        }).last().unwrap_or(body.clone());
-        elements.push(last);
-        Expr::TupleLit(TupleLit { span: body_span, elements })
+        // Bare expr (from desugar_borrow_stmt): wrap in Block so
+        // def p = update_expr rebinds the param before the final tuple.
+        let p_name = f.params[borrow_params[0].0].name.clone();
+        Expr::Block(BlockExpr {
+            span: body_span,
+            stmts: vec![BlockStmt {
+                span: body_span,
+                expr: body,
+                def: Some(DefDecl {
+                    span: body_span, rec: false,
+                    name: p_name.clone(),
+                    ty: None,
+                    value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                }),
+            }],
+            final_expr: Some(Box::new(Expr::TupleLit(TupleLit {
+                span: body_span,
+                elements: vec![
+                    Expr::Var(p_name.clone()),
+                    Expr::Var(p_name),
+                ],
+            }))),
+        })
     };
 
     // New return type: (T1, T2, ..., U)
@@ -390,8 +500,10 @@ fn expr_has_borrow(expr: &Expr) -> bool {
     }
 }
 
-/// Desugar a borrow statement: `&p = expr` → `def %p = expr`
-/// `&p { fields }` → `def %p = p { fields }`
+/// Desugar a borrow statement: `&p = expr` → `def p = expr`
+/// `&p { fields }` → `def p = p { fields }`
+/// Desugar a borrow statement: `&p = expr` → `def p = expr`
+/// `&p { fields }` → `def p = p { fields }`
 fn desugar_borrow_stmt(b: &BorrowExpr) -> Expr {
     let Some(ref rhs) = b.rhs else { return Expr::UnitLit(Span::DUMMY) };
     let rhs_expr = match &**rhs {
@@ -521,65 +633,61 @@ fn desugar_block(b: &BlockExpr) -> Expr {
             continue;
         }
 
+        // Delegate borrow-call handling to desugar_expr, which correctly
+        // handles compound lvalues (e.g. &e.pos → extract e.pos, rebuild e).
+        // The block-level handler just needs to flatten the resulting
+        // inner block and assign the final result to the def name.
         if s.def.is_some() {
             if let Expr::Call(c) = &s.expr {
-                let borrow_names: Vec<Ident> = c.args.iter()
-                    .filter_map(|a| match a {
-                        ExprArg::Borrow(b) => Some(b.lvalue.root.clone()),
-                        _ => None,
-                    }).collect();
-                if !borrow_names.is_empty() {
-                    let new_call = Expr::Call(CallExpr {
-                        span: c.span,
-                        func: c.func.clone(),
-                        args: c.args.iter().map(|a| match a {
-                            ExprArg::Borrow(b) => ExprArg::Value(Box::new(Expr::Var(b.lvalue.root.clone()))),
-                            other => other.clone(),
-                        }).collect(),
-                    });
-                    let tmp_name = Ident::new("%_btmp", Span::DUMMY);
-                    stmts.push(BlockStmt {
-                        span: s.span, expr: new_call,
-                        def: Some(DefDecl {
-                            span: s.span, rec: false,
-                            name: tmp_name.clone(),
-                            ty: None,
-                            value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
-                        }),
-                    });
-                    for (ci, name) in borrow_names.iter().enumerate() {
-                        let field_expr = Expr::Field(FieldExpr {
-                            span: s.span,
-                            object: Box::new(Expr::Var(tmp_name.clone())),
-                            field: Ident::new(ci.to_string(), Span::DUMMY),
-                        });
+                let has_borrow = c.args.iter().any(|a| matches!(a, ExprArg::Borrow(_)));
+                if has_borrow {
+                    let desugared = desugar_expr(&s.expr);
+                    let def_name = s.def.as_ref().unwrap().name.clone();
+                    if let Expr::Block(inner) = &desugared {
+                        // Flatten inner block stmts (call + borrow rebindings)
+                        for is in &inner.stmts { stmts.push(is.clone()); }
+                        // Assign final_expr result to the def name
+                        if let Some(fe) = inner.final_expr.as_ref() {
+                            stmts.push(BlockStmt {
+                                span: s.span,
+                                expr: (**fe).clone(),
+                                def: Some(DefDecl {
+                                    span: s.span,
+                                    rec: false,
+                                    name: def_name,
+                                    ty: None,
+                                    value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                                }),
+                            });
+                        }
+                    } else {
+                        // desugar_expr returned a non-block (shouldn't happen for borrow calls)
                         stmts.push(BlockStmt {
-                            span: s.span, expr: field_expr,
+                            span: s.span,
+                            expr: desugared,
                             def: Some(DefDecl {
-                                span: s.span, rec: false,
-                                name: name.clone(),
+                                span: s.span,
+                                rec: false,
+                                name: def_name,
                                 ty: None,
                                 value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
                             }),
                         });
                     }
-                    let result_idx = borrow_names.len();
-                    let result_field = Expr::Field(FieldExpr {
-                        span: s.span,
-                        object: Box::new(Expr::Var(tmp_name)),
-                        field: Ident::new(result_idx.to_string(), Span::DUMMY),
-                    });
-                    stmts.push(BlockStmt {
-                        span: s.span, expr: result_field,
-                        def: Some(DefDecl {
-                            span: s.span, rec: false,
-                            name: s.def.as_ref().unwrap().name.clone(),
-                            ty: None,
-                            value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
-                        }),
-                    });
                     continue;
                 }
+            }
+        }
+
+        if s.def.is_none() {
+            if let Expr::Block(inner) = &expr {
+                for is in &inner.stmts { stmts.push(is.clone()); }
+                if let Some(fe) = inner.final_expr.as_ref() {
+                    stmts.push(BlockStmt {
+                        span: fe.span(), expr: (**fe).clone(), def: None,
+                    });
+                }
+                continue;
             }
         }
 
@@ -588,10 +696,18 @@ fn desugar_block(b: &BlockExpr) -> Expr {
 
     let final_expr = b.final_expr.as_ref().map(|e| {
         let expr = desugar_expr(e);
-        Box::new(match &**e {
+        let result = match &**e {
             Expr::Borrow(borrow) => desugar_borrow_stmt(borrow),
             _ => expr,
-        })
+        };
+        if let Expr::Block(inner) = &result {
+            for is in &inner.stmts { stmts.push(is.clone()); }
+            Box::new(inner.final_expr.as_ref()
+                .map(|fe| (**fe).clone())
+                .unwrap_or(Expr::UnitLit(Span::DUMMY)))
+        } else {
+            Box::new(result)
+        }
     });
 
     Expr::Block(BlockExpr {

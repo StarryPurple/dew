@@ -1,0 +1,4 @@
+// expect: 0
+// MVP: default initialization of Int.
+def x: Int;
+def main = fn { x -> stdout; };

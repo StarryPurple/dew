@@ -1,0 +1,17 @@
+// expect: 128
+// Tier: Large
+// Feature: closure, recursion, lazy evaluation, def binding, arithmetic
+// Recursion with computed values across multiple def bindings —
+// integration of lazy thunks with arithmetic and pipeline.
+def factorial = fn(n: Int) -> Int {
+  if n <= 1 { 1 } else { n * factorial(n - 1) }
+};
+def fib = fn(n: Int) -> Int {
+  if n <= 1 { n } else { fib(n - 1) + fib(n - 2) }
+};
+def main = fn {
+  def f1 = factorial(5);
+  def f2 = fib(6);
+  def result = f1 + f2;
+  result -> stdout;
+};

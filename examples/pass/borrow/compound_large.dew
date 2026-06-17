@@ -1,0 +1,15 @@
+// expect: 55
+// Large: borrow recursion with struct accumulator — triangular sum.
+struct Acc { value: Int }
+def rec loop = fn(n: Int, &a: Acc) -> Acc {
+  if n == 0 { a }
+  else {
+    &a { value = a.value + n };
+    &a -> loop(n - 1)
+  }
+};
+def main = fn {
+  def a = Acc { value: 0 };
+  def result = loop(10, &a);
+  result.value -> stdout;
+};

@@ -1,0 +1,16 @@
+// expect: 4226
+// Tier: Large
+// Feature: arithmetic, boolean, char, unit, def binding, if/else, pipeline
+// Compose primitives with control flow, def bindings, and pipeline.
+def classify = fn(n: Int) -> Int {
+  if n == 0 { 0 }
+  else { if n == 1 { 1 }
+  else { n + 1 } }
+};
+def main = fn {
+  def a = 40 + 2;
+  def b = true;
+  def c = 100;
+  def d = if b { a * c } else { 0 };
+  d + 26 -> stdout;
+};

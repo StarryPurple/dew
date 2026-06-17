@@ -187,7 +187,7 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], out: &mut Strin
         Instr::And(r, a, b) => { writeln!(out, "  %r{} = and i1 %r{}, %r{}", r, a, b).ok(); }
         Instr::Or(r, a, b) => { writeln!(out, "  %r{} = or i1 %r{}, %r{}", r, a, b).ok(); }
         Instr::Not(r, a) => { writeln!(out, "  %r{} = xor i1 %r{}, true", r, a).ok(); }
-        Instr::Call(r, target, args) => {
+        Instr::Call(r, target, args, ..) => {
             match target {
                 CallTarget::Static(name) => {
                     let callee = fns.iter().find(|f| &f.name == name).ok_or("fn not found")?;

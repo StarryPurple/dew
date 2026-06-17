@@ -1,0 +1,4 @@
+// expect: false
+// Default initialization of Bool.
+def flag: Bool;
+def main = fn { flag -> stdout; };

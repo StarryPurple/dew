@@ -1,0 +1,14 @@
+// expect: 21
+// Tier: Large
+// Feature: affine struct, consumption, closure capture, IO effect
+// Affine types composed with function calls and IO.
+affine struct Resource { id: Int, data: Int }
+def process = fn(r: Int) -> Int { r * 2 }
+def finalize = fn(r: Int) -> Int { r + 1 }
+def main = fn {
+  def res = Resource { id: 1, data: 10 };
+  def raw = res.data;
+  def processed = process(raw);
+  def result = finalize(processed);
+  result -> stdout;
+};

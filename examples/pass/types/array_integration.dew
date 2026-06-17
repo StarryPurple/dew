@@ -1,0 +1,13 @@
+// expect: 95
+// Tier: Large
+// Feature: array, array access, array fill, function, def binding
+// Array construction, access, and fill composed with functions.
+def main = fn {
+  def xs = [10, 20, 30, 40, 50];
+  def a = xs[0];
+  def b = xs[4];
+  def c = xs[2];
+  def ys = [a, b, c];
+  def sum = ys[0] + ys[1] + ys[2];
+  sum + 5 -> stdout;
+};

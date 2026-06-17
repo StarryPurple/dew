@@ -1,0 +1,22 @@
+// expect: 70
+// Tier: Large
+// Feature: borrow, compound lvalue, struct update, recursion, closure
+// Borrow with compound lvalue across nested structs, recursive transformation,
+// and closure-based field updates.
+struct Point { x: Int, y: Int }
+struct Rect { origin: Point, size: Point }
+def translate = fn(&p: Point, dx: Int, dy: Int) -> Point {
+  &p { x = p.x + dx, y = p.y + dy }
+};
+def scale = fn(&p: Point, factor: Int) -> Point {
+  &p { x = p.x * factor, y = p.y * factor }
+};
+def apply = fn(f: (Point, Int, Int) -> Point, p: Point, a: Int, b: Int) -> Point {
+  f(p, a, b)
+};
+def main = fn {
+  def r = Rect { origin: Point { x: 0, y: 0 }, size: Point { x: 10, y: 20 } };
+  def new_origin = translate(&r.origin, 5, 5);
+  def new_size = scale(&r.size, 2);
+  new_origin.x + new_origin.y + new_size.x + new_size.y -> stdout;
+};

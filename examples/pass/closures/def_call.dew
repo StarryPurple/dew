@@ -1,0 +1,6 @@
+// expect: 84
+// Tier: Small
+// Feature: def binding, function call, pipe operator
+// Define a top-level function, bind to name, call directly.
+def add = fn(x: Int, y: Int) -> Int { x + y };
+def main = fn { add(40, 44) -> stdout; };

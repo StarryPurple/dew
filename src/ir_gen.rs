@@ -22,6 +22,7 @@ pub struct IrGenerator<'a> {
     thunk_names: std::collections::HashSet<String>,
     extra_blocks: Vec<BasicBlock>,
     reg_struct: std::collections::HashMap<usize, String>,
+    tuple_elem_types: std::collections::HashMap<usize, Vec<IrType>>,
 }
 
 impl<'a> IrGenerator<'a> {
@@ -35,6 +36,7 @@ impl<'a> IrGenerator<'a> {
             thunk_names: std::collections::HashSet::new(),
             extra_blocks: Vec::new(),
             reg_struct: std::collections::HashMap::new(),
+            tuple_elem_types: std::collections::HashMap::new(),
         }
     }
 
@@ -116,12 +118,20 @@ impl<'a> IrGenerator<'a> {
         let fn_name = d.name.name.clone();
         let return_ty = f.return_ty.as_ref().map(|t| self.ast_ty_to_ir(t)).unwrap_or(IrType::Unit);
 
+        // Register parameter struct types in reg_struct before params is moved
+        for (i, (_, ty)) in params.iter().enumerate() {
+            if let IrType::Struct(name) = ty {
+                self.reg_struct.insert(i, name.clone());
+            } else if let IrType::Tuple(_) = ty {
+                self.reg_struct.insert(i, "%tuple".into());
+            }
+        }
+
         let mut ir_fn = Fn::new(fn_name, params, return_ty.clone());
         let mut block = BasicBlock::new("entry".into());
         self.next_reg = f.params.len();
         self.var_map.clear();
 
-        // Register parameter names in var_map
         for (i, param) in f.params.iter().enumerate() {
             self.var_map.insert(param.name.name.clone(), i);
         }
@@ -219,6 +229,20 @@ impl<'a> IrGenerator<'a> {
             }
 
             Expr::Call(c) => {
+                // IIFE: fn(params) { body }(args) — inline the anonymous function
+                if let Expr::Fn(fn_expr) = &*c.func {
+                    let saved_var_map = self.var_map.clone();
+                    for (i, param) in fn_expr.params.iter().enumerate() {
+                        if let Some(ExprArg::Value(e)) = c.args.get(i) {
+                            let arg_reg = self.compile_expr(e, block);
+                            self.var_map.insert(param.name.name.clone(), arg_reg);
+                        }
+                    }
+                    let result = self.compile_expr(&fn_expr.body, block);
+                    self.var_map = saved_var_map;
+                    return result;
+                }
+
                 let is_enum_variant = match &*c.func {
                     Expr::Var(ident) => self.module.types.find_enum_for_variant(&ident.name).is_some(),
                     _ => false,
@@ -277,11 +301,25 @@ impl<'a> IrGenerator<'a> {
                         }
                     }
                     let result_r = self.fresh_reg();
-                    let target = match &*c.func {
-                        Expr::Var(ident) => CallTarget::Static(ident.name.clone()),
-                        _ => CallTarget::Dynamic(0),
+                    let fn_name = match &*c.func {
+                        Expr::Var(ident) => Some(ident.name.clone()),
+                        _ => None,
                     };
-                    block.instrs.push(Instr::Call(result_r, target, arg_regs));
+                    let target = fn_name.clone()
+                        .map(CallTarget::Static)
+                        .unwrap_or(CallTarget::Dynamic(0));
+                    let ret_ty = fn_name.as_ref()
+                        .and_then(|n| self.module.fns.iter().find(|f| f.name == *n))
+                        .map(|f| f.return_type.clone())
+                        .unwrap_or(IrType::Int);
+                    block.instrs.push(Instr::Call(result_r, target, arg_regs, ret_ty.clone()));
+                    // Track return type so Field can resolve tuple element types
+                    if let IrType::Tuple(elements) = &ret_ty {
+                        self.reg_struct.insert(result_r, "%tuple".into());
+                        self.tuple_elem_types.insert(result_r, elements.clone());
+                    } else if let IrType::Struct(s) = &ret_ty {
+                        self.reg_struct.insert(result_r, s.clone());
+                    }
                     result_r
                 }
             }
@@ -352,11 +390,32 @@ impl<'a> IrGenerator<'a> {
             Expr::Field(f) => {
                 let obj_r = self.compile_expr(&f.object, block);
                 let result_r = self.fresh_reg();
-                let field_idx = self.reg_struct.get(&obj_r)
-                    .and_then(|name| self.module.types.struct_field_index(name, &f.field.name))
-                    .or_else(|| f.field.name.parse::<usize>().ok())
-                    .unwrap_or(0);
-                block.instrs.push(Instr::Field(result_r, obj_r, field_idx));
+                let (field_idx, field_struct_name) = self.reg_struct.get(&obj_r)
+                    .and_then(|struct_name| {
+                        let idx = self.module.types.struct_field_index(struct_name, &f.field.name);
+                        idx.map(|i| {
+                            let field_ty = self.module.types.structs.iter()
+                                .find(|s| s.name == *struct_name)
+                                .and_then(|s| s.fields.get(i))
+                                .map(|(_, ty)| ty.clone());
+                            (i, field_ty)
+                        })
+                    })
+                    .or_else(|| f.field.name.parse::<usize>().ok().map(|i| {
+                        // For numeric field access on a tuple, look up element type
+                        let field_ty = self.tuple_elem_types.get(&obj_r)
+                            .and_then(|types| types.get(i))
+                            .cloned();
+                        (i, field_ty)
+                    }))
+                    .unwrap_or((0, None));
+                let field_ty = field_struct_name.clone().unwrap_or(IrType::Int);
+                block.instrs.push(Instr::Field(result_r, obj_r, field_idx, field_ty));
+                if let Some(IrType::Struct(name)) = field_struct_name {
+                    self.reg_struct.insert(result_r, name);
+                } else if let Some(IrType::Tuple(_)) = field_struct_name {
+                    self.reg_struct.insert(result_r, "%tuple".into());
+                }
                 result_r
             }
 
@@ -371,7 +430,15 @@ impl<'a> IrGenerator<'a> {
                         let result_r = self.fresh_reg();
                         let fidx = self.module.types.struct_field_index(&struct_name, &name.name)
                             .unwrap_or(0);
-                        block.instrs.push(Instr::StructUpdate(result_r, current_r, fidx, val_r));
+                        let s_ty = IrType::Struct(struct_name.clone());
+                        block.instrs.push(Instr::StructUpdate(result_r, current_r, fidx, val_r, s_ty));
+                        current_r = result_r;
+                    }
+                    if let UpdateField::ArrayIndex { index, value, .. } = uf {
+                        let idx_r = self.compile_expr(index, block);
+                        let val_r = self.compile_expr(value, block);
+                        let result_r = self.fresh_reg();
+                        block.instrs.push(Instr::ArrayUpdate(result_r, current_r, idx_r, val_r));
                         current_r = result_r;
                     }
                 }
@@ -403,6 +470,37 @@ impl<'a> IrGenerator<'a> {
                 result_r
             }
 
+            Expr::Force(f) => self.compile_expr(&f.expr, block),
+
+            Expr::ArrayLit(a) => {
+                let mut elem_regs = Vec::new();
+                for e in &a.elements {
+                    elem_regs.push(self.compile_expr(e, block));
+                }
+                let result_r = self.fresh_reg();
+                let ty = self.ast_tys_to_ir_array(&a.elements);
+                block.instrs.push(Instr::ArrayLit(result_r, ty, elem_regs));
+                result_r
+            }
+            Expr::ArrayFill(a) => {
+                let val_r = self.compile_expr(&a.value, block);
+                let result_r = self.fresh_reg();
+                let ty = IrType::Array(Box::new(IrType::Int), a.count);
+                block.instrs.push(Instr::ArrayFill(result_r, ty, val_r, a.count));
+                result_r
+            }
+            Expr::Subscript(s) => {
+                let arr_r = self.compile_expr(&s.array, block);
+                let idx_r = self.compile_expr(&s.index, block);
+                let result_r = self.fresh_reg();
+                // Check if it's a tuple field access (integer field name)
+                if let Expr::Field(_) = &*s.array {
+                    // Handled by Expr::Field path
+                    return 0;
+                }
+                block.instrs.push(Instr::ArrayAccess(result_r, arr_r, idx_r));
+                result_r
+            }
             _ => {
                 self.diag.error("E003",
                     format!("IR gen not implemented for this expression"),
@@ -576,6 +674,10 @@ impl<'a> IrGenerator<'a> {
             Type::Array(a) => IrType::Array(Box::new(self.ast_ty_to_ir(&a.element)), a.size),
             _ => IrType::Int,
         }
+    }
+
+    fn ast_tys_to_ir_array(&self, elements: &[Expr]) -> IrType {
+        IrType::Array(Box::new(IrType::Int), elements.len())
     }
 }
 

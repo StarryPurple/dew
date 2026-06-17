@@ -1,0 +1,16 @@
+// expect: 9095
+// Tier: Large
+// Feature: recursion, factorial, fibonacci, ackermann, def binding, arithmetic
+// Multiple recursive functions composed in a single program.
+def fact = fn(n: Int) -> Int {
+  if n <= 1 { 1 } else { n * fact(n - 1) }
+};
+def fib = fn(n: Int) -> Int {
+  if n <= 1 { n } else { fib(n - 1) + fib(n - 2) }
+};
+def main = fn {
+  def f7 = fact(7);
+  def fb10 = fib(10);
+  def result = f7 + fb10 + 4000;
+  result -> stdout;
+};

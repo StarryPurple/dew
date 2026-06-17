@@ -1,0 +1,12 @@
+// expect: 42
+// Tier: Medium
+// Feature: affine enum, enum construction, enum match, consumption tracking
+// Affine enum construction, enum variant match, and consumption.
+affine enum Option { Some(Int), None }
+def main = fn {
+  def opt = Some(42);
+  match opt {
+    Some(v) => v,
+    None => 0,
+  } -> stdout;
+};

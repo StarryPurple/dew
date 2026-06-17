@@ -1,0 +1,12 @@
+// expect: 26
+// Large: multiple fix expressions composed with conditionals and pipeline.
+// Two independent anonymous recursive functions combined.
+def countdown = fix cd { fn(n: Int) -> Int {
+  if n == 0 { 0 } else { n + cd(n - 1) }
+} };
+def fib = fix fb { fn(n: Int) -> Int {
+  if n <= 1 { n } else { fb(n - 1) + fb(n - 2) }
+} };
+def main = fn {
+  countdown(6) + fib(5) -> stdout;
+};

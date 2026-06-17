@@ -12,10 +12,28 @@ use crate::diagnostics::DiagnosticCollector;
 use crate::types::*;
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effect {
+    Pure,
+    IO,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Affinity {
+    Normal,
+    Affine,
+}
+
 pub struct TypeChecker<'a> {
     diag: &'a mut DiagnosticCollector,
     tvg: TypeVarGen,
     env: TypeEnv,
+    current_effect: Effect,
+    fn_effects: HashMap<String, Effect>,
+    last_fn_effect: Option<Effect>,
+    affine_types: HashMap<String, Affinity>,
+    consumed: HashMap<String, bool>,
+    var_affine_hint: HashMap<String, bool>,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -24,6 +42,12 @@ impl<'a> TypeChecker<'a> {
             diag,
             tvg: TypeVarGen::new(),
             env: TypeEnv::new(),
+            current_effect: Effect::Pure,
+            fn_effects: HashMap::new(),
+            last_fn_effect: None,
+            affine_types: HashMap::new(),
+            consumed: HashMap::new(),
+            var_affine_hint: HashMap::new(),
         }
     }
 
@@ -60,10 +84,41 @@ impl<'a> TypeChecker<'a> {
                 self.infer_def(d);
             }
         }
+
+        // Post-check: verify main is IO
+        if let Some(&effect) = self.fn_effects.get("main") {
+            if effect == Effect::Pure {
+                self.diag.warn("W003",
+                    "main has no IO side effects — program produces no visible output",
+                    None);
+            }
+        }
     }
 
     fn infer_def(&mut self, def: &DefDecl) {
+        self.last_fn_effect = None;
+        self.current_effect = Effect::Pure;
         let ty = self.infer_expr(&def.value);
+
+        // Track affine struct construction for consumption checking
+        match &def.value {
+            Expr::StructLit(sl) => {
+                if self.affine_types.contains_key(&sl.name.name) {
+                    self.var_affine_hint.insert(def.name.name.clone(), true);
+                }
+            }
+            Expr::EnumLit(el) => {
+                if self.affine_types.contains_key(&el.name.name) {
+                    self.var_affine_hint.insert(def.name.name.clone(), true);
+                }
+            }
+            _ => {}
+        }
+
+        // Store inferred IO effect
+        if let Some(effect) = self.last_fn_effect.take() {
+            self.fn_effects.insert(def.name.name.clone(), effect);
+        }
 
         // Generalize: let-polymorphism for top-level defs
         let scheme = self.tvg.generalize(&self.env, ty);
@@ -116,6 +171,12 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn infer_var(&mut self, ident: &Ident) -> Ty {
+        // Check affine consumption: if variable was already consumed, error
+        if self.consumed.get(&ident.name) == Some(&true) {
+            self.diag.error("E004",
+                format!("variable '{}' already consumed (affine type used more than once)", ident.name),
+                Some(ident.span));
+        }
         if let Some(scheme) = self.env.lookup(&ident.name) {
             self.tvg.instantiate(scheme)
         } else {
@@ -176,8 +237,19 @@ impl<'a> TypeChecker<'a> {
             param_tys.push(pty);
         }
 
+        // Strip IO wrapper from return type annotation to get actual return type
+        let (annotated_effect, inner_ret_ty) = match &f.return_ty {
+            Some(ty) if is_io_type(ty) => {
+                let inner = io_inner_type(ty).map(|t| self.ast_type_to_ty(&t));
+                (Some(Effect::IO), inner)
+            }
+            other => (None, other.as_ref().map(|t| self.ast_type_to_ty(t))),
+        };
+
         // Add params to typing scope and infer body
         let saved_env = self.env.clone();
+        let saved_effect = self.current_effect;
+        self.current_effect = Effect::Pure;
         for (param, pty) in f.params.iter().zip(param_tys.iter()) {
             self.env.insert(param.name.name.clone(),
                 Scheme { vars: vec![], ty: pty.clone() });
@@ -186,16 +258,42 @@ impl<'a> TypeChecker<'a> {
         let body_ty = self.infer_expr(&f.body);
         self.env = saved_env;
 
-        let ret_ty = f.return_ty.as_ref()
-            .map(|t| self.ast_type_to_ty(t))
-            .unwrap_or(body_ty.clone());
-
+        let ret_ty = inner_ret_ty.unwrap_or_else(|| body_ty.clone());
         unify_expr(&body_ty, &ret_ty, f.span, self.diag, "function return");
+
+        // Verify IO annotation against inferred effect
+        let inferred_effect = self.current_effect;
+        if let Some(Effect::IO) = annotated_effect {
+            if inferred_effect == Effect::Pure {
+                self.diag.warn("W004",
+                    "function return type overapproximates: declared IO but body has no side effects",
+                    Some(f.span));
+            }
+        }
+        if annotated_effect.is_none() && f.return_ty.is_some() && inferred_effect == Effect::IO {
+            self.diag.error("E006",
+                "pure function annotation violated: body calls IO but return type does not declare IO",
+                Some(f.span));
+        }
+
+        self.current_effect = saved_effect;
+        self.last_fn_effect = Some(inferred_effect);
 
         Ty::fun(param_tys, ret_ty)
     }
 
     fn infer_call(&mut self, c: &CallExpr) -> Ty {
+        // Detect IO calls: stdin/stdout are IO primitives; calling an IO fn propagates IO
+        if let Expr::Var(ident) = &*c.func {
+            match ident.name.as_str() {
+                "stdout" | "stdin" => self.current_effect = Effect::IO,
+                name => {
+                    if self.fn_effects.get(name) == Some(&Effect::IO) {
+                        self.current_effect = Effect::IO;
+                    }
+                }
+            }
+        }
         let func_ty = self.infer_expr(&c.func);
         if let Ty::Named(_, _) = &func_ty {
             for arg in &c.args {
@@ -257,6 +355,29 @@ impl<'a> TypeChecker<'a> {
                 }
             }
             self.infer_expr(&stmt.expr);
+
+            // def y = x consumes x if x is affine (not self-rebinding like def x = x { ... })
+            if let Some(ref def) = stmt.def {
+                if let Expr::Var(ident) = &stmt.expr {
+                    if self.is_affine_var(&ident.name) && ident.name != def.name.name {
+                        self.consumed.insert(ident.name.clone(), true);
+                    }
+                }
+                // Track affine struct/enum construction for consumption checking
+                match &stmt.expr {
+                    Expr::StructLit(sl) => {
+                        if self.affine_types.contains_key(&sl.name.name) {
+                            self.var_affine_hint.insert(def.name.name.clone(), true);
+                        }
+                    }
+                    Expr::EnumLit(el) => {
+                        if self.affine_types.contains_key(&el.name.name) {
+                            self.var_affine_hint.insert(def.name.name.clone(), true);
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
         if let Some(final_expr) = &b.final_expr {
             result_ty = self.infer_expr(final_expr);
@@ -305,7 +426,27 @@ impl<'a> TypeChecker<'a> {
 
     fn infer_field(&mut self, f: &FieldExpr) -> Ty {
         let _obj_ty = self.infer_expr(&f.object);
+        // Field access on affine struct consumes the struct (mark AFTER infer to avoid self-trigger)
+        if let Expr::Var(ident) = &*f.object {
+            if self.is_affine_var(&ident.name) {
+                self.consumed.insert(ident.name.clone(), true);
+            }
+        }
         self.tvg.fresh_ty()
+    }
+
+    /// Check if a variable's type is affine.
+    fn is_affine_var(&self, name: &str) -> bool {
+        if self.var_affine_hint.get(name) == Some(&true) {
+            return true;
+        }
+        self.env.lookup(name)
+            .and_then(|s| match &s.ty {
+                Ty::Named(n, _) => Some(n.clone()),
+                _ => None,
+            })
+            .map(|n| self.affine_types.get(&n) == Some(&Affinity::Affine))
+            .unwrap_or(false)
     }
 
     fn infer_subscript(&mut self, s: &SubscriptExpr) -> Ty {
@@ -313,7 +454,11 @@ impl<'a> TypeChecker<'a> {
         let idx_ty = self.infer_expr(&s.index);
         unify_with_type(&idx_ty, &Ty::Int, s.span, self.diag, "array index");
         let elem_ty = self.tvg.fresh_ty();
-        let arr_expected = Ty::Array(Box::new(elem_ty.clone()), 0);
+        let arr_size = match &arr_ty {
+            Ty::Array(_, n) => *n,
+            _ => 0,
+        };
+        let arr_expected = Ty::Array(Box::new(elem_ty.clone()), arr_size);
         unify_expr(&arr_ty, &arr_expected, s.span, self.diag, "array subscript");
         elem_ty
     }
@@ -419,6 +564,11 @@ impl<'a> TypeChecker<'a> {
         let struct_ty = Ty::Named(s.name.name.clone(), param_vars);
         let vars: Vec<TypeVar> = (0..arity).map(|i| TypeVar(1000 + i)).collect();
         self.env.insert(s.name.name.clone(), Scheme { vars, ty: struct_ty });
+
+        // Mark affine structs
+        if s.attrs.iter().any(|a| matches!(a, Attr::Affine)) {
+            self.affine_types.insert(s.name.name.clone(), Affinity::Affine);
+        }
     }
 
     fn register_enum(&mut self, e: &EnumDecl) {
@@ -428,6 +578,11 @@ impl<'a> TypeChecker<'a> {
         let vars: Vec<TypeVar> = (0..arity).map(|i| TypeVar(2000 + i)).collect();
         self.env.insert(e.name.name.clone(), Scheme { vars, ty: enum_ty });
 
+        // Mark affine enums
+        if e.attrs.iter().any(|a| matches!(a, Attr::Affine)) {
+            self.affine_types.insert(e.name.name.clone(), Affinity::Affine);
+        }
+
         let enum_name = e.name.name.clone();
         for variant in &e.variants {
             let vname = match variant {
@@ -436,6 +591,27 @@ impl<'a> TypeChecker<'a> {
             let variant_ty = Ty::Named(enum_name.clone(), param_vars.clone());
             self.env.insert(vname.name.clone(), Scheme { vars: Vec::new(), ty: variant_ty });
         }
+    }
+}
+
+/// Check if a type annotation is `IO T` (effect marker wrapper).
+fn is_io_type(ty: &Type) -> bool {
+    match ty {
+        Type::Named(n) => n.name.name == "IO" && n.args.as_ref().map_or(false, |a| a.len() == 1),
+        _ => false,
+    }
+}
+
+/// Extract the inner type from `IO T`.
+fn io_inner_type(ty: &Type) -> Option<Type> {
+    match ty {
+        Type::Named(n) if n.name.name == "IO" => {
+            n.args.as_ref().and_then(|a| a.first()).and_then(|arg| match arg {
+                TypeArg::Type(t) => Some(t.clone()),
+                _ => None,
+            })
+        }
+        _ => None,
     }
 }
 

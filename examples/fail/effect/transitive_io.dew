@@ -1,0 +1,5 @@
+// expect error: [E006]
+// Pure function annotation violated through transitive IO call.
+def do_io = fn(x: Int) { x -> stdout; };
+def bad_wrapper = fn(x: Int) -> Int { do_io(x) };
+def main = fn { bad_wrapper(42) -> stdout; };

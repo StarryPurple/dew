@@ -1,0 +1,14 @@
+// expect: 5
+// MVP: simplest recursive borrow — decrement counter via accumulator.
+def rec dec = fn(n: Int, &acc: Int) -> Int {
+  if n == 0 { acc }
+  else {
+    &acc = acc - 1;
+    &acc -> dec(n - 1)
+  }
+};
+def main = fn {
+  def acc = 10;
+  def result = dec(5, &acc);
+  result -> stdout;
+};

@@ -1,0 +1,4 @@
+// Library: basic math functions.
+def add = fn(x: Int, y: Int) -> Int { x + y };
+def mul = fn(x: Int, y: Int) -> Int { x * y };
+def square = fn(x: Int) -> Int { mul(x, x) };

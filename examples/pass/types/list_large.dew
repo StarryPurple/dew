@@ -1,0 +1,19 @@
+// expect: 20
+// Large: map over list, then sum — compose two recursive functions.
+def xs = Cons(1, Cons(2, Cons(3, Cons(4, Nil))));
+def rec sum = fn(lst: List(Int)) -> Int {
+  match lst {
+    Cons(h, t) => h + sum(t),
+    Nil => 0,
+  }
+};
+def rec double = fn(lst: List(Int)) -> List(Int) {
+  match lst {
+    Cons(h, t) => Cons(h * 2, double(t)),
+    Nil => Nil,
+  }
+};
+def main = fn {
+  def doubled = double(xs);
+  sum(doubled) -> stdout;
+};

@@ -9,7 +9,9 @@ This directory contains the **canonical design specifications** for the Dew prog
 | Document | Scope | Description |
 |----------|-------|-------------|
 | [dew-lang.md](dew-lang.md) | Dew Language | Complete language specification: syntax, semantics, type system, standard library |
+| [dew-lang-impl.md](dew-lang-impl.md) | Dew → Dew IR | Implementation: how each language feature lowers through the compiler pipeline |
 | [dew-ir.md](dew-ir.md) | Dew IR | Thunk Graph IR specification: primitives, instructions, text format, evaluation model |
+| [dew-ir-impl.md](dew-ir-impl.md) | Dew IR → LLVM IR | Implementation: how Dew IR translates to LLVM IR and tree-walking evaluator |
 | [rx-dew-interop.md](rx-dew-interop.md) | Rx ↔ Dew Interop | Translation rules for Rx (Rust-like) ↔ Dew round-trip, safety analysis architecture |
 | [todo.md](todo.md) | Roadmap | Implementation roadmap: completed features, gaps, planned phases, dependency graph |
 | [dew-lang-ebnf.md](dew-lang-ebnf.md) | Dew Grammar (doc) | Full EBNF grammar for the Dew surface syntax with explanatory notes |
@@ -25,13 +27,17 @@ dew-lang.md ──────────────── Dew source language
      │
      ├── defines the type system that dew-ir.md implements
      │
-     └── defines the target language for rx-dew-interop.md translations
+     ├── defines the target language for rx-dew-interop.md translations
+     │
+     └── dew-lang-impl.md ─── How language features lower to IR
 
 dew-ir.md ────────────────── Compiler IR
      │
      ├── compilation target for dew-lang.md
      │
-     └── analysis IR for rx-dew-interop.md safety checks
+     ├── analysis IR for rx-dew-interop.md safety checks
+     │
+     └── dew-ir-impl.md ──── How IR translates to LLVM / evaluator
 
 rx-dew-interop.md ────────── Cross-language pipeline
      │
@@ -46,11 +52,13 @@ rx-dew-interop.md ────────── Cross-language pipeline
 
 **If you want to write Dew programs** → Start with [dew-lang.md](dew-lang.md).
 
-**If you want to implement the compiler** → Read [dew-lang.md](dew-lang.md) first for language semantics, then [dew-ir.md](dew-ir.md) for the compilation target.
+**If you want to implement the compiler** → Read [dew-lang.md](dew-lang.md) first for language semantics, then [dew-ir.md](dew-ir.md) for the compilation target, then [dew-lang-impl.md](dew-lang-impl.md) and [dew-ir-impl.md](dew-ir-impl.md) for the full lowering pipeline.
+
+**If you want to understand a specific feature's compilation** → Read the feature in [dew-lang.md](dew-lang.md), then its lowering in [dew-lang-impl.md](dew-lang-impl.md).
 
 **If you want to translate Rx to Dew** → Read [rx-dew-interop.md](rx-dew-interop.md); it references both [dew-lang.md](dew-lang.md) (target language) and the Rx grammar in `RustShard-Compiler/docs/semantic_rules.md`.
 
-**If you want to understand the full architecture** → Read in order: dew-lang.md → dew-ir.md → rx-dew-interop.md.
+**If you want to understand the full architecture** → Read in order: dew-lang.md → dew-lang-impl.md → dew-ir.md → dew-ir-impl.md → rx-dew-interop.md.
 
 ---
 

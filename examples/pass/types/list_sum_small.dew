@@ -1,0 +1,4 @@
+// expect: 6
+// MVP: use list_sum from stdlib.
+def xs = Cons(1, Cons(2, Cons(3, Nil)));
+def main = fn { list_sum(xs) -> stdout; };

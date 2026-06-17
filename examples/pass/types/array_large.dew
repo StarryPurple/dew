@@ -1,0 +1,8 @@
+// expect: 55
+// Large: array in recursive function — sum of squares via array.
+def squares = [1, 4, 9, 16, 25];
+def rec sum_arr = fn(i: Int, acc: Int) -> Int {
+  if i == 5 { acc }
+  else { sum_arr(i + 1, acc + squares[i]) }
+};
+def main = fn { sum_arr(0, 0) -> stdout; };

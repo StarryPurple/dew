@@ -1,0 +1,5 @@
+// expect: 42
+// MVP: force a suspended thunk with the ! operator.
+def x = 40 + 2;             // suspended
+def y = !x;                 // forced immediately
+def main = fn { y -> stdout; };

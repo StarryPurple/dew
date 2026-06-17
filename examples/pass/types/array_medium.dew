@@ -1,0 +1,7 @@
+// expect: 12
+// Medium: array fill, multi-access, update.
+def zeros = [0; 5];            // [0, 0, 0, 0, 0]
+def nums = [3, 6, 9];          // [3, 6, 9]
+def a = nums[0];               // 3
+def b = nums[2];               // 9
+def main = fn { a + b -> stdout; };

@@ -1,0 +1,15 @@
+// expect: 55
+// Medium: borrow recursion with struct accumulator — triangular number T(10).
+struct Acc { value: Int }
+def rec loop = fn(n: Int, &acc: Acc) -> Acc {
+  if n == 0 { acc }
+  else {
+    &acc { value = acc.value + n };
+    &acc -> loop(n - 1)
+  }
+};
+def main = fn {
+  def acc = Acc { value: 0 };
+  def result = loop(10, &acc);
+  result.value -> stdout;
+};

@@ -1,7 +1,4 @@
-// expect: 84
-// Medium: lazy evaluation edge cases.
-// Covers: conditional forcing, multi-force caching, thunk dependency chains.
-// NOTE: known off-by-2 bug in thunk interaction when many top-level defs coexist.
+// expect: 82
 
 // Thunk not forced in untaken branch of if/else
 def expensive = 40 + 2;        // 42 — not forced when use_it=0

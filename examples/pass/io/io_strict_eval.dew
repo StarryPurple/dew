@@ -1,0 +1,10 @@
+// expect: 63
+// Tier: Medium
+// Feature: IO effect, def binding, arithmetic, pipeline
+// Sequential def bindings with computed values, final output via pipeline.
+def main = fn {
+  def a = 10 + 1;
+  def b = 20 + 1;
+  def c = 30 + 1;
+  a + b + c -> stdout;
+};

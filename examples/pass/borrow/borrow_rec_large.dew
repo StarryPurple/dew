@@ -1,0 +1,24 @@
+// expect: 440
+// Large: borrow recursion — two accumulator functions combined.
+// Square sum + triangular number via borrow-accumulated recursion.
+def rec sq_acc = fn(n: Int, &s: Int) -> Int {
+  if n == 0 { s }
+  else {
+    &s = s + n * n;
+    &s -> sq_acc(n - 1)
+  }
+};
+def rec tri_acc = fn(n: Int, &t: Int) -> Int {
+  if n == 0 { t }
+  else {
+    &t = t + n;
+    &t -> tri_acc(n - 1)
+  }
+};
+def main = fn {
+  def s = 0;
+  def sq = sq_acc(10, &s);
+  def t = 0;
+  def tr = tri_acc(10, &t);
+  sq + tr -> stdout;
+};

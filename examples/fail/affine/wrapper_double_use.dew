@@ -1,0 +1,8 @@
+// expect error: [E004]
+// Affine(T) wrapper consumed twice — second access to a.data after first.
+def main = fn {
+  def a = Affine { data: 42 };
+  def v = a.data;
+  def w = a.data;
+  v + w -> stdout;
+};

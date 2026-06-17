@@ -1,0 +1,5 @@
+// expect: 79
+// Large: import recursive functions, compose with local code.
+import "examples/lib/rec.dew"
+import "examples/lib/math.dew"
+def main = fn { add(fact(4), sum(10)) -> stdout; };
