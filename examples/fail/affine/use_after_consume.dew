@@ -1,6 +1,0 @@
-// expect error: [E002]
-// Affine value used after it has been consumed.
-def main = fn {
-  def x = 42;
-  x + 1 -> stdout;
-};

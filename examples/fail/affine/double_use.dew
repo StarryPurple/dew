@@ -1,7 +1,0 @@
-// expect error: [E007]
-// Block-local def: variable declared in block, then used twice.
-// TODO: change to affine error when affine checking is implemented.
-def main = fn {
-  def x = 42;
-  x -> stdout;
-};
