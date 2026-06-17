@@ -111,8 +111,8 @@ pub struct EnumDecl {
 /// An enum variant: single positional payload, named fields, or unit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Variant {
-    /// `Variant(Type)` — single positional payload
-    Single { span: Span, name: Ident, payload: Type },
+    /// `Variant(Type1, Type2, ...)` — positional payload(s)
+    Single { span: Span, name: Ident, payload: Vec<Type> },
     /// `Variant { field: Type, ... }` — named fields
     Struct { span: Span, name: Ident, fields: Vec<StructField> },
     /// `Variant` — no payload
@@ -370,7 +370,7 @@ pub struct PipelineExpr {
 pub struct BorrowExpr {
     pub span: Span,
     pub lvalue: LValue,
-    pub rhs: Box<BorrowRhs>,
+    pub rhs: Option<Box<BorrowRhs>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -431,8 +431,8 @@ pub struct EnumLit {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EnumPayload {
-    /// `Some(42)` or `None` (Some(payload) / None)
-    Single(Option<Box<Expr>>),
+    /// `Some(42)` or `Node(e1, e2)` (positional payload expressions)
+    Single(Vec<Box<Expr>>),
     /// `KeyPress { key: 'a', modifiers: 0 }`
     Struct(Vec<StructLitField>),
 }
@@ -497,7 +497,7 @@ pub struct StructPattern {
 pub struct VariantPattern {
     pub span: Span,
     pub name: Ident,
-    pub payload: Option<Box<Pattern>>,
+    pub payload: Vec<Pattern>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -271,10 +271,16 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn infer_struct_lit(&mut self, s: &StructLit) -> Ty {
+        if let Some(scheme) = self.env.lookup(&s.name.name) {
+            return scheme.ty.clone();
+        }
         Ty::Named(s.name.name.clone(), vec![])
     }
 
     fn infer_enum_lit(&mut self, e: &EnumLit) -> Ty {
+        if let Some(scheme) = self.env.lookup(&e.name.name) {
+            return scheme.ty.clone();
+        }
         Ty::Named(e.name.name.clone(), vec![])
     }
 
@@ -346,8 +352,9 @@ impl<'a> TypeChecker<'a> {
                 }
             }
             Pattern::Variant(vp) => {
-                if let Some(payload) = &vp.payload {
-                    self.infer_pattern(payload, expected_ty);
+                for payload in &vp.payload {
+                    let fresh = self.tvg.fresh_ty();
+                    self.infer_pattern(payload, &fresh);
                 }
             }
             Pattern::Tuple(tp) => {

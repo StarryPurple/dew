@@ -1,0 +1,33 @@
+// expect: 23
+// Integration: enum composed with recursion and closures.
+// Binary tree processing with map/fold via closures.
+enum Tree {
+  Leaf(Int),
+  Node(Tree, Tree),
+}
+def rec sum = fn(t: Tree) -> Int {
+  match t {
+    Leaf(n) => n,
+    Node(left, right) => sum(left) + sum(right),
+  }
+};
+def rec depth = fn(t: Tree) -> Int {
+  match t {
+    Leaf(n) => 1,
+    Node(left, right) => {
+      def dl = depth(left);
+      def dr = depth(right);
+      if dl > dr { dl + 1 } else { dr + 1 }
+    },
+  }
+};
+def rec leaf_count = fn(t: Tree) -> Int {
+  match t {
+    Leaf(n) => 1,
+    Node(left, right) => leaf_count(left) + leaf_count(right),
+  }
+};
+def main = fn {
+  def t = Node(Node(Leaf(1), Leaf(2)), Node(Leaf(3), Node(Leaf(4), Leaf(5))));
+  sum(t) + depth(t) + leaf_count(t) - 1 -> stdout;
+};

@@ -1,4 +1,4 @@
 // expect: 42
 // Forcing the same thunk twice should return the cached result.
 def x = 40 + 2;
-def main = fn { x -> stdout; x -> stdout; };
+def main = fn { x -> stdout; '\n' -> stdout; x -> stdout; };

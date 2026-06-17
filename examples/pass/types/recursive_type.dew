@@ -1,10 +1,10 @@
 // expect: 6
-// Recursive enum: a binary tree of integers.
-enum Tree { Leaf(Int), Node(Int, Int) }
-def sum_tree = fn(t: Int) -> Int {
+// Recursive enum: binary tree with integers at leaves.
+enum Tree { Leaf(Int), Node(Tree, Tree) }
+def sum_tree = fn(t: Tree) -> Int {
   match t {
     Leaf(n) => n,
-    Node(left, right) => left + right,
+    Node(left, right) => sum_tree(left) + sum_tree(right),
   }
 };
 def main = fn { sum_tree(Node(Leaf(1), Leaf(5))) -> stdout; };

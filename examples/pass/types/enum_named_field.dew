@@ -1,0 +1,28 @@
+// expect: 105
+// Named-field enum variant: construction and match destructuring.
+enum Event {
+  KeyPress { key: Char, modifiers: Int },
+  Tick,
+  Error(Int),
+}
+def handle = fn(e: Event) -> Int {
+  match e {
+    KeyPress { key, modifiers } => {
+      if key == 'a' {
+        if modifiers == 1 { 1 } else { 2 }
+      } else {
+        0
+      }
+    },
+    Tick => 99,
+    Error(code) => code,
+  }
+};
+def main = fn {
+  def e1 = KeyPress { key: 'a', modifiers: 1 };
+  def e2 = KeyPress { key: 'a', modifiers: 0 };
+  def e3 = Error(3);
+  def e4 = Tick;
+  def e5 = KeyPress { key: 'b', modifiers: 0 };
+  handle(e1) + handle(e2) + handle(e3) + handle(e4) + handle(e5) -> stdout;
+};

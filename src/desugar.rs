@@ -62,20 +62,29 @@ fn desugar_decl(decl: &Decl, _diag: &mut DiagnosticCollector) -> Vec<Decl> {
 
 fn desugar_expr(expr: &Expr) -> Expr {
     match expr {
-        // Pipeline: expr -> f(args)  →  f(args..., expr)
         Expr::Pipeline(p) => {
+            let is_borrow = matches!(&*p.value, Expr::Borrow(_));
             let value = desugar_expr(&p.value);
             let func = desugar_expr(&p.func);
+            let piped_arg = if is_borrow {
+                if let Expr::Borrow(b) = &*p.value {
+                    ExprArg::Borrow(b.clone())
+                } else {
+                    ExprArg::Value(Box::new(value))
+                }
+            } else {
+                ExprArg::Value(Box::new(value))
+            };
             match func {
                 Expr::Call(mut call) => {
-                    call.args.push(ExprArg::Value(Box::new(value)));
+                    call.args.push(piped_arg);
                     Expr::Call(call)
                 }
                 func_expr => {
                     Expr::Call(CallExpr {
                         span: p.span,
                         func: Box::new(func_expr),
-                        args: vec![ExprArg::Value(Box::new(value))],
+                        args: vec![piped_arg],
                     })
                 }
             }
@@ -244,10 +253,11 @@ fn desugar_expr(expr: &Expr) -> Expr {
             count: a.count,
         }),
         Expr::Fix(f) => Expr::Fix(FixExpr {
-            span: f.span,
-            loop_var: f.loop_var.clone(),
-            body: Box::new(desugar_expr(&f.body)),
-        }),
+                span: f.span,
+                loop_var: f.loop_var.clone(),
+                body: Box::new(desugar_expr(&f.body)),
+            })
+        },
         Expr::Borrow(b) => desugar_borrow_stmt(b),
 
         // Leaf nodes — no desugaring needed
@@ -383,16 +393,14 @@ fn expr_has_borrow(expr: &Expr) -> bool {
 /// Desugar a borrow statement: `&p = expr` → `def %p = expr`
 /// `&p { fields }` → `def %p = p { fields }`
 fn desugar_borrow_stmt(b: &BorrowExpr) -> Expr {
-    let rhs_expr = match &*b.rhs {
+    let Some(ref rhs) = b.rhs else { return Expr::UnitLit(Span::DUMMY) };
+    let rhs_expr = match &**rhs {
         BorrowRhs::Assign(e) => desugar_expr(e),
         BorrowRhs::Update(updates) => {
             let root_expr = Expr::Var(b.lvalue.root.clone());
             build_nested_update(&b.lvalue, root_expr, updates)
         }
     };
-    // Emit as a function call to a special intrinsic,
-    // which the name resolver will turn into a proper binding.
-    // For now, we return the value directly — the caller wraps it.
     rhs_expr
 }
 
@@ -400,7 +408,8 @@ fn desugar_borrow_stmt(b: &BorrowExpr) -> Expr {
 /// `f(&x)` → becomes `def (x, result) = f(x)`
 /// We return the expression wrapped so the enclosing context handles the destructure.
 fn desugar_borrow_arg(b: &BorrowExpr) -> ExprArg {
-    let value = match &*b.rhs {
+    let Some(ref rhs) = b.rhs else { return ExprArg::Value(Box::new(Expr::UnitLit(Span::DUMMY))) };
+    let _value = match &**rhs {
         BorrowRhs::Assign(e) => desugar_expr(e),
         BorrowRhs::Update(updates) => {
             let root_expr = Expr::Var(b.lvalue.root.clone());
@@ -478,7 +487,9 @@ fn build_nested_update(lvalue: &LValue, base: Expr, updates: &[UpdateField]) -> 
 
 fn desugar_enum_payload(p: &EnumPayload) -> EnumPayload {
     match p {
-        EnumPayload::Single(opt) => EnumPayload::Single(opt.as_ref().map(|e| Box::new(desugar_expr(e)))),
+        EnumPayload::Single(exprs) => EnumPayload::Single(
+            exprs.iter().map(|e| Box::new(desugar_expr(e))).collect()
+        ),
         EnumPayload::Struct(fields) => EnumPayload::Struct(
             fields.iter().map(|f| StructLitField {
                 span: f.span, name: f.name.clone(),

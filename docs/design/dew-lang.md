@@ -671,12 +671,16 @@ enum Option {
 }
 ```
 
-**Constructor syntax** mirrors the variant declaration — positional for single-payload, named for multi-field:
+**Constructor syntax** mirrors the variant declaration — positional for payload variants, named for struct-like variants:
 
 ```dew
 def x = Some(2026)
 def y = None          // type inferred from context
 def y: Option = None  // explicit annotation
+
+// Multi-parameter positional payload
+enum Tree { Leaf(Int), Node(Tree, Tree) }
+def t = Node(Leaf(1), Leaf(5))
 ```
 
 Variants with named fields use struct-like construction:
@@ -691,7 +695,14 @@ def e = KeyPress { key: 'a', modifiers: 0 };
 def e = Quit;
 ```
 
-Each variant has at most one positional payload, or multiple named fields. Mixing both in one variant is not allowed.
+Each variant may have zero or more positional payloads, or multiple named fields. Mixing both positional and named fields in one variant is not allowed. Multi-parameter payloads are internally packed as a tuple — pattern matching destructures them positionally:
+
+```dew
+match t {
+  Leaf(n) => n,
+  Node(left, right) => sum(left) + sum(right),
+}
+```
 
 For [affine](#42-affine-type-modifier) enum rules, enums follow the same three rules as structs. A variant with an affine-typed payload infects the entire enum:
 

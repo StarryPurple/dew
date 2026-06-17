@@ -1,7 +1,7 @@
 // expect: 2
 // Enum with multiple variants and exhaustive match.
 enum Direction { North, South, East, West }
-def direction_value = fn(d: Int) -> Int {
+def direction_value = fn(d: Direction) -> Int {
   match d {
     North => 0,
     South => 2,

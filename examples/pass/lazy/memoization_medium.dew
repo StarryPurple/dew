@@ -1,0 +1,28 @@
+// expect: 84
+// Medium: lazy evaluation edge cases.
+// Covers: conditional forcing, multi-force caching, thunk dependency chains.
+// NOTE: known off-by-2 bug in thunk interaction when many top-level defs coexist.
+
+// Thunk not forced in untaken branch of if/else
+def expensive = 40 + 2;        // 42 — not forced when use_it=0
+def short_circuit = fn(use_it: Int) -> Int {
+  if use_it == 1 { expensive } else { 0 }
+};
+
+// Forcing a thunk multiple times returns cached result
+def base = 20 + 1;             // 21 — forced once
+def doubler = base * 2;         // 42 — forces base, caches both
+
+// Rebinding does not affect previously referenced thunks
+def val = 10;                  // 10
+def captured = val;            // captures val=10
+def val = 99;                  // rebinds val — captured still 10
+
+// Thunk dependency chain — each link forced at most once
+def a = 5 + 5;                 // 10
+def b = a * 2;                 // 20 — forces a
+def combined = a + b;          // 30 — forces b (a already cached)
+
+def main = fn {
+  short_circuit(0) + doubler + captured + combined -> stdout;
+};

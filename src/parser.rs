@@ -118,7 +118,13 @@ impl<'a> Parser<'a> {
             let vname = self.expect_ident()?;
             let variant = if self.check(TokenKind::LParen) {
                 self.advance();
-                let payload = self.parse_type()?;
+                let mut payload = Vec::new();
+                if !self.check(TokenKind::RParen) {
+                    payload.push(self.parse_type()?);
+                    while self.eat(TokenKind::Comma) {
+                        payload.push(self.parse_type()?);
+                    }
+                }
                 self.expect(TokenKind::RParen)?;
                 Variant::Single { span: vspan, name: vname, payload }
             } else if self.check(TokenKind::LBrace) {
@@ -127,6 +133,9 @@ impl<'a> Parser<'a> {
                 while !self.check(TokenKind::RBrace) && !self.is_eof() {
                     let fspan = self.current_span();
                     let fname = self.expect_ident()?;
+                    self.expect(TokenKind::Colon)?;
+                    let ftype = self.parse_type()?;
+                    vfields.push(StructField { span: fspan, name: fname, ty: ftype });
                     if !self.check(TokenKind::RBrace) {
                         self.expect(TokenKind::Comma)?;
                     }
@@ -337,24 +346,22 @@ impl<'a> Parser<'a> {
                 let span = Span { start, end: expr.span().end, line: 0, col: start };
                 Ok(Expr::Unary(UnaryExpr { span, op: UnaryOp::Not, expr: Box::new(expr) }))
             }
-            TokenKind::Amp => {
+             TokenKind::Amp => {
                 let start = self.advance().start;
                 let lvalue = self.parse_lvalue()?;
                 let rhs = if self.eat(TokenKind::Eq) {
                     let val = self.parse_expr();
-                    BorrowRhs::Assign(Box::new(val))
+                    Some(Box::new(BorrowRhs::Assign(Box::new(val))))
                 } else if self.check(TokenKind::LBrace) {
                     let updates = self.parse_update_fields()?;
-                    BorrowRhs::Update(updates)
+                    Some(Box::new(BorrowRhs::Update(updates)))
                 } else {
-                    self.diag.error("E002", "expected '=' or '{' after &lvalue",
-                        Some(self.current_span()));
-                    return Err(self.current_span());
+                    None
                 };
                 let end = self.current_span().end;
                 Ok(Expr::Borrow(Box::new(BorrowExpr {
                     span: Span { start, end, line: 0, col: start },
-                    lvalue, rhs: Box::new(rhs),
+                    lvalue, rhs,
                 })))
             }
             _ => self.parse_atom().and_then(|e| self.parse_postfix(e)),
@@ -708,9 +715,7 @@ impl<'a> Parser<'a> {
                 let lvalue = self.parse_lvalue()?;
                 args.push(ExprArg::Borrow(Box::new(BorrowExpr {
                     span: lvalue.span,
-                    lvalue, rhs: Box::new(BorrowRhs::Assign(Box::new(
-                        Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 })
-                    ))),
+                    lvalue, rhs: None,
                 })));
             } else {
                 args.push(ExprArg::Value(Box::new(self.parse_expr())));
@@ -813,16 +818,16 @@ impl<'a> Parser<'a> {
             TokenKind::Ident(_) => {
                 let ident = self.expect_ident()?;
                 if self.check(TokenKind::LParen) {
-                    // Variant(inner_pattern)
+                    // Variant(inner_pattern, ...)
                     self.advance();
-                    let payload: Option<Box<Pattern>> = if self.check(TokenKind::RParen) {
-                        self.advance();
-                        None
-                    } else {
-                        let pat = self.parse_pattern()?;
-                        self.expect(TokenKind::RParen)?;
-                        Some(Box::new(pat))
-                    };
+                    let mut payload = Vec::new();
+                    if !self.check(TokenKind::RParen) {
+                        payload.push(self.parse_pattern()?);
+                        while self.eat(TokenKind::Comma) {
+                            payload.push(self.parse_pattern()?);
+                        }
+                    }
+                    self.expect(TokenKind::RParen)?;
                     Ok(Pattern::Variant(VariantPattern {
                         span: ident.span, name: ident, payload,
                     }))

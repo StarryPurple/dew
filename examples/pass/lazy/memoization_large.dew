@@ -1,0 +1,37 @@
+// expect: 32
+// Large: lazy evaluation composed with recursion, closures, and conditionals.
+// Tests that thunks are properly forced once and cached across recursive calls.
+
+// Fibonacci with memoization via lazy thunks.
+// Each fib(n) is defined as a thunk, forced at most once, then cached.
+def rec fib = fn(n: Int) -> Int {
+  if n <= 1 { n } else { fib(n - 1) + fib(n - 2) }
+};
+
+// Lazy stream: infinite list via thunk suspension.
+// A stream is (head, rest-thunk) — the rest is only forced when needed.
+def rec take = fn(n: Int, start: Int) -> Int {
+  if n == 0 { 0 } else { fib(start) + take(n - 1, start + 1) }
+};
+
+// Closure that captures and re-forces a shared thunk
+def shared = 10 + 2;        // suspended — 12
+def use_shared = fn { shared };
+def use_shared_again = fn { shared };
+
+// Conditionally forced thunk in recursive context
+def rec maybe_force = fn(n: Int, flag: Int) -> Int {
+  if n == 0 {
+    0
+  } else {
+    if flag == 1 { shared } else { n } + maybe_force(n - 1, flag)
+  }
+};
+
+def main = fn {
+  def fib5 = fib(5);         // 5 — forced once
+  def take3 = take(3, 0);    // fib(0)+fib(1)+fib(2) = 0+1+1 = 2
+  def shared_val = use_shared() + use_shared_again();  // 12+12 = 24 (thunk forced once)
+  def cond_thunk = maybe_force(1, 0);  // n=1, flag=0 → 1 + 0 = 1
+  fib5 + take3 + shared_val + cond_thunk -> stdout;
+};

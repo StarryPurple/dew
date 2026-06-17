@@ -1,4 +1,4 @@
-// expect: 42
+// expect: 60
 // Statement-level &p { field = val } update without function call (§5.5 Rule 5).
 struct Point { x: Int, y: Int }
 def main = fn {

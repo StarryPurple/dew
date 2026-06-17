@@ -50,7 +50,9 @@ fn run(args: &[String]) -> Result<i32, String> {
 }
 
 fn run_file(path: &str, emit_text: bool, emit_json: bool, use_llvm: bool) -> Result<i32, String> {
-    let src = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path, e))?;
+    let stdlib = load_stdlib()?;
+    let user_src = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path, e))?;
+    let src = format!("{}\n{}", stdlib, user_src);
     let (module, diag) = compile(&src)?;
 
     if diag.has_errors() {
@@ -91,7 +93,8 @@ fn run_file(path: &str, emit_text: bool, emit_json: bool, use_llvm: bool) -> Res
 }
 
 fn run_eval(expr: &str) -> Result<i32, String> {
-    let src = format!("def main = fn {{ {} -> stdout; }};", expr);
+    let stdlib = load_stdlib()?;
+    let src = format!("{}ndef main = fn {{ {} -> stdout; }};", stdlib, expr);
     let (module, diag) = compile(&src)?;
     if diag.has_errors() {
         diag.emit_all(&src);
@@ -106,7 +109,8 @@ fn run_repl() -> Result<i32, String> {
     println!("Type :q to quit, :t <expr> for type");
     let stdin = io::stdin();
     let mut line = String::new();
-    let mut env_src = String::new();
+    let stdlib = load_stdlib()?;
+    let mut env_src = stdlib;
     loop {
         print!("dew> ");
         io::stdout().flush().ok();
@@ -137,6 +141,26 @@ fn run_repl() -> Result<i32, String> {
         backend::eval::run(&module).map_err(|e| format!("eval: {}", e))?;
     }
     Ok(0)
+}
+
+fn load_stdlib() -> Result<String, String> {
+    let stdlib_dir = Path::new("stdlib");
+    if !stdlib_dir.is_dir() {
+        return Ok(String::new());
+    }
+    let mut src = String::new();
+    let entries = fs::read_dir(stdlib_dir).map_err(|e| format!("stdlib: {}", e))?;
+    let mut paths: Vec<_> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+    paths.sort();
+    for path in paths {
+        if path.extension().map_or(false, |ext| ext == "dew") {
+            let content = fs::read_to_string(&path)
+                .map_err(|e| format!("cannot read {}: {}", path.display(), e))?;
+            src.push_str(&content);
+            src.push('\n');
+        }
+    }
+    Ok(src)
 }
 
 fn compile(src: &str) -> Result<(dew::ir::module::Module, DiagnosticCollector), String> {

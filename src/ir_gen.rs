@@ -76,7 +76,9 @@ impl<'a> IrGenerator<'a> {
         let variants: Vec<VariantDef> = e.variants.iter().enumerate().map(|(i, v)| {
             let fields = match v {
                 Variant::Single { payload, .. } => {
-                    vec![("".into(), self.ast_ty_to_ir(payload))]
+                    payload.iter().enumerate().map(|(j, ty)| {
+                        (format!("{}", j), self.ast_ty_to_ir(ty))
+                    }).collect()
                 }
                 Variant::Struct { fields, .. } => {
                     fields.iter().map(|f| (f.name.name.clone(), self.ast_ty_to_ir(&f.ty))).collect()
@@ -176,6 +178,12 @@ impl<'a> IrGenerator<'a> {
                     r
                 } else if let Some(&reg) = self.var_map.get(&ident.name) {
                     reg
+                } else if let Some((enum_name, variant_name)) =
+                    self.module.types.find_zero_payload_variant(&ident.name)
+                {
+                    let r = self.fresh_reg();
+                    block.instrs.push(Instr::EnumCons(r, enum_name, variant_name, vec![]));
+                    r
                 } else {
                     self.diag.error("E007",
                         format!("unresolved variable '{}' in IR gen", ident.name),
@@ -320,8 +328,13 @@ impl<'a> IrGenerator<'a> {
                     }
                 }
                 let result_r = self.fresh_reg();
-                block.instrs.push(Instr::StructCons(result_r, s.name.name.clone(), field_regs));
-                self.reg_struct.insert(result_r, s.name.name.clone());
+                // Check if name is an enum variant (named-field variant construction)
+                if let Some(enum_def) = self.module.types.find_enum_for_variant(&s.name.name) {
+                    block.instrs.push(Instr::EnumCons(result_r, enum_def.name.clone(), s.name.name.clone(), field_regs));
+                } else {
+                    block.instrs.push(Instr::StructCons(result_r, s.name.name.clone(), field_regs));
+                    self.reg_struct.insert(result_r, s.name.name.clone());
+                }
                 result_r
             }
 
@@ -372,9 +385,9 @@ impl<'a> IrGenerator<'a> {
                     .unwrap_or_else(|| e.name.name.clone());
                 let mut field_regs = Vec::new();
                 match &e.payload {
-                    EnumPayload::Single(opt) => {
-                        if let Some(val) = opt {
-                            field_regs.push(self.compile_expr(val, block));
+                    EnumPayload::Single(exprs) => {
+                        for expr in exprs {
+                            field_regs.push(self.compile_expr(expr, block));
                         }
                     }
                     EnumPayload::Struct(fields) => {
@@ -506,14 +519,38 @@ impl<'a> IrGenerator<'a> {
                 let enum_name = self.module.types.find_enum_for_variant(&v.name.name)
                     .map(|e| e.name.clone())
                     .unwrap_or_default();
-                if let Some(ref payload_pat) = v.payload {
+                for (idx, payload_pat) in v.payload.iter().enumerate() {
                     let proj_reg = self.fresh_reg();
-                    block.instrs.push(Instr::EnumProj(proj_reg, enum_name, v.name.name.clone(), scrut_reg));
-                    match &**payload_pat {
+                    block.instrs.push(Instr::EnumProj(proj_reg, enum_name.clone(), v.name.name.clone(), idx, scrut_reg));
+                    match payload_pat {
                         Pattern::Var(inner) => {
                             self.var_map.insert(inner.name.clone(), proj_reg);
                         }
                         _ => {}
+                    }
+                }
+            }
+            Pattern::Struct(sp) => {
+                let variant_fields = self.module.types.find_enum_for_variant(&sp.name.name)
+                    .and_then(|ed| {
+                        ed.variants.iter().find(|v| v.name == sp.name.name)
+                            .map(|v| (ed.name.clone(), v.fields.clone()))
+                    });
+                if let Some((enum_name, fields)) = variant_fields {
+                    for sf in &sp.fields {
+                        let field_name = match sf {
+                            PatternField::Shorthand { name, .. } => &name.name,
+                            PatternField::Rename { field, .. } => &field.name,
+                        };
+                        let var_name = match sf {
+                            PatternField::Shorthand { name, .. } => &name.name,
+                            PatternField::Rename { var, .. } => &var.name,
+                        };
+                        if let Some(field_idx) = fields.iter().position(|(n, _)| n == field_name) {
+                            let proj_reg = self.fresh_reg();
+                            block.instrs.push(Instr::EnumProj(proj_reg, enum_name.clone(), sp.name.name.clone(), field_idx, scrut_reg));
+                            self.var_map.insert(var_name.clone(), proj_reg);
+                        }
                     }
                 }
             }

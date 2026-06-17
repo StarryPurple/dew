@@ -175,14 +175,18 @@ impl<'a> NameResolver<'a> {
             }
             Expr::EnumLit(e) => {
                 match &e.payload {
-                    EnumPayload::Single(Some(expr)) => self.resolve_expr(expr, scope),
+                    EnumPayload::Single(exprs) => {
+                        for expr in exprs {
+                            self.resolve_expr(expr, scope);
+                        }
+                    }
                     EnumPayload::Struct(fields) => {
                         for f in fields {
                             if let Some(v) = &f.value {
                                 self.resolve_expr(v, scope);
-                            }
-                        }
-                    }
+            }
+        }
+        }
                     _ => {}
                 }
             }
@@ -217,15 +221,17 @@ impl<'a> NameResolver<'a> {
                 _ => {}
             }
         }
-        match &*b.rhs {
-            BorrowRhs::Assign(e) => self.resolve_expr(e, scope),
-            BorrowRhs::Update(updates) => {
-                for uf in updates {
-                    match uf {
-                        UpdateField::NamedField { value, .. }
-                        | UpdateField::ArrayIndex { value, .. }
-                        | UpdateField::TupleIndex { value, .. } => {
-                            self.resolve_expr(value, scope);
+        if let Some(ref rhs) = b.rhs {
+            match &**rhs {
+                BorrowRhs::Assign(e) => self.resolve_expr(e, scope),
+                BorrowRhs::Update(updates) => {
+                    for uf in updates {
+                        match uf {
+                            UpdateField::NamedField { value, .. }
+                            | UpdateField::ArrayIndex { value, .. }
+                            | UpdateField::TupleIndex { value, .. } => {
+                                self.resolve_expr(value, scope);
+                            }
                         }
                     }
                 }
@@ -251,7 +257,7 @@ impl<'a> NameResolver<'a> {
                 }
             }
             Pattern::Variant(vp) => {
-                if let Some(payload) = &vp.payload {
+                for payload in &vp.payload {
                     self.resolve_pattern(payload, scope);
                 }
             }

@@ -109,8 +109,10 @@ impl StrictnessContext {
             }
             crate::ast::Expr::EnumLit(e) => {
                 match &e.payload {
-                    crate::ast::EnumPayload::Single(Some(expr)) => {
-                        self.classify_expr(expr, Strictness::Lazy);
+                    crate::ast::EnumPayload::Single(exprs) => {
+                        for expr in exprs {
+                            self.classify_expr(expr, Strictness::Lazy);
+                        }
                     }
                     crate::ast::EnumPayload::Struct(fields) => {
                         for f in fields {
@@ -161,17 +163,19 @@ impl StrictnessContext {
                 Strictness::Strict
             }
             crate::ast::Expr::Borrow(b) => {
-                match &*b.rhs {
-                    crate::ast::BorrowRhs::Assign(e) => {
-                        self.classify_expr(e, Strictness::Strict);
-                    }
-                    crate::ast::BorrowRhs::Update(updates) => {
-                        for uf in updates {
-                            match uf {
-                                crate::ast::UpdateField::NamedField { value, .. } => {
-                                    self.classify_expr(value, Strictness::Strict);
+                if let Some(ref rhs) = b.rhs {
+                    match &**rhs {
+                        crate::ast::BorrowRhs::Assign(e) => {
+                            self.classify_expr(e, Strictness::Strict);
+                        }
+                        crate::ast::BorrowRhs::Update(updates) => {
+                            for uf in updates {
+                                match uf {
+                                    crate::ast::UpdateField::NamedField { value, .. } => {
+                                        self.classify_expr(value, Strictness::Strict);
+                                    }
+                                    _ => {}
                                 }
-                                _ => {}
                             }
                         }
                     }

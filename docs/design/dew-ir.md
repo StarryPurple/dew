@@ -533,10 +533,11 @@ place{T} %base .x [%i] .y // chained: navigate then replace
 | `field` | `%r = field{Int} %e .x` | Extract field from struct |
 | `struct_cons` | `%r = struct_cons{Point} @Point %x %y` | Construct struct value |
 | `enum_cons` | `%r = enum_cons{Option} @Option::Some %v` | Construct single-payload enum variant |
-| `enum_cons` | `%r = enum_cons{Event} @Event::KeyPress %a %b` | Construct multi-field enum variant (positional) |
+| `enum_cons` | `%r = enum_cons{Tree} @Tree::Node %left %right` | Construct multi-positional-payload enum variant |
+| `enum_cons` | `%r = enum_cons{Event} @Event::KeyPress %a %b` | Construct multi-field enum variant |
 | `enum_disc` | `%r = enum_disc %e` | Read enum discriminant tag |
-| `enum_proj` | `%r = enum_proj{Int} @Option::Some %e` | Extract single-payload variant value |
-| `enum_proj` | `%r = enum_proj{Char} @Event::KeyPress .key %e` | Extract named field from multi-field variant |
+| `enum_proj` | `%r = enum_proj{Int} @Option::Some[0] %e` | Extract payload by positional index |
+| `enum_proj` | `%r = enum_proj{Char} @Event::KeyPress[0] %e` | Extract named field by field index |
 | `array_lit` | `%r = array_lit{Array(Int,3)} %a %b %c` | Construct array value |
 | `array_fill` | `%r = array_fill{Array(Int,N)} %v N` | Construct array with all elements = %v |
 | `tuple_lit` | `%r = tuple_lit{(Int,Int)} %a %b` | Construct tuple value |
@@ -580,7 +581,45 @@ L_some:
 ```
 - `enum_cons{Option} @Option::V %payload` — creates an enum of type `Option` using variant `V`. The tag is implicit (V's position in declaration order).
 - `enum_disc %e` — reads the discriminant (always Int). Used to branch on which variant is present.
-- `enum_proj{Int} @Option::Some %e` — extracts the payload as type `Int`. Requires the variant name for type safety.
+- `enum_proj{Int} @Option::Some[0] %e` — extracts the first payload field by index. For single-payload variants, use `[0]`. For multi-payload variants, each field has its own index (0, 1, ...). The variant name and index together guarantee the projected type.
+
+#### Multi-Positional Payload Variants
+
+A variant may carry multiple positional payloads — internally packed as a tuple:
+
+```dew
+enum Tree { Leaf(Int), Node(Tree, Tree) }
+```
+
+**Construction.** `enum_cons` accepts one register per positional payload. Operand order matches the variant's field declaration order:
+
+```
+// Source: def t = Node(Leaf(1), Leaf(5));
+
+// IR:
+%0 = enum_cons{Tree} @Tree::Leaf %1     // Leaf(1): [tag=0 | payload=1]
+%2 = enum_cons{Tree} @Tree::Leaf %3     // Leaf(5): [tag=0 | payload=5]
+%4 = enum_cons{Tree} @Tree::Node %0 %2  // Node(Leaf(1), Leaf(5)): [tag=1 | left | right]
+```
+
+**Projection.** `enum_proj` uses a positional index `[N]` to extract the Nth payload field:
+
+```
+// Match destructuring: Node(left, right) => ...
+%5 = enum_disc %4                        // → 1 (Node's tag)
+// Jump to Node arm, then project fields:
+%6 = enum_proj{Tree} @Tree::Node[0] %4  // → left child (Leaf(1))
+%7 = enum_proj{Tree} @Tree::Node[1] %4  // → right child (Leaf(5))
+```
+
+**Type table.** The `TypeTable` stores payload fields as `(name, IrType)` pairs. For positional payloads, synthetic field names are the index as a string ("0", "1", ...):
+
+| Variant | Tag | Fields |
+|---------|-----|--------|
+| `Leaf` | 0 | [("0", Int)] |
+| `Node` | 1 | [("0", Tree), ("1", Tree)] |
+
+This uniform representation means `enum_proj` works identically for positional payloads (index lookup) and named fields (name lookup) — the projection instruction carries the index; the type table carries the structural metadata.
 
 #### Multi-Field Enum Variants
 

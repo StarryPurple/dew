@@ -1,0 +1,24 @@
+// expect: 10
+// Comprehensive enum test: all variant types in one module.
+// Covers: zero-payload, single-payload, multi-payload, named-field variants.
+enum Shape {
+  Circle(Int),
+  Rect(Int, Int),
+  Point,
+  Label { text: Char, size: Int },
+}
+def area = fn(s: Shape) -> Int {
+  match s {
+    Circle(r) => r * r,
+    Rect(w, h) => w * h,
+    Point => 0,
+    Label { text, size } => size,
+  }
+};
+def main = fn {
+  def c = Circle(1);
+  def r = Rect(2, 3);
+  def p = Point;
+  def l = Label { text: 'A', size: 3 };
+  area(c) + area(r) + area(p) + area(l) -> stdout;
+};

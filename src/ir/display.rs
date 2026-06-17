@@ -134,8 +134,8 @@ fn display_instr(instr: &Instr, _return_ty: &IrType) -> String {
                 fields.iter().map(|f| format!("%{}", f)).collect::<Vec<_>>().join(" "))
         }
         Instr::EnumDisc(r, e) => format!("%{} = enum_disc %{}", r, e),
-        Instr::EnumProj(r, enum_name, variant, e) => {
-            format!("%{} = enum_proj{{}} @{}::{} %{}", r, enum_name, variant, e)
+        Instr::EnumProj(r, enum_name, variant, idx, e) => {
+            format!("%{} = enum_proj{{}} @{}::{}[{}] %{}", r, enum_name, variant, idx, e)
         }
         Instr::ArrayLit(r, ty, elems) => {
             format!("%{} = array_lit{{{}}} {}", r, ty.display(),

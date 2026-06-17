@@ -1,0 +1,3 @@
+// Standard library — I/O utilities.
+// Auto-included before user programs.
+def println = fn(&x: Int) { x -> stdout; '\n' -> stdout };

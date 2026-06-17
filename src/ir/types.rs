@@ -77,4 +77,16 @@ impl TypeTable {
     pub fn find_enum_for_variant(&self, variant: &str) -> Option<&EnumDef> {
         self.enums.iter().find(|e| e.variants.iter().any(|v| v.name == variant))
     }
+
+    /// Returns (enum_name, variant_name) if the name is a zero-payload enum variant.
+    pub fn find_zero_payload_variant(&self, name: &str) -> Option<(String, String)> {
+        for enum_def in &self.enums {
+            for variant in &enum_def.variants {
+                if variant.name == name && variant.fields.is_empty() {
+                    return Some((enum_def.name.clone(), variant.name.clone()));
+                }
+            }
+        }
+        None
+    }
 }
