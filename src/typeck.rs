@@ -107,9 +107,10 @@ impl<'a> TypeChecker<'a> {
                 self.diag.error("E003", "borrow should be desugared before type checking", None);
                 Ty::Unit
             }
-            Expr::Fix(_) => {
-                self.diag.error("E003", "fix not yet implemented in type checker", None);
-                Ty::Unit
+            Expr::Fix(fix) => {
+                let scheme = Scheme { vars: vec![], ty: self.tvg.fresh_ty() };
+                self.env.insert(fix.loop_var.name.clone(), scheme);
+                self.infer_expr(&fix.body)
             }
         }
     }

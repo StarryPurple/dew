@@ -1249,15 +1249,54 @@ def main = fn { fact(5) -> stdout }
 
 ### 5.4 Anonymous Recursion (fix)
 
+`fix` is a **block-level expression** that enables anonymous recursion. It is syntactic sugar for a block containing `def rec`:
+
 ```dew
-def result = fix loop {
-  fn(x: Int) -> Int {
-    if x < 10 { loop(x + 1) } else { x }
-  }
-}(0)
+fix loop { fn(x: Int) -> Int {
+  if x < 10 { loop(x + 1) } else { x }
+}}
 ```
 
-The identifier `loop` is visible only within the `fix` block. Used for one-shot loops.
+**Desugaring.** `fix` is eliminated in the desugar pass via a block-level rewrite:
+
+```
+fix name { body }
+  ⇓
+{ def rec name = body; name }
+```
+
+The loop variable `name` is registered via `def rec` before the body is resolved, making it visible within its own definition — exactly as `def rec` works. The block returns `name` (the defined value) as its result.
+
+```dew
+// Source
+def fac = fix loop { fn(n: Int) -> Int {
+  if n == 0 { 1 } else { n * loop(n - 1) }
+}};
+
+// Desugared
+def fac = {
+  def rec loop = fn(n: Int) -> Int {
+    if n == 0 { 1 } else { n * loop(n - 1) }
+  };
+  loop
+};
+```
+
+**Why not implement `fix` as an IR primitive.** `fix` is purely syntactic — it requires no new runtime semantics beyond what `def rec` already provides. Desugaring it to `def rec` keeps the IR simple and avoids duplicating self-referential binding logic in the IR generator.
+
+**Relationship with `def rec`.** `fix` is a convenience form of `def rec` — not an independent feature. `def rec` is the primitive (it can define any self-referential expression: functions, thunks, lazy data); `fix` is shorthand for the common case of wrapping it in a block. The desugar pass handles `fix` entirely; the type checker and IR generator never see it.
+
+**Expression-level usage.** Because `fix` desugars to a block expression, it can appear anywhere an expression is valid:
+
+```dew
+// IIFE: immediate invocation
+def val = fix loop { fn(x: Int) -> Int {
+  if x > 0 { x + loop(x - 1) } else { 0 }
+}}(5);
+
+// As a function argument
+def result = map(xs, fix g { fn(y: Int) -> Int { ... g(y-1) ... }});
+```
 
 ### 5.5 Borrow Parameter (`&` sugar)
 
