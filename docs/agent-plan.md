@@ -92,16 +92,12 @@ Persistent work plan for the Dew compiler. Completed items are preserved and mar
 - [ ] **Pattern match consumption**: destructuring affine struct/enum → consumes the matched value
 - [ ] **Call arg consumption**: passing affine value as function argument → marks consumed
 
-### Top-Level Def Ordering
+### Deferred
 
-- [ ] Forward references for all top-level defs (Rust-style), not just `def rec`
-
-### `def rec` Warning
-
-- [ ] `def rec` unused-self-reference warning `[W006]`
+- [ ] **Closure FnOnce inference**: requires closures-as-values (Lambda IR support) first. Currently closures only exist as top-level defs or IIFE inline. Requires free variable analysis, affine capture detection, Lambda emission, double-call tracking.
 
 ---
 
 ## Test Status
 
-**113 e2e passed (1 intentional red) | 61 unit passed** (2026-06-18)
+**116 e2e passed, 0 failed | 61 unit passed** (2026-06-18)
