@@ -119,6 +119,81 @@ A rule must be valid when transplanted to a different project. If removing all p
 
 ---
 
+## Project-Specific Conventions
+
+These conventions are specific to the Dew compiler project. They supplement the [Top-Level Constraints](#top-level-constraints).
+
+### P1. End-to-End Tests Are the Unit Tests
+
+The `.dew` example files in `examples/pass/` and `examples/fail/` are the **authoritative specification of correct compiler behavior**. Rust `#[test]` functions in `src/` serve only as secondary smoke tests for internal data structures. The e2e test suite is the primary verification mechanism.
+
+- `examples/pass/<category>/<name>.dew` — the first line is `// expect: <output>`. The compiler must produce exactly this output on stdout.
+- `examples/fail/<category>/<name>.dew` — the first line is `// expect error: [<code>]`. The compiler must emit an error matching this code.
+
+Run the full test suite with:
+```bash
+bash tools/test_runner.sh
+```
+
+### P2. Tests Written Against the Spec, Not the Implementation
+
+When creating or reviewing example `.dew` files, consult **only** these documents:
+
+- [dew-lang.md](docs/design/dew-lang.md) — what a valid Dew program looks like and what it should do
+- [dew-ir.md](docs/design/dew-ir.md) — how the IR should lower and evaluate
+
+**Do NOT look at `src/` source code** when writing test files. The tests define what the compiler SHOULD do. The implementation follows the tests, not the other way around. If the spec says a construct is valid and should produce a certain output, the test file says so — regardless of whether the compiler currently handles it.
+
+### P3. Never Modify Tests to Make Them Pass
+
+When a test fails, the compiler is wrong. Fix the compiler, not the test. The only exception: a test contains a pre-existing factual error (e.g., `// expect: 17` when the correct result of the computation is `9`). In that case, identify the error explicitly and ask before changing the test.
+
+If a test uses a language feature not yet implemented, leave it failing. The failing test documents what needs to be built. Never weaken a test to match current compiler capabilities.
+
+### P4. Test Output Validation
+
+- `pass/` tests validate the **last line of stdout**. The `// expect: <VALUE>` directive on the first line of the file is compared against the final stdout line.
+- `fail/` tests validate **stderr**. The `// expect error: [<CODE>]` directive is searched as a fixed string (not regex) in the compiler's error output.
+- Tests that produce no output or no matching error are counted as failures.
+
+### P5. Feature Test Coverage — Three Tiers
+
+For every language feature, write tests at three scales:
+
+| Tier | Name | Lines | Purpose |
+|------|------|-------|---------|
+| **MVP** | `feature_mvp.dew` | 2–5 | The absolute minimum: one expression, one output. Proves the feature exists at all. |
+| **Medium** | `feature_moderate.dew` | 10–30 | Exercises each sub-aspect of the feature: edge cases, variant forms, error paths. Must cover **every syntactic form and semantic rule** defined in the spec for that feature. |
+| **Large** | `feature_integration.dew` | 30–80 | Composes the new feature with already-implemented features (functions, recursion, structs, etc.). Multiple calls, mixed contexts. Proves the feature works **in combination**, not just in isolation. |
+
+**Why three tiers:**
+
+- MVP alone is deceptive — a single-expression test passes long before the feature is truly complete (e.g., struct construction worked, but field access with nonzero indices returned wrong values).
+- Medium tests catch gaps between partial and full implementation. Write one medium test per sub-feature (e.g., `struct_construction.dew`, `struct_field_access.dew`, `struct_update.dew`).
+- Large tests catch composability bugs — features that work alone often break when combined (nested Phi predecessor tracking was invisible in single-branch tests).
+
+**Anti-patterns (do NOT do):**
+
+- One MVP test and declare the feature done.
+- One giant 200-line test that's impossible to debug.
+- Tests that only exercise the happy path — every feature has edge cases listed in the spec; write a test for each.
+
+### P6. Implementation Gate: Examples Must Exist First
+
+Before implementing or fixing a compiler feature, check that the corresponding example files exist in `examples/`. These files must have been created **solely from the design docs** (`dew-lang.md`, `dew-ir.md`), never by looking at `src/` source code. They serve as the specification — if they don't exist yet, write them first per [P5](#p5-feature-test-coverage--three-tiers), then implement.
+
+When starting work on a feature:
+
+1. Check `examples/pass/` for the three-tier tests (MVP, medium, large) covering every sub-aspect of the feature.
+2. Check `examples/fail/` for negative tests that should produce specific error codes.
+3. If tests are missing or incomplete, write them **from the spec only** before touching any Rust code.
+4. Run the test suite — the new tests should fail (red), proving they test unimplemented behavior.
+5. Implement the feature, re-running the test suite until the new tests pass (green).
+
+This ensures every feature has a documented, verifiable specification before implementation begins. It also prevents the common pitfall of writing tests that accidentally validate buggy behavior by mirroring the implementation.
+
+---
+
 ## Quick Reference: Which Doc for Which Task?
 
 | Task | Primary Document | Secondary Document |
@@ -136,4 +211,4 @@ A rule must be valid when transplanted to a different project. If removing all p
 
 ---
 
-*Last updated: 2026-06-15*
+*Last updated: 2026-06-17*

@@ -198,14 +198,8 @@ fn desugar_fn(f: &FnExpr) -> Expr {
         });
     }
 
-    // Track borrow params: (original index, type)
-    let borrow_params: Vec<(usize, Option<Type>)> = f.params.iter()
-        .enumerate()
-        .filter(|(_, p)| p.is_borrow)
-        .map(|(i, p)| (i, p.ty.clone()))
-        .collect();
+    let has_rebindings = expr_has_borrow(&f.body);
 
-    // Remove borrow flags from params
     let new_params: Vec<FnParam> = f.params.iter().map(|p| FnParam {
         span: p.span,
         name: p.name.clone(),
@@ -213,7 +207,22 @@ fn desugar_fn(f: &FnExpr) -> Expr {
         is_borrow: false,
     }).collect();
 
-    // Desugar body: replace &p = expr with def %p = expr
+    if !has_rebindings {
+        return Expr::Fn(FnExpr {
+            span: f.span,
+            params: new_params,
+            return_ty: f.return_ty.clone(),
+            body: Box::new(desugar_expr(&f.body)),
+        });
+    }
+
+    // Track borrow params: (original index, type)
+    let borrow_params: Vec<(usize, Option<Type>)> = f.params.iter()
+        .enumerate()
+        .filter(|(_, p)| p.is_borrow)
+        .map(|(i, p)| (i, p.ty.clone()))
+        .collect();
+
     let body = desugar_expr(&f.body);
 
     // Wrap body: return tuple of (borrow values..., body result)
@@ -247,6 +256,44 @@ fn desugar_fn(f: &FnExpr) -> Expr {
         return_ty: Some(new_return_ty),
         body: Box::new(new_body),
     })
+}
+
+fn expr_has_borrow(expr: &Expr) -> bool {
+    match expr {
+        Expr::Borrow(_) => true,
+        Expr::Fn(f) => expr_has_borrow(&f.body),
+        Expr::Block(b) => {
+            b.stmts.iter().any(|s| expr_has_borrow(&s.expr))
+            || b.final_expr.as_ref().map_or(false, |e| expr_has_borrow(e))
+        }
+        Expr::If(i) => {
+            expr_has_borrow(&i.condition)
+            || expr_has_borrow(&i.then_branch)
+            || expr_has_borrow(&i.else_branch)
+        }
+        Expr::Match(m) => {
+            expr_has_borrow(&m.scrutinee)
+            || m.arms.iter().any(|a| expr_has_borrow(&a.body))
+        }
+        Expr::Call(c) => {
+            expr_has_borrow(&c.func)
+            || c.args.iter().any(|a| match a {
+                ExprArg::Value(e) => expr_has_borrow(e),
+                ExprArg::Borrow(_) => true,
+            })
+        }
+        Expr::Binary(b) => expr_has_borrow(&b.left) || expr_has_borrow(&b.right),
+        Expr::Unary(u) => expr_has_borrow(&u.expr),
+        Expr::Field(f) => expr_has_borrow(&f.object),
+        Expr::StructLit(s) => s.fields.iter().filter_map(|f| f.value.as_ref()).any(expr_has_borrow),
+        Expr::TupleLit(t) => t.elements.iter().any(expr_has_borrow),
+        Expr::ArrayLit(a) => a.elements.iter().any(expr_has_borrow),
+        Expr::ArrayFill(a) => expr_has_borrow(&a.value),
+        Expr::Pipeline(p) => expr_has_borrow(&p.value) || expr_has_borrow(&p.func),
+        Expr::Force(f) => expr_has_borrow(&f.expr),
+        Expr::Fix(f) => expr_has_borrow(&f.body),
+        _ => false,
+    }
 }
 
 /// Desugar a borrow statement: `&p = expr` → `def %p = expr`
