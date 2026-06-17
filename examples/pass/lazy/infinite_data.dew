@@ -1,4 +1,5 @@
 // expect: 55
+// Tier: Small
 // Lazy cascade: chain of deferred computations.
 def a = 10;
 def b = a + 20;

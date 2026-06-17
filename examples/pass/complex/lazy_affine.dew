@@ -1,4 +1,5 @@
 // expect: 42
+// Tier: Small
 // Affine value inside a lazy thunk: forced once, then cached.
 #[affine]
 struct Session { id: Int }

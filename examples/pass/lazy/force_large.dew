@@ -1,4 +1,5 @@
 // expect: 55
+// Tier: Medium
 // Large: force with recursive function — force lazy results in loop.
 def rec sum = fn(n: Int) -> Int {
   if n == 0 { 0 } else { n + sum(n - 1) }

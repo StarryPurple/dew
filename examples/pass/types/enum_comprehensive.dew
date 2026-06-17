@@ -1,4 +1,5 @@
 // expect: 10
+// Tier: Medium
 // Comprehensive enum test: all variant types in one module.
 // Covers: zero-payload, single-payload, multi-payload, named-field variants.
 enum Shape {

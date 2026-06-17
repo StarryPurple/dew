@@ -1,4 +1,5 @@
 // expect: 120
+// Tier: Small
 // Anonymous recursion using fix: factorial.
 def fac = fix loop { fn(n: Int) -> Int {
   if n == 0 { 1 } else { n * loop(n - 1) }

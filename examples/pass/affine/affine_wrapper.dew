@@ -1,4 +1,5 @@
 // expect: 42
+// Tier: Small
 // Affine(T) wrapper from stdlib: use once, consume via field access.
 def main = fn {
   def a = Affine { data: 42 };

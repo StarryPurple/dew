@@ -1,4 +1,5 @@
 // expect: 440
+// Tier: Medium
 // Large: borrow recursion — two accumulator functions combined.
 // Square sum + triangular number via borrow-accumulated recursion.
 def rec sq_acc = fn(n: Int, &s: Int) -> Int {

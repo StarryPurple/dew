@@ -1,4 +1,5 @@
 // expect: 42
+// Tier: Medium
 // Chained if/else with else-if.
 def classify = fn(n: Int) -> Int {
   if n < 10 { n * 10 }

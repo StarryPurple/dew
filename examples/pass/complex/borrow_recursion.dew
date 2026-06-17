@@ -1,4 +1,5 @@
 // expect: 5050
+// Tier: Medium
 // Large: borrow + recursion + struct + if/else (§5.5 Rules 1, 2, 5).
 // Compute triangular number T(n) = n*(n+1)/2 using borrow-incremented accumulator.
 struct Acc { value: Int }

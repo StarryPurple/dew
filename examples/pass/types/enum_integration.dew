@@ -1,4 +1,5 @@
 // expect: 23
+// Tier: Large
 // Integration: enum composed with recursion and closures.
 // Binary tree processing with map/fold via closures.
 enum Tree {

@@ -1,4 +1,5 @@
 // expect: 42
+// Tier: Small
 // Medium: default init with arithmetic and rebinding.
 def x: Int;
 def y: Int;

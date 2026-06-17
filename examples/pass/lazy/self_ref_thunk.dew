@@ -1,4 +1,5 @@
 // expect: 120
+// Tier: Small
 // A lazily-defined value that depends on a recursive function.
 def rec fact = fn(n: Int) -> Int { if n == 0 { 1 } else { n * fact(n - 1) } };
 def result = fact(5);

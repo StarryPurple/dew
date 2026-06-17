@@ -1,4 +1,5 @@
 // expect: 42
+// Tier: Small
 // Two functions with if/else: combined result.
 def abs = fn(n: Int) -> Int { if n < 0 { 0 - n } else { n } };
 def max = fn(a: Int, b: Int) -> Int { if a > b { a } else { b } };

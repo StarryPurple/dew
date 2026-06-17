@@ -1,4 +1,5 @@
 // expect: 100
+// Tier: Small
 // stdin: reads an integer from standard input, adds 100.
 // In non-interactive mode, stdin returns 0.
 def main = fn { stdin(0) + 100 -> stdout; };

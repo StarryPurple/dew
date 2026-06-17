@@ -1,4 +1,5 @@
 // expect: 63
+// Tier: Medium
 // Chained borrow: pass borrowed value to another & function.
 struct Value { n: Int }
 def inspect = fn(&v: Value) -> Int { v.n }

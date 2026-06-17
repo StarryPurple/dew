@@ -1,4 +1,5 @@
 // expect: 105
+// Tier: Medium
 // Named-field enum variant: construction and match destructuring.
 enum Event {
   KeyPress { key: Char, modifiers: Int },

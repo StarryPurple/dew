@@ -1,4 +1,5 @@
 // expect: 43
+// Tier: Medium
 // Borrow rebinding with &p = expr in function body (§5.5 Rule 1).
 def inc = fn(&x: Int) -> Int {
   &x = x + 1;

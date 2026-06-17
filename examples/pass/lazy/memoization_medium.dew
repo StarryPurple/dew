@@ -1,4 +1,5 @@
 // expect: 82
+// Tier: Medium
 
 // Thunk not forced in untaken branch of if/else
 def expensive = 40 + 2;        // 42 — not forced when use_it=0

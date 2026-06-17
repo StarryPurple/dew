@@ -1,3 +1,4 @@
 // expect: 42
+// Tier: Small
 def x = 40 + 2;
 def main = fn { x -> stdout; };

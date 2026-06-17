@@ -1,4 +1,5 @@
 // expect: 84
+// Tier: Small
 // Borrow parameter: &x creates a borrow binding.
 struct Data { value: Int }
 def show = fn(&d: Data) -> Int { d.value * 2 }

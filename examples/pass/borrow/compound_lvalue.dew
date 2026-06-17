@@ -1,4 +1,5 @@
 // expect: 84
+// Tier: Medium
 // Borrow on a compound lvalue: field access.
 struct Inner { x: Int }
 struct Outer { inner: Int }

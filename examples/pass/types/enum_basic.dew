@@ -1,4 +1,5 @@
 // expect: 42
+// Tier: Medium
 // Enum declaration and construction with match.
 enum Option { Some(Int), None }
 def main = fn {

@@ -1,4 +1,5 @@
 // expect: 42
+// Tier: Medium
 // Affine struct: once consumed, cannot be used again.
 #[affine]
 struct FileHandle { fd: Int }

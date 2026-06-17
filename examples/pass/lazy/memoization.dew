@@ -1,4 +1,5 @@
 // expect: 42
+// Tier: Small
 // Forcing the same thunk twice should return the cached result.
 def x = 40 + 2;
 def main = fn { x -> stdout; '\n' -> stdout; x -> stdout; };

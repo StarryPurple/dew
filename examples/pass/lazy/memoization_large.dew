@@ -1,4 +1,5 @@
 // expect: 32
+// Tier: Large
 // Large: lazy evaluation composed with recursion, closures, and conditionals.
 // Tests that thunks are properly forced once and cached across recursive calls.
 

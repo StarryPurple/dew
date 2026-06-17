@@ -1,4 +1,5 @@
 // expect: 84
+// Tier: Medium
 // Multiple borrow params — caller writes &a, &b; destructure is automatic (§5.5).
 struct Point { x: Int, y: Int }
 def move_to = fn(&p: Point, &q: Point, dx: Int) -> Point {

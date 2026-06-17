@@ -1,4 +1,5 @@
 // expect: 42
+// Tier: Small
 // Compile-time generic type resolution.
 def identity = fn(x: Int) -> Int { x };
 def get_answer = fn(x: Int) -> Int { identity(x) };

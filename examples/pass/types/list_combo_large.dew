@@ -1,4 +1,5 @@
 // expect: 25
+// Tier: Medium
 // Large: combine list_sum and list_length with local computation.
 def xs = Cons(1, Cons(2, Cons(3, Cons(4, Cons(5, Nil)))));
 def main = fn {

@@ -1,4 +1,5 @@
 // expect: 79
+// Tier: Small
 // Large: import recursive functions, compose with local code.
 import "examples/lib/rec.dew"
 import "examples/lib/math.dew"

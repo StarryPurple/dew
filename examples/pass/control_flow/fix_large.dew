@@ -1,4 +1,5 @@
 // expect: 26
+// Tier: Medium
 // Large: multiple fix expressions composed with conditionals and pipeline.
 // Two independent anonymous recursive functions combined.
 def countdown = fix cd { fn(n: Int) -> Int {

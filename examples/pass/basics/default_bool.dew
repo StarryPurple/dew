@@ -1,4 +1,5 @@
 // expect: false
+// Tier: Small
 // Default initialization of Bool.
 def flag: Bool;
 def main = fn { flag -> stdout; };

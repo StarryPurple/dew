@@ -1,4 +1,5 @@
 // expect: 84
+// Tier: Small
 // Borrow inside a lazily-evaluated thunk.
 struct Data { value: Int }
 def data = Data { value: 42 };

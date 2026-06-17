@@ -1,4 +1,5 @@
 // expect: 55
+// Tier: Small
 // Large: default init combined with recursion — sum 1..10 starting from default.
 def acc: Int;
 def rec sum = fn(n: Int) -> Int {

@@ -1,4 +1,5 @@
 // expect: 5
+// Tier: Small
 // Medium: use list_length to count elements.
 def xs = Cons(10, Cons(20, Cons(30, Cons(40, Cons(50, Nil)))));
 def main = fn { list_length(xs) -> stdout; };

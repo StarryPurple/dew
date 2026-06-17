@@ -1,4 +1,5 @@
 // expect: 85
+// Tier: Medium
 // Medium: compound lvalue with nested struct — field access via compound.
 struct Pos { x: Int, y: Int }
 struct Entity { pos: Pos, hp: Int }

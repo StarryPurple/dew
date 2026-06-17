@@ -1,4 +1,5 @@
 // expect: 42
+// Tier: Medium
 // Affine struct field: consuming an affine field transfers ownership.
 #[affine]
 struct Token { value: Int }

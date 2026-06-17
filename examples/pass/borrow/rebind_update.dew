@@ -1,4 +1,5 @@
 // expect: 62
+// Tier: Medium
 // Borrow rebinding with &p { field = val } struct update (§5.5 Rule 1).
 struct Point { x: Int, y: Int }
 def shift = fn(&p: Point, dx: Int) -> Point {

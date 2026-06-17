@@ -1,4 +1,5 @@
 // expect: 42
+// Tier: Small
 // All three pillars together: Lazy + Affine + Closure.
 #[affine]
 struct Handle { id: Int }

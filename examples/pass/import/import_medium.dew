@@ -1,4 +1,5 @@
 // expect: 100
+// Tier: Small
 // Medium: import multiple functions, compose them.
 import "examples/lib/math.dew"
 def main = fn { square(10) -> stdout; };

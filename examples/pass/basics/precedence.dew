@@ -1,3 +1,4 @@
 // expect: 37
+// Tier: Small
 // Operator precedence: multiplication before addition.
 def main = fn { 2 + 3 * 10 + 5 -> stdout; };

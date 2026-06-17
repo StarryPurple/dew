@@ -1,3 +1,4 @@
 // expect: 84
+// Tier: Small
 // Sequence of computations piped to stdout.
 def main = fn { 40 + 2 + 42 -> stdout; };

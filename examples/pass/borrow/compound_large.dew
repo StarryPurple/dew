@@ -1,4 +1,5 @@
 // expect: 55
+// Tier: Medium
 // Large: borrow recursion with struct accumulator — triangular sum.
 struct Acc { value: Int }
 def rec loop = fn(n: Int, &a: Acc) -> Acc {

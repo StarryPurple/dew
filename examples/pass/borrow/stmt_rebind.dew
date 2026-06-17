@@ -1,4 +1,5 @@
 // expect: 202
+// Tier: Small
 // Statement-level &x = expr rebinding without function call (§5.5 Rule 5).
 struct Counter { n: Int }
 def main = fn {

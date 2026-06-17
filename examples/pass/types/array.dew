@@ -1,4 +1,5 @@
 // expect: 6
+// Tier: Small
 // Array-like struct with three fields.
 struct Triple { a: Int, b: Int, c: Int }
 def main = fn {

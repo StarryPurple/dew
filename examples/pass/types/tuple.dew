@@ -1,4 +1,5 @@
 // expect: 18
+// Tier: Small
 // Struct with two fields, accessed and used in arithmetic.
 struct Pair { x: Int, y: Int }
 def main = fn {

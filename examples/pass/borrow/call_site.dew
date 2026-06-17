@@ -1,4 +1,5 @@
 // expect: 63
+// Tier: Medium
 // Call-site & — rebinding is automatic, no manual destructure (§5.5 Rule 2).
 def bump = fn(&x: Int) -> Int {
   &x = x + 1;

@@ -1,4 +1,5 @@
 // expect: 6
+// Tier: Small
 // MVP: use list_sum from stdlib.
 def xs = Cons(1, Cons(2, Cons(3, Nil)));
 def main = fn { list_sum(xs) -> stdout; };

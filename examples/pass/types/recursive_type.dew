@@ -1,4 +1,5 @@
 // expect: 6
+// Tier: Medium
 // Recursive enum: binary tree with integers at leaves.
 enum Tree { Leaf(Int), Node(Tree, Tree) }
 def sum_tree = fn(t: Tree) -> Int {

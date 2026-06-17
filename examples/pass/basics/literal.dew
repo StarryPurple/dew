@@ -1,2 +1,3 @@
 // expect: 2026
+// Tier: Small
 def main = fn { 2026 -> stdout; };

@@ -1,4 +1,5 @@
 // expect: 105
+// Tier: Small
 // Currying: function calls chained via explicit call syntax.
 def add = fn(x: Int) -> Int { x + 10 };
 def mul = fn(x: Int) -> Int { x * 2 };
