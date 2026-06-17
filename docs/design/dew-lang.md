@@ -45,7 +45,7 @@
   - [§6.2 if/else](#62-ifelse)
   - [§6.3 Loops](#63-loops)
     - [`while` — Conditional Loop](#while--conditional-loop)
-    - [`loop` — Infinite Loop](#loop--infinite-loop)
+    - [`forever` — Infinite Loop](#forever--infinite-loop)
     - [`for-in` — Iteration Over a Collection](#for-in--iteration-over-a-collection)
     - [Forms Not Provided](#forms-not-provided)
 - [§7 Identifiers and Operators](#7-identifiers-and-operators)
@@ -1977,10 +1977,10 @@ Desugars to:
 
 The condition is evaluated before each iteration. If `cond` is false on entry, the body never executes. The result of a `while` loop is always `Unit`.
 
-#### `loop` — Infinite Loop
+#### `forever` — Infinite Loop
 
 ```
-loop {
+forever {
   body
 }
 ```
