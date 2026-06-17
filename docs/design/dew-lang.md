@@ -44,6 +44,10 @@
   - [§6.1 match](#61-match)
   - [§6.2 if/else](#62-ifelse)
   - [§6.3 Loops](#63-loops)
+    - [`while` — Conditional Loop](#while--conditional-loop)
+    - [`loop` — Infinite Loop](#loop--infinite-loop)
+    - [`for-in` — Iteration Over a Collection](#for-in--iteration-over-a-collection)
+    - [Forms Not Provided](#forms-not-provided)
 - [§7 Identifiers and Operators](#7-identifiers-and-operators)
   - [§7.1 Identifiers](#71-identifiers)
   - [§7.2 Operators](#72-operators)
@@ -1946,17 +1950,96 @@ The parser never needs to guess. It always consumes `if expr { then } else { els
 
 ### 6.3 Loops
 
-**No loop statements.** Use recursion, `fix`, or standard library higher-order functions:
+Dew provides three loop forms as **syntax sugar** — all desugar to recursion via [`fix`](#54-anonymous-recursion-fix) and [`if`/`else`](#62-ifelse) before type checking. No imperative looping primitives exist in the core language; the desugar pass eliminates all loops before the type checker sees them.
 
-> Removing loops is both a semantic and practical decision. Semantically, loops require mutable state (a loop counter or iterator), which contradicts Dew's immutability. Practically, loops complicate the strictness analysis and IR generation — a `while` loop has a condition (strict), a body (lazy or strict depending on content), and implicit mutation of the loop variable. Translating loops to recursion/fix pushes this complexity to the Rx→Dew translation layer, keeping the Dew core simple. Users coming from imperative languages use `fix` or higher-order functions instead.
+#### `while` — Conditional Loop
 
-| Imperative | Dew Equivalent |
-|------------|---------------|
-| `for x in xs` | `xs -> foreach(f)` |
-| `xs.map(f)` | `xs -> map(f)` |
-| `xs.filter(p)` | `xs -> filter(p)` |
-| `xs.fold(init, f)` | `xs -> fold(init, f)` |
-| `while cond` | recursion / `fix` |
+```
+while cond {
+  body
+}
+```
+
+Desugars to:
+
+```dew
+(fix %while_loop {
+  fn() {
+    if cond {
+      body;
+      %while_loop()
+    } else {
+      ()
+    }
+  }
+})()
+```
+
+The condition is evaluated before each iteration. If `cond` is false on entry, the body never executes. The result of a `while` loop is always `Unit`.
+
+#### `loop` — Infinite Loop
+
+```
+loop {
+  body
+}
+```
+
+Desugars to:
+
+```dew
+(fix %loop_inf {
+  fn() {
+    body;
+    %loop_inf()
+  }
+})()
+```
+
+Runs `body` indefinitely. Equivalent to `while true { body }`. Exit is achieved through program termination (e.g., the evaluator reaching a fixed point, or OS termination).
+
+#### `for-in` — Iteration Over a Collection
+
+```
+for (x : expr) {
+  body
+}
+```
+
+`expr` must evaluate to a list (`List(T)`). Desugars to tail-recursive list traversal:
+
+```dew
+(fix %for_loop {
+  fn(xs: List(T)) {
+    match xs {
+      Cons(x, rest) => {
+        body(x);          // x is bound to the current element
+        %for_loop(rest)
+      }
+      Nil => ()
+    }
+  }
+})(expr)
+```
+
+The element variable `x` is scoped to the body. The collection `expr` is evaluated once at loop entry. `for-in` returns `Unit`.
+
+#### Forms Not Provided
+
+| Form | Why Excluded | Alternative |
+|------|-------------|-------------|
+| `for (init; cond; step) { body }` | C-style, too imperative | `init; while cond { body; step }` |
+| `do { body } while cond` | Rarely needed | `body; while cond { body }` |
+
+**Design rationale.** Unlike the original decision to exclude all loops, these three forms are included because:
+
+1. **Rx↔Dew interop.** The Rx→Dew translator needs loop constructs to faithfully translate imperative Rx code. Without loop sugar, the translator would need to inline `fix` patterns, producing unreadable Dew output.
+
+2. **Zero core complexity.** All three desugar entirely to `fix` + `if/else` + `match`. The type checker, IR gen, and evaluator never see loop constructs — they see the desugared form. No new IR instructions, no new evaluation rules.
+
+3. **Expression-orientation preserved.** `while`, `loop`, and `for-in` are expressions (returning `Unit`), consistent with Dew's expression-based design. They compose with pipelines and blocks naturally.
+
+> Unlike imperative languages where loops are primitive control flow, Dew's loops are thin wrappers over recursion. A `while` loop is semantically identical to its `fix` desugaring — there is no runtime difference. This means loop performance depends on the compiler's tail-call optimization, not on dedicated loop code generation. See [§5.3 Recursion](#53-recursion) for tail-call behavior.
 
 ---
 
@@ -2269,7 +2352,7 @@ All compiler diagnostics use bracketed codes. `[E###]` for errors (compilation s
 ```
 def, fn, struct, enum, match, if, else, fix, rec,
 import, true, false, Unit, affine,
-type_match, typeof
+type_match, typeof, for, while, loop
 ```
 
 ### Type Modifiers
