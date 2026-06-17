@@ -424,6 +424,8 @@ impl<'a> Parser<'a> {
             TokenKind::Match => self.parse_match(),
             TokenKind::Fn => self.parse_fn_expr(),
             TokenKind::Fix => self.parse_fix(),
+            TokenKind::While => self.parse_while(),
+            TokenKind::Loop => self.parse_loop(),
             _ => {
                 self.diag.error("E002", "unexpected token", Some(self.current_span()));
                 Err(self.current_span())
@@ -703,6 +705,21 @@ impl<'a> Parser<'a> {
         let body = self.parse_expr();
         let span = Span { start, end: start, line: 0, col: start }.merge(body.span());
         Ok(Expr::Fix(FixExpr { span, loop_var, body: Box::new(body) }))
+    }
+
+    fn parse_while(&mut self) -> Result<Expr, Span> {
+        let start = self.advance().start;
+        let condition = self.parse_expr_no_postfix().unwrap_or(Expr::UnitLit(Span::DUMMY));
+        let body = self.parse_block()?;
+        let end = body.span().end;
+        Ok(Expr::While(WhileExpr { span: Span { start, end, line: 0, col: start }, condition: Box::new(condition), body: Box::new(body) }))
+    }
+
+    fn parse_loop(&mut self) -> Result<Expr, Span> {
+        let start = self.advance().start;
+        let body = self.parse_block()?;
+        let end = body.span().end;
+        Ok(Expr::Loop(LoopExpr { span: Span { start, end, line: 0, col: start }, body: Box::new(body) }))
     }
 
     fn parse_array(&mut self) -> Result<Expr, Span> {
@@ -1242,6 +1259,9 @@ impl Expr {
             Expr::ArrayLit(e) => e.span,
             Expr::ArrayFill(e) => e.span,
             Expr::Fix(e) => e.span,
+            Expr::While(e) => e.span,
+            Expr::Loop(e) => e.span,
+            Expr::ForIn(e) => e.span,
         }
     }
 }

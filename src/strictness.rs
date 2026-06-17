@@ -186,6 +186,20 @@ impl StrictnessContext {
                 self.classify_expr(&f.body, Strictness::Lazy);
                 Strictness::Lazy
             }
+            crate::ast::Expr::While(w) => {
+                self.classify_expr(&w.condition, Strictness::Strict);
+                self.classify_expr(&w.body, Strictness::Lazy);
+                Strictness::Lazy
+            }
+            crate::ast::Expr::Loop(l) => {
+                self.classify_expr(&l.body, Strictness::Lazy);
+                Strictness::Lazy
+            }
+            crate::ast::Expr::ForIn(fi) => {
+                self.classify_expr(&fi.collection, Strictness::Strict);
+                self.classify_expr(&fi.body, Strictness::Lazy);
+                Strictness::Lazy
+            }
         }
     }
 }

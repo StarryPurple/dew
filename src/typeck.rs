@@ -191,6 +191,10 @@ impl<'a> TypeChecker<'a> {
                 self.env.insert(fix.loop_var.name.clone(), scheme);
                 self.infer_expr(&fix.body)
             }
+            Expr::While(_) | Expr::Loop(_) | Expr::ForIn(_) => {
+                self.diag.error("E003", "loop should be desugared before type checking", None);
+                Ty::Unit
+            }
         }
     }
 

@@ -548,8 +548,8 @@ impl<'a> IrGenerator<'a> {
         for cap_name in &free_vars {
             if let Some(&outer_reg) = self.var_map.get(cap_name) {
                 lambda_captures.push(outer_reg);
+                all_params.push((capture_start + lambda_captures.len() - 1, IrType::Int));
             }
-            all_params.push((capture_start + lambda_captures.len() - 1, IrType::Int));
         }
 
         let return_ty = f.return_ty.as_ref().map(|t| self.ast_ty_to_ir(t)).unwrap_or(IrType::Unit);

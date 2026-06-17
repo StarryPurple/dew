@@ -207,6 +207,12 @@ pub enum Expr {
     ArrayFill(ArrayFill),
     /// Fix expression: `fix loop { fn(x) { ... loop(x+1) } }`
     Fix(FixExpr),
+    /// While loop: `while cond { body }` — desugars to def rec + if/else
+    While(WhileExpr),
+    /// Infinite loop: `forever { body }` — desugars to def rec
+    Loop(LoopExpr),
+    /// For-in: `for x : expr { body }` — deferred (needs self-ref closures)
+    ForIn(ForInExpr),
 }
 
 // --- Literals ---
@@ -454,6 +460,25 @@ pub struct ArrayFill {
 pub struct FixExpr {
     pub span: Span,
     pub loop_var: Ident,
+    pub body: Box<Expr>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhileExpr {
+    pub span: Span,
+    pub condition: Box<Expr>,
+    pub body: Box<Expr>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoopExpr {
+    pub span: Span,
+    pub body: Box<Expr>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForInExpr {
+    pub span: Span,
+    pub var: Ident,
+    pub collection: Box<Expr>,
     pub body: Box<Expr>,
 }
 

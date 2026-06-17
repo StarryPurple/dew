@@ -126,6 +126,10 @@ fn desugar_expr(expr: &Expr) -> Expr {
             })
         }
 
+        Expr::While(w) => desugar_expr(&desugar_while(w)),
+        Expr::Loop(l) => desugar_expr(&desugar_loop(l)),
+        Expr::ForIn(_) => { Expr::UnitLit(Span::DUMMY) }, // deferred
+
         // Recursive cases
         Expr::Binary(b) => Expr::Binary(BinaryExpr {
             span: b.span, op: b.op,
@@ -514,6 +518,32 @@ fn desugar_borrow_stmt(b: &BorrowExpr) -> Expr {
         }
     };
     rhs_expr
+}
+
+fn desugar_while(w: &WhileExpr) -> Expr {
+    let lname = Ident::new("%while_loop", Span::DUMMY);
+    let self_call = Expr::Call(CallExpr { span: w.span, func: Box::new(Expr::Var(lname.clone())), args: vec![] });
+    let then_stmts = vec![
+        BlockStmt { span: w.span, expr: (*w.body).clone(), def: None },
+        BlockStmt { span: w.span, expr: self_call, def: None },
+    ];
+    let if_expr = Expr::If(IfExpr { span: w.span, condition: w.condition.clone(), then_branch: Box::new(Expr::Block(BlockExpr { span: w.span, stmts: then_stmts, final_expr: None })), else_branch: Box::new(Expr::UnitLit(Span::DUMMY)) });
+    Expr::Block(BlockExpr {
+        span: w.span,
+        stmts: vec![BlockStmt { span: w.span, expr: Expr::Fn(FnExpr { span: w.span, params: vec![], return_ty: None, body: Box::new(if_expr) }), def: Some(DefDecl { span: w.span, rec: true, name: lname.clone(), ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }) }) }],
+        final_expr: Some(Box::new(Expr::Call(CallExpr { span: w.span, func: Box::new(Expr::Var(lname)), args: vec![] }))),
+    })
+}
+
+fn desugar_loop(l: &LoopExpr) -> Expr {
+    let lname = Ident::new("%loop_inf", Span::DUMMY);
+    let self_call = Expr::Call(CallExpr { span: l.span, func: Box::new(Expr::Var(lname.clone())), args: vec![] });
+    let bstmts = vec![BlockStmt { span: l.span, expr: (*l.body).clone(), def: None }, BlockStmt { span: l.span, expr: self_call, def: None }];
+    Expr::Block(BlockExpr {
+        span: l.span,
+        stmts: vec![BlockStmt { span: l.span, expr: Expr::Fn(FnExpr { span: l.span, params: vec![], return_ty: None, body: Box::new(Expr::Block(BlockExpr { span: l.span, stmts: bstmts, final_expr: None })) }), def: Some(DefDecl { span: l.span, rec: true, name: lname.clone(), ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }) }) }],
+        final_expr: Some(Box::new(Expr::Call(CallExpr { span: l.span, func: Box::new(Expr::Var(lname)), args: vec![] }))),
+    })
 }
 
 /// Desugar a borrow argument at a call site.

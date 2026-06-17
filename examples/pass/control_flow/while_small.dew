@@ -1,0 +1,5 @@
+// expect: 0
+// Tier: Small
+// Feature: while loop, control flow
+// While loop with false condition — body never executes.
+def main = fn { while false { 1 }; 0 -> stdout; };

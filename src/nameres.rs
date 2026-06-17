@@ -197,8 +197,9 @@ impl<'a> NameResolver<'a> {
                 fix_scope.insert(f.loop_var.name.clone(), f.loop_var.span);
                 self.resolve_expr(&f.body, &mut fix_scope);
             }
-            // Leaf nodes — no names to resolve
-            Expr::IntLit(_) | Expr::BoolLit(_) | Expr::CharLit(_) | Expr::UnitLit(_) => {}
+            // Leaf nodes — no names to resolve (loops desugared before nameres)
+            Expr::IntLit(_) | Expr::BoolLit(_) | Expr::CharLit(_) | Expr::UnitLit(_)
+            | Expr::While(_) | Expr::Loop(_) | Expr::ForIn(_) => {}
         }
     }
 
