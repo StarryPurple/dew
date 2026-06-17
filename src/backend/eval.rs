@@ -253,6 +253,30 @@ fn eval_instr(
                 frame.set(*r, val_val);
             }
         }
+        Instr::EnumCons(r, enum_name, variant, fields) => {
+            let values: Vec<Value> = fields.iter().map(|f| frame.get(*f).clone()).collect();
+            frame.set(*r, Value::Enum(enum_name.clone(), variant.clone(), 0, values));
+        }
+        Instr::EnumDisc(r, reg) => {
+            let val = frame.get(*reg);
+            if let Value::Enum(_, _, tag, _) = val {
+                frame.set(*r, Value::Int(*tag as i64));
+            } else {
+                frame.set(*r, Value::Int(0));
+            }
+        }
+        Instr::EnumProj(r, _enum_name, _variant, reg) => {
+            let val = frame.get(*reg);
+            if let Value::Enum(_, _, _tag, fields) = val {
+                if !fields.is_empty() {
+                    frame.set(*r, fields[0].clone());
+                } else {
+                    frame.set(*r, Value::Unit);
+                }
+            } else {
+                frame.set(*r, Value::Unit);
+            }
+        }
         _ => return Err("instruction not implemented in eval".into()),
     }
     Ok(())

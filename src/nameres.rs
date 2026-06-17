@@ -41,6 +41,17 @@ impl<'a> NameResolver<'a> {
             }
         }
 
+        for decl in &prog.decls {
+            if let Decl::Enum(e) = decl {
+                for variant in &e.variants {
+                    let vname = match variant {
+                        Variant::Single { name, .. } | Variant::Struct { name, .. } | Variant::Unit { name, .. } => name,
+                    };
+                    top_level.insert(vname.name.clone(), vname.span);
+                }
+            }
+        }
+
         // Second pass: resolve each declaration
         for decl in &prog.decls {
             match decl {

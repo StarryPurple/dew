@@ -211,6 +211,29 @@ impl<'a> IrGenerator<'a> {
             }
 
             Expr::Call(c) => {
+                let is_enum_variant = match &*c.func {
+                    Expr::Var(ident) => self.module.types.find_enum_for_variant(&ident.name).is_some(),
+                    _ => false,
+                };
+                if is_enum_variant {
+                    let variant_name = match &*c.func {
+                        Expr::Var(ident) => ident.name.clone(),
+                        _ => return 0,
+                    };
+                    let enum_name = self.module.types.find_enum_for_variant(&variant_name)
+                        .map(|e| e.name.clone())
+                        .unwrap_or_default();
+                    let mut field_regs = Vec::new();
+                    for arg in &c.args {
+                        if let ExprArg::Value(e) = arg {
+                            field_regs.push(self.compile_expr(e, block));
+                        }
+                    }
+                    let result_r = self.fresh_reg();
+                    block.instrs.push(Instr::EnumCons(result_r, enum_name, variant_name, field_regs));
+                    return result_r;
+                }
+
                 let is_builtin = match &*c.func {
                     Expr::Var(ident) => {
                         matches!(ident.name.as_str(), "stdout" | "stdin")
@@ -343,6 +366,30 @@ impl<'a> IrGenerator<'a> {
                 current_r
             }
 
+            Expr::EnumLit(e) => {
+                let enum_name = self.module.types.find_enum_for_variant(&e.name.name)
+                    .map(|ed| ed.name.clone())
+                    .unwrap_or_else(|| e.name.name.clone());
+                let mut field_regs = Vec::new();
+                match &e.payload {
+                    EnumPayload::Single(opt) => {
+                        if let Some(val) = opt {
+                            field_regs.push(self.compile_expr(val, block));
+                        }
+                    }
+                    EnumPayload::Struct(fields) => {
+                        for f in fields {
+                            if let Some(v) = &f.value {
+                                field_regs.push(self.compile_expr(v, block));
+                            }
+                        }
+                    }
+                }
+                let result_r = self.fresh_reg();
+                block.instrs.push(Instr::EnumCons(result_r, enum_name, e.name.name.clone(), field_regs));
+                result_r
+            }
+
             _ => {
                 self.diag.error("E003",
                     format!("IR gen not implemented for this expression"),
@@ -359,15 +406,20 @@ impl<'a> IrGenerator<'a> {
     }
 
     fn compile_match(&mut self, m: &MatchExpr, block: &mut BasicBlock) -> usize {
-        if m.arms.len() != 2 {
-            self.diag.error("E003", "match must have exactly 2 arms (if/else desugaring)", None);
-            return 0;
+        let is_bool_match = m.arms.len() == 2
+            && matches!(&m.arms[0].pattern, Pattern::Lit(LitPattern { value: LitValue::Bool(true), .. }))
+            && matches!(&m.arms[1].pattern, Pattern::Lit(LitPattern { value: LitValue::Bool(false), .. }));
+        if is_bool_match {
+            return self.compile_match_bool(m, block);
         }
-        let cond_reg = self.compile_expr(&m.scrutinee, block);
+        self.compile_match_enum(m, block)
+    }
 
+    fn compile_match_bool(&mut self, m: &MatchExpr, block: &mut BasicBlock) -> usize {
+        let cond_reg = self.compile_expr(&m.scrutinee, block);
+        let l_merge = self.fresh_label("merge");
         let l_true = self.fresh_label("L");
         let l_false = self.fresh_label("L");
-        let l_merge = self.fresh_label("merge");
 
         block.terminator = Terminator::Br(cond_reg, l_true.clone(), l_false.clone());
         self.extra_blocks.push(block.clone());
@@ -390,6 +442,83 @@ impl<'a> IrGenerator<'a> {
         ]));
         *block = block_merge;
         result_r
+    }
+
+    fn compile_match_enum(&mut self, m: &MatchExpr, block: &mut BasicBlock) -> usize {
+        let scrut_reg = self.compile_expr(&m.scrutinee, block);
+        let l_merge = self.fresh_label("merge");
+        let mut arm_results: Vec<(usize, String)> = Vec::new();
+
+        // Emit EnumDisc for the scrutinee — applies to both 2-arm and N-arm matches
+        let disc_reg = self.fresh_reg();
+        block.instrs.push(Instr::EnumDisc(disc_reg, scrut_reg));
+
+        let mut chain_block = block.clone();
+        let arms_len = m.arms.len();
+
+        // Build chain of comparisons: for each arm i, check tag == i,
+        // branch to arm block or fall through to check next tag
+        let chain_labels: Vec<String> = (0..arms_len).map(|_| self.fresh_label("L")).collect();
+        let test_labels: Vec<String> = (0..arms_len-1).map(|_| self.fresh_label("L")).collect();
+
+        for i in 0..arms_len {
+            if i < arms_len - 1 {
+                let test_reg = self.fresh_reg();
+                let tag_lit = self.fresh_reg();
+                chain_block.instrs.push(Instr::Lit(tag_lit, IrLitValue::Int(i as i64)));
+                chain_block.instrs.push(Instr::Eq(test_reg, disc_reg, tag_lit));
+                chain_block.terminator = Terminator::Br(test_reg, chain_labels[i].clone(), test_labels[i].clone());
+                self.extra_blocks.push(chain_block.clone());
+                chain_block = BasicBlock::new(test_labels[i].clone());
+            } else {
+                // Last arm: unconditional jump
+                chain_block.terminator = Terminator::Jmp(chain_labels[i].clone());
+                self.extra_blocks.push(chain_block.clone());
+            }
+        }
+
+        // Compile each arm body
+        for i in 0..arms_len {
+            let mut arm_block = BasicBlock::new(chain_labels[i].clone());
+
+            // Handle pattern: if pattern is a variant pattern, bind payload variable
+            self.resolve_match_pattern(&m.arms[i].pattern, scrut_reg, &mut arm_block);
+
+            let arm_reg = self.compile_expr(&m.arms[i].body, &mut arm_block);
+            arm_block.terminator = Terminator::Jmp(l_merge.clone());
+            self.extra_blocks.push(arm_block);
+            arm_results.push((arm_reg, chain_labels[i].clone()));
+        }
+
+        let mut block_merge = BasicBlock::new(l_merge);
+        let result_r = self.fresh_reg();
+        block_merge.instrs.push(Instr::Phi(result_r, arm_results.iter().map(|(r, l)| (*r, l.clone())).collect()));
+        *block = block_merge;
+        result_r
+    }
+
+    fn resolve_match_pattern(&mut self, pattern: &Pattern, scrut_reg: usize, block: &mut BasicBlock) {
+        match pattern {
+            Pattern::Var(v) => {
+                self.var_map.insert(v.name.clone(), scrut_reg);
+            }
+            Pattern::Variant(v) => {
+                let enum_name = self.module.types.find_enum_for_variant(&v.name.name)
+                    .map(|e| e.name.clone())
+                    .unwrap_or_default();
+                if let Some(ref payload_pat) = v.payload {
+                    let proj_reg = self.fresh_reg();
+                    block.instrs.push(Instr::EnumProj(proj_reg, enum_name, v.name.name.clone(), scrut_reg));
+                    match &**payload_pat {
+                        Pattern::Var(inner) => {
+                            self.var_map.insert(inner.name.clone(), proj_reg);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     fn ast_ty_to_ir(&self, ty: &Type) -> IrType {

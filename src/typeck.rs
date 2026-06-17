@@ -196,6 +196,12 @@ impl<'a> TypeChecker<'a> {
 
     fn infer_call(&mut self, c: &CallExpr) -> Ty {
         let func_ty = self.infer_expr(&c.func);
+        if let Ty::Named(_, _) = &func_ty {
+            for arg in &c.args {
+                if let ExprArg::Value(e) = arg { self.infer_expr(e); }
+            }
+            return func_ty;
+        }
         let ret_ty = self.tvg.fresh_ty();
         let mut param_tys: Vec<Ty> = c.args.iter()
             .map(|a| match a {
@@ -338,7 +344,11 @@ impl<'a> TypeChecker<'a> {
                     }
                 }
             }
-            Pattern::Variant(_) => {}
+            Pattern::Variant(vp) => {
+                if let Some(payload) = &vp.payload {
+                    self.infer_pattern(payload, expected_ty);
+                }
+            }
             Pattern::Tuple(tp) => {
                 for elem in &tp.elements {
                     let fresh = self.tvg.fresh_ty();
@@ -406,9 +416,18 @@ impl<'a> TypeChecker<'a> {
     fn register_enum(&mut self, e: &EnumDecl) {
         let arity = e.params.len();
         let param_vars: Vec<Ty> = (0..arity).map(|i| Ty::Var(TypeVar(2000 + i))).collect();
-        let enum_ty = Ty::Named(e.name.name.clone(), param_vars);
+        let enum_ty = Ty::Named(e.name.name.clone(), param_vars.clone());
         let vars: Vec<TypeVar> = (0..arity).map(|i| TypeVar(2000 + i)).collect();
         self.env.insert(e.name.name.clone(), Scheme { vars, ty: enum_ty });
+
+        let enum_name = e.name.name.clone();
+        for variant in &e.variants {
+            let vname = match variant {
+                Variant::Single { name, .. } | Variant::Struct { name, .. } | Variant::Unit { name, .. } => name,
+            };
+            let variant_ty = Ty::Named(enum_name.clone(), param_vars.clone());
+            self.env.insert(vname.name.clone(), Scheme { vars: Vec::new(), ty: variant_ty });
+        }
     }
 }
 

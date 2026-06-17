@@ -73,4 +73,8 @@ impl TypeTable {
         self.enums.iter().find(|e| e.name == name)
             .and_then(|e| e.variants.iter().find(|v| v.name == variant).map(|v| v.tag))
     }
+
+    pub fn find_enum_for_variant(&self, variant: &str) -> Option<&EnumDef> {
+        self.enums.iter().find(|e| e.variants.iter().any(|v| v.name == variant))
+    }
 }
