@@ -26,6 +26,25 @@ pub fn desugar_program(prog: &Program, diag: &mut DiagnosticCollector) -> Progra
 fn desugar_decl(decl: &Decl, _diag: &mut DiagnosticCollector) -> Vec<Decl> {
     match decl {
         Decl::Def(d) => {
+            if matches!(&d.value, Expr::Fix(_)) {
+                let Expr::Fix(fix) = &d.value else { unreachable!() };
+                if let Expr::Fn(fn_expr) = fix.body.as_ref() {
+                    let new_body = substitute_var(&fn_expr.body, &fix.loop_var.name, &d.name.name);
+                    let new_fn = Expr::Fn(FnExpr {
+                        span: fn_expr.span,
+                        params: fn_expr.params.clone(),
+                        return_ty: fn_expr.return_ty.clone(),
+                        body: Box::new(desugar_expr(&new_body)),
+                    });
+                    return vec![Decl::Def(DefDecl {
+                        span: d.span,
+                        rec: true,
+                        name: d.name.clone(),
+                        ty: d.ty.clone(),
+                        value: new_fn,
+                    })];
+                }
+            }
             let value = desugar_expr(&d.value);
             vec![Decl::Def(DefDecl {
                 span: d.span,
@@ -569,6 +588,75 @@ fn desugar_block(b: &BlockExpr) -> Expr {
         stmts,
         final_expr,
     })
+}
+
+fn substitute_var(expr: &Expr, from: &str, to: &str) -> Expr {
+    match expr {
+        Expr::Var(v) if v.name == from => Expr::Var(Ident::new(to, v.span)),
+        Expr::Binary(b) => Expr::Binary(BinaryExpr {
+            span: b.span, op: b.op,
+            left: Box::new(substitute_var(&b.left, from, to)),
+            right: Box::new(substitute_var(&b.right, from, to)),
+        }),
+        Expr::Unary(u) => Expr::Unary(UnaryExpr {
+            span: u.span, op: u.op,
+            expr: Box::new(substitute_var(&u.expr, from, to)),
+        }),
+        Expr::Call(c) => Expr::Call(CallExpr {
+            span: c.span,
+            func: Box::new(substitute_var(&c.func, from, to)),
+            args: c.args.iter().map(|a| match a {
+                ExprArg::Value(e) => ExprArg::Value(Box::new(substitute_var(e, from, to))),
+                ExprArg::Borrow(b) => ExprArg::Borrow(Box::new(BorrowExpr {
+                    span: b.span, lvalue: b.lvalue.clone(),
+                    rhs: b.rhs.clone(),
+                })),
+            }).collect(),
+        }),
+        Expr::Block(b) => Expr::Block(BlockExpr {
+            span: b.span,
+            stmts: b.stmts.iter().map(|s| BlockStmt {
+                span: s.span,
+                expr: substitute_var(&s.expr, from, to),
+                def: s.def.clone(),
+            }).collect(),
+            final_expr: b.final_expr.as_ref().map(|e| Box::new(substitute_var(e, from, to))),
+        }),
+        Expr::If(i) => Expr::If(IfExpr {
+            span: i.span,
+            condition: Box::new(substitute_var(&i.condition, from, to)),
+            then_branch: Box::new(substitute_var(&i.then_branch, from, to)),
+            else_branch: Box::new(substitute_var(&i.else_branch, from, to)),
+        }),
+        Expr::Match(m) => Expr::Match(MatchExpr {
+            span: m.span,
+            scrutinee: Box::new(substitute_var(&m.scrutinee, from, to)),
+            arms: m.arms.iter().map(|arm| MatchArm {
+                span: arm.span, pattern: arm.pattern.clone(),
+                body: substitute_var(&arm.body, from, to),
+            }).collect(),
+        }),
+        Expr::Field(f) => Expr::Field(FieldExpr {
+            span: f.span, field: f.field.clone(),
+            object: Box::new(substitute_var(&f.object, from, to)),
+        }),
+        Expr::StructLit(s) => Expr::StructLit(StructLit {
+            span: s.span, name: s.name.clone(),
+            fields: s.fields.iter().map(|f| StructLitField {
+                span: f.span, name: f.name.clone(),
+                value: f.value.as_ref().map(|v| substitute_var(v, from, to)),
+            }).collect(),
+        }),
+        Expr::TupleLit(t) => Expr::TupleLit(TupleLit {
+            span: t.span,
+            elements: t.elements.iter().map(|e| substitute_var(e, from, to)).collect(),
+        }),
+        Expr::Fn(f) => Expr::Fn(FnExpr {
+            span: f.span, params: f.params.clone(), return_ty: f.return_ty.clone(),
+            body: Box::new(substitute_var(&f.body, from, to)),
+        }),
+        _ => expr.clone(),
+    }
 }
 
 #[cfg(test)]
