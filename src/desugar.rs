@@ -275,19 +275,32 @@ fn desugar_fn(f: &FnExpr) -> Expr {
         .map(|(i, p)| (i, p.ty.clone()))
         .collect();
 
-    let body = desugar_expr(&f.body);
-
-    // Wrap body: return tuple of (borrow values..., body result)
+    let mut body = desugar_expr(&f.body);
     let body_span = body.span();
-    let mut elements: Vec<Expr> = borrow_params.iter().map(|&(i, _)| {
-        Expr::Var(f.params[i].name.clone())
-    }).collect();
-    elements.push(body);
 
-    let new_body = Expr::TupleLit(TupleLit {
-        span: body_span,
-        elements,
-    });
+    let new_body = if let Expr::Block(mut b) = body {
+        let orig_final = b.final_expr.take()
+            .map(|e| (*e).clone())
+            .unwrap_or(Expr::UnitLit(Span::DUMMY));
+        let mut elements: Vec<Expr> = borrow_params.iter().map(|&(i, _)| {
+            Expr::Var(f.params[i].name.clone())
+        }).collect();
+        elements.push(orig_final);
+        b.final_expr = Some(Box::new(Expr::TupleLit(TupleLit {
+            span: body_span,
+            elements,
+        })));
+        Expr::Block(b)
+    } else {
+        let mut elements: Vec<Expr> = borrow_params.iter().map(|&(i, _)| {
+            Expr::Var(f.params[i].name.clone())
+        }).collect();
+        let last = borrow_params.iter().map(|&(i, _)| {
+            Expr::Var(f.params[i].name.clone())
+        }).last().unwrap_or(body.clone());
+        elements.push(last);
+        Expr::TupleLit(TupleLit { span: body_span, elements })
+    };
 
     // New return type: (T1, T2, ..., U)
     let new_return_ty = {

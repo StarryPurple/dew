@@ -256,6 +256,8 @@ impl<'a> IrGenerator<'a> {
             }
 
             Expr::Block(b) => {
+                let saved_var_map = self.var_map.clone();
+                let saved_reg_struct = self.reg_struct.clone();
                 let mut last_reg = 0;
                 for stmt in &b.stmts {
                     if let Some(def) = &stmt.def {
@@ -273,6 +275,8 @@ impl<'a> IrGenerator<'a> {
                 if let Some(final_expr) = &b.final_expr {
                     last_reg = self.compile_expr(final_expr, block);
                 }
+                self.var_map = saved_var_map;
+                self.reg_struct = saved_reg_struct;
                 last_reg
             }
 
@@ -335,6 +339,7 @@ impl<'a> IrGenerator<'a> {
                         current_r = result_r;
                     }
                 }
+                self.reg_struct.insert(current_r, struct_name.clone());
                 current_r
             }
 
