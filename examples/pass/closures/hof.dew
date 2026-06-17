@@ -1,0 +1,5 @@
+// expect: 42
+// Higher-order function: chain function calls.
+def mul3 = fn(x: Int) -> Int { x * 3 };
+def add3 = fn(x: Int) -> Int { x + 3 };
+def main = fn { add3(mul3(13)) -> stdout; };

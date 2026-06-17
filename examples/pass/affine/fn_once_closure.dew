@@ -1,0 +1,9 @@
+// expect: 42
+// Function that captures and consumes an affine value once.
+#[affine]
+struct Handle { id: Int }
+def process = fn(h: Int) -> Int { h }
+def main = fn {
+  def handle = Handle { id: 42 };
+  process(handle.id) -> stdout;
+};

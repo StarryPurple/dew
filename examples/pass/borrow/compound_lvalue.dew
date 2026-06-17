@@ -1,0 +1,9 @@
+// expect: 84
+// Borrow on a compound lvalue: field access.
+struct Inner { x: Int }
+struct Outer { inner: Int }
+def read = fn(&v: Int) -> Int { v * 2 }
+def main = fn {
+  def outer = Outer { inner: Inner { x: 42 } };
+  read(outer.inner.x) -> stdout;
+};

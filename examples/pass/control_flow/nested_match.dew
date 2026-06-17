@@ -1,0 +1,5 @@
+// expect: 42
+// Two functions with if/else: combined result.
+def abs = fn(n: Int) -> Int { if n < 0 { 0 - n } else { n } };
+def max = fn(a: Int, b: Int) -> Int { if a > b { a } else { b } };
+def main = fn { max(abs(40), abs(42)) + 0 -> stdout; };

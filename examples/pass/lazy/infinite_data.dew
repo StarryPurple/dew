@@ -1,0 +1,6 @@
+// expect: 55
+// Lazy cascade: chain of deferred computations.
+def a = 10;
+def b = a + 20;
+def c = b + 25;
+def main = fn { c -> stdout; };

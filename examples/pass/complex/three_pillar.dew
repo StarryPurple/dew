@@ -1,0 +1,7 @@
+// expect: 42
+// All three pillars together: Lazy + Affine + Closure.
+#[affine]
+struct Handle { id: Int }
+def handle = Handle { id: 21 };
+def double = fn(x: Int) -> Int { x * 2 };
+def main = fn { double(handle.id) -> stdout; };

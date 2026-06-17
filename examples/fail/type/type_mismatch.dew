@@ -1,0 +1,2 @@
+// expect error: [E003]
+def main = fn { true + 1 -> stdout; };

@@ -1,0 +1,7 @@
+// expect: 18
+// Struct with two fields, accessed and used in arithmetic.
+struct Pair { x: Int, y: Int }
+def main = fn {
+  def p = Pair { x: 5, y: 4 };
+  p.x + p.y + 9 -> stdout;
+};

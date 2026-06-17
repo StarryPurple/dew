@@ -1,0 +1,5 @@
+// expect: 55
+def rec fib = fn(n: Int) -> Int {
+  if n <= 1 { n } else { fib(n - 1) + fib(n - 2) }
+};
+def main = fn { fib(10) -> stdout; };

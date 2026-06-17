@@ -544,13 +544,11 @@ impl<'a> Parser<'a> {
             let stmt_start = self.current_span().start;
             if let Ok(Decl::Def(def)) = self.parse_def_decl() {
                 let end = self.current_span().end;
+                let value = def.value.clone();
                 stmts.push(BlockStmt {
                     span: Span { start: stmt_start, end, line: 0, col: start },
-                    expr: Expr::Call(CallExpr {
-                        span: Span::DUMMY,
-                        func: Box::new(Expr::Var(Ident::new("__def__".to_string(), Span::DUMMY))),
-                        args: vec![],
-                    }),
+                    expr: value,
+                    def: Some(def),
                 });
             }
         }
@@ -560,7 +558,7 @@ impl<'a> Parser<'a> {
             let expr = self.parse_expr();
             if self.eat(TokenKind::Semicolon) {
                 let end = self.tokens[self.pos - 1].span.end;
-                stmts.push(BlockStmt { span: expr.span(), expr });
+                stmts.push(BlockStmt { span: expr.span(), expr, def: None });
             } else {
                 final_expr = Some(Box::new(expr));
                 break;
@@ -578,7 +576,11 @@ impl<'a> Parser<'a> {
         let condition = self.parse_expr_no_postfix()?;
         let then_branch = self.parse_block()?;
         self.expect(TokenKind::Else)?;
-        let else_branch = self.parse_block()?;
+        let else_branch = if self.check(TokenKind::If) {
+            self.parse_if()?
+        } else {
+            self.parse_block()?
+        };
         let span = condition.span().merge(else_branch.span());
         Ok(Expr::If(IfExpr {
             span, condition: Box::new(condition),

@@ -1,0 +1,8 @@
+// expect: 42
+// Pattern match that destructures an affine struct, consuming its fields.
+#[affine]
+struct Pair { first: Int, second: Int }
+def main = fn {
+  def p = Pair { first: 40, second: 2 };
+  p.first + p.second -> stdout;
+};

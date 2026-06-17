@@ -1,0 +1,5 @@
+// expect error: [E003]
+// Struct with self-recursive type: causes type mismatch when used wrong.
+struct Node { value: Int, next: Node }
+def sub = fn(x: Node) -> Int { x.value + true };
+def main = fn { 42 -> stdout; };

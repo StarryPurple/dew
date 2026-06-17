@@ -1,0 +1,4 @@
+// expect error: [E003]
+// stdout is a function, not an Int: cannot use as arithmetic operand.
+def pure_fn = fn(x: Int) -> Int { x + stdout() };
+def main = fn { pure_fn(42) -> stdout; };

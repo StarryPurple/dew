@@ -105,6 +105,18 @@ impl<'a> NameResolver<'a> {
             Expr::Block(b) => {
                 let mut block_scope = Scope::with_parent(scope);
                 for stmt in &b.stmts {
+                    if let Some(def) = &stmt.def {
+                        if def.rec {
+                            block_scope.insert(def.name.name.clone(), def.span);
+                        }
+                    }
+                }
+                for stmt in &b.stmts {
+                    if let Some(def) = &stmt.def {
+                        if !def.rec {
+                            block_scope.insert(def.name.name.clone(), def.span);
+                        }
+                    }
                     self.resolve_expr(&stmt.expr, &mut block_scope);
                 }
                 if let Some(final_expr) = &b.final_expr {

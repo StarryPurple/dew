@@ -21,6 +21,7 @@ pub struct IrGenerator<'a> {
     var_map: std::collections::HashMap<String, usize>,
     thunk_names: std::collections::HashSet<String>,
     extra_blocks: Vec<BasicBlock>,
+    reg_struct: std::collections::HashMap<usize, String>,
 }
 
 impl<'a> IrGenerator<'a> {
@@ -33,6 +34,7 @@ impl<'a> IrGenerator<'a> {
             var_map: std::collections::HashMap::new(),
             thunk_names: std::collections::HashSet::new(),
             extra_blocks: Vec::new(),
+            reg_struct: std::collections::HashMap::new(),
         }
     }
 
@@ -256,7 +258,17 @@ impl<'a> IrGenerator<'a> {
             Expr::Block(b) => {
                 let mut last_reg = 0;
                 for stmt in &b.stmts {
+                    if let Some(def) = &stmt.def {
+                        if def.rec {
+                            self.thunk_names.insert(def.name.name.clone());
+                        }
+                    }
+                }
+                for stmt in &b.stmts {
                     last_reg = self.compile_expr(&stmt.expr, block);
+                    if let Some(def) = &stmt.def {
+                        self.var_map.insert(def.name.name.clone(), last_reg);
+                    }
                 }
                 if let Some(final_expr) = &b.final_expr {
                     last_reg = self.compile_expr(final_expr, block);
@@ -282,13 +294,17 @@ impl<'a> IrGenerator<'a> {
                 }
                 let result_r = self.fresh_reg();
                 block.instrs.push(Instr::StructCons(result_r, s.name.name.clone(), field_regs));
+                self.reg_struct.insert(result_r, s.name.name.clone());
                 result_r
             }
 
             Expr::Field(f) => {
                 let obj_r = self.compile_expr(&f.object, block);
                 let result_r = self.fresh_reg();
-                block.instrs.push(Instr::Field(result_r, obj_r, 0));
+                let field_idx = self.reg_struct.get(&obj_r)
+                    .and_then(|name| self.module.types.struct_field_index(name, &f.field.name))
+                    .unwrap_or(0);
+                block.instrs.push(Instr::Field(result_r, obj_r, field_idx));
                 result_r
             }
 

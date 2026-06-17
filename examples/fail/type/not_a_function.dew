@@ -1,0 +1,3 @@
+// expect error: [E003]
+def x = 42;
+def main = fn { x(5) -> stdout; };

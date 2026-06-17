@@ -1,0 +1,9 @@
+// expect: 63
+// Chained borrow: pass borrowed value to another & function.
+struct Value { n: Int }
+def inspect = fn(&v: Value) -> Int { v.n }
+def double_inspect = fn(&v: Value) -> Int { inspect(v) * 2 }
+def main = fn {
+  def val = Value { n: 21 };
+  double_inspect(val) + inspect(val) -> stdout;
+};

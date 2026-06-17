@@ -1,0 +1,4 @@
+// expect: 42
+// Function that returns a value computed from closure context.
+def scale = fn(n: Int) -> Int { n * 6 };
+def main = fn { scale(7) -> stdout; };

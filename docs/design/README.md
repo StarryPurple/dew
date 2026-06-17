@@ -11,6 +11,10 @@ This directory contains the **canonical design specifications** for the Dew prog
 | [dew-lang.md](dew-lang.md) | Dew Language | Complete language specification: syntax, semantics, type system, standard library |
 | [dew-ir.md](dew-ir.md) | Dew IR | Thunk Graph IR specification: primitives, instructions, text format, evaluation model |
 | [rx-dew-interop.md](rx-dew-interop.md) | Rx ↔ Dew Interop | Translation rules for Rx (Rust-like) ↔ Dew round-trip, safety analysis architecture |
+| [todo.md](todo.md) | Roadmap | Implementation roadmap: completed features, gaps, planned phases, dependency graph |
+| [dew-lang-ebnf.md](dew-lang-ebnf.md) | Dew Grammar (doc) | Full EBNF grammar for the Dew surface syntax with explanatory notes |
+| [dew-lang.ebnf](dew-lang.ebnf) | Dew Grammar (EBNF) | Machine-readable EBNF grammar for the Dew surface syntax |
+| [dew-ir.ebnf](dew-ir.ebnf) | Dew IR Grammar (EBNF) | Machine-readable EBNF grammar for the Dew IR text format |
 
 ---
 
@@ -78,4 +82,4 @@ The [Language Design Methodology](../methodology/language-design.md) governs *ho
 
 ---
 
-*Last updated: 2026-06-15*
+*Last updated: 2026-06-17*

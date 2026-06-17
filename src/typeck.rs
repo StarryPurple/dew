@@ -40,10 +40,20 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
-        // Second pass: infer types for def bindings
+        // Second pass: pre-register all def rec names
         for decl in &prog.decls {
             if let Decl::Def(d) = decl {
                 if d.rec {
+                    self.env.insert(d.name.name.clone(),
+                        Scheme { vars: vec![], ty: self.tvg.fresh_ty() });
+                }
+            }
+        }
+
+        // Third pass: infer types for def bindings
+        for decl in &prog.decls {
+            if let Decl::Def(d) = decl {
+                if !d.rec {
                     self.env.insert(d.name.name.clone(),
                         Scheme { vars: vec![], ty: self.tvg.fresh_ty() });
                 }
@@ -225,6 +235,20 @@ impl<'a> TypeChecker<'a> {
         let mut result_ty = Ty::Unit;
 
         for stmt in &b.stmts {
+            if let Some(ref def) = stmt.def {
+                if def.rec {
+                    self.env.insert(def.name.name.clone(),
+                        Scheme { vars: vec![], ty: Ty::Var(self.tvg.fresh()) });
+                }
+            }
+        }
+        for stmt in &b.stmts {
+            if let Some(ref def) = stmt.def {
+                if !def.rec {
+                    self.env.insert(def.name.name.clone(),
+                        Scheme { vars: vec![], ty: Ty::Var(self.tvg.fresh()) });
+                }
+            }
             self.infer_expr(&stmt.expr);
         }
         if let Some(final_expr) = &b.final_expr {

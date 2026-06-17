@@ -1,0 +1,7 @@
+// expect: 6
+// Array-like struct with three fields.
+struct Triple { a: Int, b: Int, c: Int }
+def main = fn {
+  def t = Triple { a: 1, b: 2, c: 3 };
+  t.a + t.b + t.c -> stdout;
+};

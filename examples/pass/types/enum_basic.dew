@@ -1,0 +1,10 @@
+// expect: 42
+// Enum declaration and construction with match.
+enum Option { Some(Int), None }
+def main = fn {
+  def val = Some(42);
+  match val {
+    Some(n) => n,
+    None => 0,
+  } -> stdout;
+};

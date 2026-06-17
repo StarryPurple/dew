@@ -1,0 +1,9 @@
+// expect: 42
+// Affine struct field: consuming an affine field transfers ownership.
+#[affine]
+struct Token { value: Int }
+def consume_token = fn(t: Int) -> Int { t }
+def main = fn {
+  def tok = Token { value: 42 };
+  consume_token(tok.value) -> stdout;
+};

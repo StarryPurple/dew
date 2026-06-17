@@ -1,0 +1,3 @@
+// expect error: [E007]
+// Unbound variable: referencing a name that is not defined.
+def main = fn { y -> stdout; };

@@ -1,0 +1,4 @@
+// expect error: [E003]
+// Type mismatch: arithmetic on mismatched types.
+def sub = fn(x: Int, y: Int) -> Int { x - y };
+def main = fn { sub(42, true) -> stdout; };

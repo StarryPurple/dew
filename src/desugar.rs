@@ -366,7 +366,7 @@ fn desugar_block(b: &BlockExpr) -> Expr {
         } else {
             expr
         };
-        BlockStmt { span: s.span, expr }
+        BlockStmt { span: s.span, expr, def: s.def.clone() }
     }).collect();
 
     let final_expr = b.final_expr.as_ref().map(|e| {

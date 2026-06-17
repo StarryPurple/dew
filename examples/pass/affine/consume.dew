@@ -1,0 +1,9 @@
+// expect: 42
+// Affine struct: once consumed, cannot be used again.
+#[affine]
+struct FileHandle { fd: Int }
+def use_file = fn(f: Int) -> Int { f }
+def main = fn {
+  def h = FileHandle { fd: 42 };
+  use_file(h.fd) -> stdout;
+};

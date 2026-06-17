@@ -32,7 +32,7 @@ for file in $(find "$DIR/examples/fail" -name '*.dew' 2>/dev/null | sort); do
     expected_code=$(head -1 "$file" | sed 's/.*expect error: //')
     echo -n "  $rel ... "
     output=$("$DEW" "$file" 2>&1 || true)
-    if echo "$output" | grep -q "\[$expected_code\]"; then
+    if echo "$output" | grep -Fq "$expected_code"; then
         echo "OK"
         PASS=$((PASS + 1))
     else

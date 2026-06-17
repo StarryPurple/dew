@@ -1,0 +1,9 @@
+// expect: 42
+// Affine value used through function call with pipe output.
+#[affine]
+struct Resource { data: Int }
+def extract = fn(r: Int) -> Int { r }
+def main = fn {
+  def res = Resource { data: 42 };
+  extract(res.data) -> stdout;
+};

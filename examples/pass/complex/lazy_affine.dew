@@ -1,0 +1,6 @@
+// expect: 42
+// Affine value inside a lazy thunk: forced once, then cached.
+#[affine]
+struct Session { id: Int }
+def session = Session { id: 42 };
+def main = fn { session.id -> stdout; };

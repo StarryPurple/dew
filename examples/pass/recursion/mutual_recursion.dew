@@ -1,0 +1,8 @@
+// expect: 17
+// Mutual recursion: even and odd call each other.
+def rec even = fn(n: Int) -> Int { if n == 0 { 1 } else { odd(n - 1) } };
+def rec odd = fn(n: Int) -> Int { if n == 0 { 0 } else { even(n - 1) } };
+def rec sum = fn(n: Int) -> Int {
+  if n == 0 { 0 } else { odd(n) + sum(n - 1) }
+};
+def main = fn { sum(17) -> stdout; };

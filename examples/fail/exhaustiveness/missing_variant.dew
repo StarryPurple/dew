@@ -1,0 +1,9 @@
+// expect error: [E002]
+// Enum variant not covered in match.
+enum Option { Some(Int), None }
+def main = fn {
+  def x = Some(42);
+  match x {
+    Some(n) => n,
+  } -> stdout;
+};

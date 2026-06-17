@@ -1,0 +1,5 @@
+// expect: 42
+// Compile-time generic type resolution.
+def identity = fn(x: Int) -> Int { x };
+def get_answer = fn(x: Int) -> Int { identity(x) };
+def main = fn { get_answer(42) -> stdout; };

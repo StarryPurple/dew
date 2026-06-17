@@ -1,0 +1,6 @@
+// expect: 120
+// Anonymous recursion using fix: factorial.
+def fac = fix loop { fn(n: Int) -> Int {
+  if n == 0 { 1 } else { n * loop(n - 1) }
+} };
+def main = fn { fac(5) -> stdout; };

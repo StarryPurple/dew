@@ -320,6 +320,7 @@ pub struct BlockExpr {
 pub struct BlockStmt {
     pub span: Span,
     pub expr: Expr,
+    pub def: Option<DefDecl>,
 }
 
 // --- Access and Mutation ---

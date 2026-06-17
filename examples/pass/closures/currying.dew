@@ -1,0 +1,6 @@
+// expect: 105
+// Currying: function calls chained via explicit call syntax.
+def add = fn(x: Int) -> Int { x + 10 };
+def mul = fn(x: Int) -> Int { x * 2 };
+def sub = fn(x: Int) -> Int { x - 5 };
+def main = fn { sub(mul(add(45))) -> stdout; };

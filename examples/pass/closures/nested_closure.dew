@@ -1,0 +1,5 @@
+// expect: 42
+// Nested function call chain.
+def triple = fn(x: Int) -> Int { x * 3 };
+def add_ten = fn(x: Int) -> Int { x + 10 };
+def main = fn { triple(add_ten(4)) -> stdout; };
