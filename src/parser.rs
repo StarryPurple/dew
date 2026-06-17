@@ -669,11 +669,34 @@ impl<'a> Parser<'a> {
             };
         }
 
-        let body = self.parse_expr();
+        let mut body = self.parse_expr();
+        // If postfix consumed IIFE args (Call(Block, args)), extract them.
+        // parse_expr() inside a fn body can greedily parse fn{body}(args) as
+        // Call(Block{body}, args). We need the Call at the Fn level.
+        let iife_args: Option<Vec<ExprArg>> = if let Expr::Call(c) = &body {
+            if matches!(&*c.func, Expr::Block(_)) {
+                let args = c.args.clone();
+                body = (*c.func).clone();
+                Some(args)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let span = Span { start, end: start, line: 0, col: start }.merge(body.span());
-        Ok(Expr::Fn(FnExpr {
+        let fn_expr = Expr::Fn(FnExpr {
             span, params, return_ty, body: Box::new(body),
-        }))
+        });
+        match iife_args {
+            Some(args) => Ok(Expr::Call(CallExpr {
+                span: fn_expr.span().merge(
+                    self.tokens.get(self.pos).map(|t| t.span).unwrap_or(fn_expr.span())),
+                func: Box::new(fn_expr),
+                args,
+            })),
+            None => Ok(fn_expr),
+        }
     }
 
     fn parse_fix(&mut self) -> Result<Expr, Span> {
