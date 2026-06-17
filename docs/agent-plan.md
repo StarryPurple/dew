@@ -94,10 +94,12 @@ Persistent work plan for the Dew compiler. Completed items are preserved and mar
 
 ### Deferred
 
-- [ ] **Closure FnOnce inference**: requires closures-as-values (Lambda IR support) first. Currently closures only exist as top-level defs or IIFE inline. Requires free variable analysis, affine capture detection, Lambda emission, double-call tracking.
+- [ ] **typeof/type_match (§4.9)**: requires monomorphization pass — new compiler stage between typeck and ir_gen. ~150 lines across typeck + new monomorphize module.
 
----
+### 2026-06-18 — Loops Design + Closures + FnOnce
 
-## Test Status
-
-**116 e2e passed, 0 failed | 61 unit passed** (2026-06-18)
+- [x] **§6.3 Loops redesigned**: `while`, `loop`, `for-in` as syntax sugar. All desugar to `fix` + `if/else` + `match` with `%`-prefixed names. IIFE invocation on `fix` results. C++-style `for (x : expr)` syntax. Keywords added: `for`, `while`, `loop`.
+- [x] **Closures as values**: `compile_closure` replaces "nested fn" error, free variable analysis, Lambda emission, dynamic call support
+- [x] **FnOnce inference**: `fn_captures_affine` detects affine-capture closures, double-call → E004
+- [x] **Call handler regression fix**: static calls now correctly look up return type from module.fns
+- [x] 118 e2e + 61 unit — ALL GREEN
