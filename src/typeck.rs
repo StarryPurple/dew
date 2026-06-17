@@ -79,23 +79,17 @@ impl<'a> TypeChecker<'a> {
             }
         }
 
-        // Second pass: pre-register all def rec names
+        // Second pass: pre-register all def names (forward reference support)
         for decl in &prog.decls {
             if let Decl::Def(d) = decl {
-                if d.rec {
-                    self.env.insert(d.name.name.clone(),
-                        Scheme { vars: vec![], ty: self.tvg.fresh_ty() });
-                }
+                self.env.insert(d.name.name.clone(),
+                    Scheme { vars: vec![], ty: self.tvg.fresh_ty() });
             }
         }
 
         // Third pass: infer types for def bindings
         for decl in &prog.decls {
             if let Decl::Def(d) = decl {
-                if !d.rec {
-                    self.env.insert(d.name.name.clone(),
-                        Scheme { vars: vec![], ty: self.tvg.fresh_ty() });
-                }
                 self.infer_def(d);
             }
         }

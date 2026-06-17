@@ -1,0 +1,7 @@
+// expect: 42
+// Tier: Small
+// Feature: forward reference, function call, def ordering
+// f calls g before g is defined — top-level forward reference.
+def f = fn(x: Int) -> Int { g(x) };
+def g = fn(x: Int) -> Int { x };
+def main = fn { f(42) -> stdout; };

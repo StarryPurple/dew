@@ -31,13 +31,10 @@ impl<'a> NameResolver<'a> {
             top_level.insert(builtin.to_string(), Span::DUMMY);
         }
 
-        // First pass: collect all top-level def names
+        // First pass: collect all top-level def names (forward reference support)
         for decl in &prog.decls {
             if let Decl::Def(d) = decl {
-                let name = d.name.name.clone();
-                if d.rec {
-                    top_level.insert(name, d.span);
-                }
+                top_level.insert(d.name.name.clone(), d.span);
             }
         }
 
@@ -56,9 +53,6 @@ impl<'a> NameResolver<'a> {
         for decl in &prog.decls {
             match decl {
                 Decl::Def(d) => {
-                    if !d.rec {
-                        top_level.insert(d.name.name.clone(), d.span);
-                    }
                     let mut scope = Scope::with_parent(&top_level);
                     self.resolve_expr(&d.value, &mut scope);
                 }
