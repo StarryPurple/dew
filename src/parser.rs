@@ -48,6 +48,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_decl_result(&mut self) -> Result<Decl, Span> {
+        self.eat_attribute();
         match self.peek_kind() {
             TokenKind::Struct | TokenKind::Affine => {
                 if self.peek_kind() == TokenKind::Affine
@@ -1123,6 +1124,15 @@ impl<'a> Parser<'a> {
                 true
             }
             _ => false,
+        }
+    }
+
+    fn eat_attribute(&mut self) {
+        if self.check(TokenKind::Hash) {
+            self.advance();
+            self.expect(TokenKind::LBracket).ok();
+            self.advance(); // skip the attribute name
+            self.expect(TokenKind::RBracket).ok();
         }
     }
 
