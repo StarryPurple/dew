@@ -1,0 +1,12 @@
+// expect: 63
+// Call-site & — rebinding is automatic, no manual destructure (§5.5 Rule 2).
+def bump = fn(&x: Int) -> Int {
+  &x = x + 1;
+  x
+};
+def main = fn {
+  def a = 20;
+  def b = 42;
+  def r = bump(&a);
+  r + b -> stdout;
+};

@@ -240,6 +240,19 @@ fn eval_instr(
                 frame.set(*r, Value::Int(0));
             }
         }
+        Instr::StructUpdate(r, base, fidx, val) => {
+            let base_val = frame.get(*base);
+            let val_val = frame.get(*val).clone();
+            if let Value::Tuple(fields) = base_val {
+                let mut new_fields = fields.clone();
+                if *fidx < new_fields.len() {
+                    new_fields[*fidx] = val_val;
+                }
+                frame.set(*r, Value::Tuple(new_fields));
+            } else {
+                frame.set(*r, val_val);
+            }
+        }
         _ => return Err("instruction not implemented in eval".into()),
     }
     Ok(())

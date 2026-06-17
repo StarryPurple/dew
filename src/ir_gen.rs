@@ -298,14 +298,44 @@ impl<'a> IrGenerator<'a> {
                 result_r
             }
 
+            Expr::TupleLit(t) => {
+                let mut field_regs = Vec::new();
+                for e in &t.elements {
+                    field_regs.push(self.compile_expr(e, block));
+                }
+                let result_r = self.fresh_reg();
+                block.instrs.push(Instr::StructCons(result_r, "%tuple".into(), field_regs));
+                self.reg_struct.insert(result_r, "%tuple".into());
+                result_r
+            }
+
             Expr::Field(f) => {
                 let obj_r = self.compile_expr(&f.object, block);
                 let result_r = self.fresh_reg();
                 let field_idx = self.reg_struct.get(&obj_r)
                     .and_then(|name| self.module.types.struct_field_index(name, &f.field.name))
+                    .or_else(|| f.field.name.parse::<usize>().ok())
                     .unwrap_or(0);
                 block.instrs.push(Instr::Field(result_r, obj_r, field_idx));
                 result_r
+            }
+
+            Expr::Update(u) => {
+                let base_r = self.compile_expr(&u.base, block);
+                let struct_name = self.reg_struct.get(&base_r).cloned()
+                    .unwrap_or_else(|| "%tuple".into());
+                let mut current_r = base_r;
+                for uf in &u.updates {
+                    if let UpdateField::NamedField { name, value, .. } = uf {
+                        let val_r = self.compile_expr(value, block);
+                        let result_r = self.fresh_reg();
+                        let fidx = self.module.types.struct_field_index(&struct_name, &name.name)
+                            .unwrap_or(0);
+                        block.instrs.push(Instr::StructUpdate(result_r, current_r, fidx, val_r));
+                        current_r = result_r;
+                    }
+                }
+                current_r
             }
 
             _ => {

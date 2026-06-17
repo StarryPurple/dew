@@ -1,0 +1,14 @@
+// expect: 84
+// Multiple borrow params — caller writes &a, &b; destructure is automatic (§5.5).
+struct Point { x: Int, y: Int }
+def move_to = fn(&p: Point, &q: Point, dx: Int) -> Point {
+  &p { x = p.x + dx };
+  &q { x = q.x + dx };
+  p
+};
+def main = fn {
+  def a = Point { x: 30, y: 10 };
+  def b = Point { x: 50, y: 0 };
+  def result = move_to(&a, &b, 2);
+  result.x + b.x -> stdout;
+};

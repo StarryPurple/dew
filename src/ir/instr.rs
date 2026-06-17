@@ -37,7 +37,7 @@ pub enum Instr {
     ArrayLit(Reg, IrType, Vec<Reg>),
     ArrayFill(Reg, IrType, Reg, usize),
     TupleLit(Reg, IrType, Vec<Reg>),
-    StructUpdate(Reg, Reg, String, Reg),
+    StructUpdate(Reg, Reg, usize, Reg),
     ArrayAccess(Reg, Reg, Reg),
     ArrayUpdate(Reg, Reg, Reg, Reg),
     TupleUpdate(Reg, Reg, usize, Reg),

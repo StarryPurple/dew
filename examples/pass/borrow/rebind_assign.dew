@@ -1,0 +1,10 @@
+// expect: 43
+// Borrow rebinding with &p = expr in function body (§5.5 Rule 1).
+def inc = fn(&x: Int) -> Int {
+  &x = x + 1;
+  x
+};
+def main = fn {
+  def v = 42;
+  inc(&v) -> stdout;
+};

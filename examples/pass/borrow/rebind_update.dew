@@ -1,0 +1,11 @@
+// expect: 62
+// Borrow rebinding with &p { field = val } struct update (§5.5 Rule 1).
+struct Point { x: Int, y: Int }
+def shift = fn(&p: Point, dx: Int) -> Point {
+  &p { x = p.x + dx };
+  p
+};
+def main = fn {
+  def pt = Point { x: 40, y: 20 };
+  shift(&pt, 2).x + pt.y -> stdout;
+};

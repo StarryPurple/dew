@@ -1,0 +1,9 @@
+// expect: 42
+// Statement-level &p { field = val } update without function call (§5.5 Rule 5).
+struct Point { x: Int, y: Int }
+def main = fn {
+  def p = Point { x: 20, y: 21 };
+  &p { x = p.x * 2 };
+  &p { y = p.y - 1 };
+  p.x + p.y -> stdout;
+};

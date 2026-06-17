@@ -1,0 +1,3 @@
+// expect error: [E002]
+// & as an lvalue in arithmetic is not a statement rebind form.
+def main = fn { &x = 1 + x; };

@@ -1,0 +1,3 @@
+// expect error: [E002]
+// & cannot appear in a top-level def binding.
+def &x = 42;

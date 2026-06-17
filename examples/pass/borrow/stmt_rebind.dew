@@ -1,0 +1,8 @@
+// expect: 202
+// Statement-level &x = expr rebinding without function call (§5.5 Rule 5).
+struct Counter { n: Int }
+def main = fn {
+  def c = Counter { n: 100 };
+  &c = Counter { n: c.n + 1 };
+  c.n + c.n -> stdout;
+};

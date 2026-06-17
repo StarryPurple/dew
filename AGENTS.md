@@ -192,6 +192,22 @@ When starting work on a feature:
 
 This ensures every feature has a documented, verifiable specification before implementation begins. It also prevents the common pitfall of writing tests that accidentally validate buggy behavior by mirroring the implementation.
 
+### P7. Persistent Agent Plan
+
+Every implementation session must maintain a persistent work plan in [`docs/agent-plan.md`](docs/agent-plan.md). This file tracks:
+
+- **In Progress** — features and fixes currently being worked on
+- **Completed** — finished items, preserved with completion dates, never deleted
+- **Backlog** — planned but not yet started
+
+**Maintenance rules:**
+- Update the plan **at the start** of a new implementation session (review what changed, mark completed items)
+- Update the plan **in real time** when an item is started or finished
+- **Never delete** completed items — move them to the Completed section with a date
+- If priorities shift, reorder the In Progress and Backlog sections, but always preserve the history
+
+The plan is the single source of truth for what to do next. No implementation should proceed without checking it first.
+
 ---
 
 ## Quick Reference: Which Doc for Which Task?
