@@ -8,7 +8,8 @@ A pure functional, statically-typed programming language with **lazy evaluation*
 dew <file>                   # Compile and evaluate a .dew program
 dew <file> --emit=text       # Print the Thunk Graph IR
 dew <file> --emit=json       # Print the IR as JSON
-dew <file> --backend=llvm    # Print LLVM IR translation
+dew <file> --emit=llvm       # Print LLVM IR translation
+dew <file> --backend=llvm    # Compile LLVM IR via clang and execute
 dew <file> --opt=0|1         # Optimization level (default: 0)
 dew lsp                      # Start Language Server Protocol server
 ```
@@ -49,8 +50,8 @@ Source → Parser → Desugar → NameRes → TypeCheck → Strictness → IR Ge
 | Backend | Command | Status |
 |---------|---------|--------|
 | Tree-Walking Evaluator | `dew <file>` | ✅ Complete |
-| LLVM IR Emitter | `dew <file> --backend=llvm` | ✅ All 30+ instructions translated |
-| LLVM JIT / Native | — | Not implemented |
+| LLVM IR Print | `dew <file> --emit=llvm` | ✅ All 30+ instructions |
+| LLVM Compile+Run | `dew <file> --backend=llvm` | ✅ Basic programs (req. clang) |
 
 ## Language Specification
 
