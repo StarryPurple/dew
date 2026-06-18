@@ -43,11 +43,7 @@
 - [§6 Control Flow](#6-control-flow)
   - [§6.1 match](#61-match)
   - [§6.2 if/else](#62-ifelse)
-  - [§6.3 Loops](#63-loops)
-    - [`while` — Conditional Loop](#while--conditional-loop)
-    - [`forever` — Infinite Loop](#forever--infinite-loop)
-    - [`for-in` — Iteration Over a Collection](#for-in--iteration-over-a-collection)
-    - [Forms Not Provided](#forms-not-provided)
+  - [§6.3 Loops — Handled by Rx→Dew Translator](#63-loops--handled-by-rxdew-translator)
 - [§7 Identifiers and Operators](#7-identifiers-and-operators)
   - [§7.1 Identifiers](#71-identifiers)
   - [§7.2 Operators](#72-operators)
@@ -1948,98 +1944,28 @@ if Point{} { a } else { b }   // parsed as: if (Point{}) { a } else { b }
 
 The parser never needs to guess. It always consumes `if expr { then } else { else }` — no other interpretation is possible. If `expr` happens to be a struct construction, the type checker catches it later as a type mismatch. Inserting `else` into a single-arm `if` is impossible: there is always a `{` after `if expr`, which is the then-block, and then `else` is mandatory.
 
-### 6.3 Loops
+### 6.3 Loops — Handled by Rx→Dew Translator
 
-Dew provides three loop forms as **syntax sugar** — all desugar to recursion via [`fix`](#54-anonymous-recursion-fix) and [`if`/`else`](#62-ifelse) before type checking. No imperative looping primitives exist in the core language; the desugar pass eliminates all loops before the type checker sees them.
+Dew has **no native loop constructs.** The keywords `while`, `forever`, and `for` are reserved but have no semantics in the Dew core language. All imperative control flow translation is the responsibility of the [Rx→Dew interop layer](rx-dew-interop.md).
 
-#### `while` — Conditional Loop
+The translator converts Rx loops to Dew recursive functions with [`&` borrow parameters](#55-borrow-parameter--sugar):
 
-```
-while cond {
-  body
+```rust
+// Rx (input to translator)
+let mut n = 5;
+while n > 0 { n = n - 1; }
+
+// Dew (output from translator)
+{ def rec %loop = fn(&n: Int) -> Int {
+    if n > 0 { &n = n - 1; %loop(&n) } else { n }
+  };
+  %loop(&n)
 }
 ```
 
-Desugars to:
+The translator performs variable analysis on the loop body to identify mutated state, collects it into borrow parameters, and generates tail-recursive function calls. The Dew core language sees only `def rec`, `fn`, `if`/`else`, and `&` rebinding — no loop primitives needed.
 
-```dew
-(fix %while_loop {
-  fn() {
-    if cond {
-      body;
-      %while_loop()
-    } else {
-      ()
-    }
-  }
-})()
-```
-
-The condition is evaluated before each iteration. If `cond` is false on entry, the body never executes. The result of a `while` loop is always `Unit`.
-
-#### `forever` — Infinite Loop
-
-```
-forever {
-  body
-}
-```
-
-Desugars to:
-
-```dew
-(fix %loop_inf {
-  fn() {
-    body;
-    %loop_inf()
-  }
-})()
-```
-
-Runs `body` indefinitely. Equivalent to `while true { body }`. Exit is achieved through program termination (e.g., the evaluator reaching a fixed point, or OS termination).
-
-#### `for-in` — Iteration Over a Collection
-
-```
-for (x : expr) {
-  body
-}
-```
-
-`expr` must evaluate to a list (`List(T)`). Desugars to tail-recursive list traversal:
-
-```dew
-(fix %for_loop {
-  fn(xs: List(T)) {
-    match xs {
-      Cons(x, rest) => {
-        body(x);          // x is bound to the current element
-        %for_loop(rest)
-      }
-      Nil => ()
-    }
-  }
-})(expr)
-```
-
-The element variable `x` is scoped to the body. The collection `expr` is evaluated once at loop entry. `for-in` returns `Unit`.
-
-#### Forms Not Provided
-
-| Form | Why Excluded | Alternative |
-|------|-------------|-------------|
-| `for (init; cond; step) { body }` | C-style, too imperative | `init; while cond { body; step }` |
-| `do { body } while cond` | Rarely needed | `body; while cond { body }` |
-
-**Design rationale.** Unlike the original decision to exclude all loops, these three forms are included because:
-
-1. **Rx↔Dew interop.** The Rx→Dew translator needs loop constructs to faithfully translate imperative Rx code. Without loop sugar, the translator would need to inline `fix` patterns, producing unreadable Dew output.
-
-2. **Zero core complexity.** All three desugar entirely to `fix` + `if/else` + `match`. The type checker, IR gen, and evaluator never see loop constructs — they see the desugared form. No new IR instructions, no new evaluation rules.
-
-3. **Expression-orientation preserved.** `while`, `loop`, and `for-in` are expressions (returning `Unit`), consistent with Dew's expression-based design. They compose with pipelines and blocks naturally.
-
-> Unlike imperative languages where loops are primitive control flow, Dew's loops are thin wrappers over recursion. A `while` loop is semantically identical to its `fix` desugaring — there is no runtime difference. This means loop performance depends on the compiler's tail-call optimization, not on dedicated loop code generation. See [§5.3 Recursion](#53-recursion) for tail-call behavior.
+See [§3.4 While Loop Translation](rx-dew-interop.md#34-control-flow-translation) in the interop specification for the complete translation rules including `break` and `continue`.
 
 ---
 
@@ -2352,23 +2278,18 @@ All compiler diagnostics use bracketed codes. `[E###]` for errors (compilation s
 ```
 def, fn, struct, enum, match, if, else, fix, rec,
 import, true, false, Unit, affine,
-type_match, typeof, for, while, loop
+type_match, typeof
 ```
 
 ### Type Modifiers
 
 `affine` is a type modifier keyword, distinct from attributes. It precedes struct/enum declarations. Type-level only — `affine` does not appear on individual fields. Use `Affine(T)` wrapper in stdlib to make a field affine.
 
-### Built-in Functions
-
-```
-not, stdin, stdout
-```
-
 ### Reserved (Future)
 
 ```
-for, while, strict, typeclass, instance, where
+for, while, forever   // loops — handled by Rx→Dew translator (§6.3)
+type_match, typeof    // §4.9 — spec designed, implementation deferred
 ```
 
 ---
@@ -2376,8 +2297,8 @@ for, while, strict, typeclass, instance, where
 ## 15. Out of Scope
 
 - Float type
-- Loop syntax (`for`/`while`)
-- Mutable variables, `const` keyword
+- Loop syntax (`while`/`forever`/`for`) — handled by [Rx→Dew translator](rx-dew-interop.md)
+- `typeof` + `type_match` (§4.9) — future feature, spec designed, implementation deferred
 - Unit tuple, single-element tuple
 - Type aliases, associated types
 - Explicit lifetime annotations

@@ -10,7 +10,7 @@ pub enum TokenKind {
     // Keywords
     Def, Fn, Struct, Enum, Match, If, Else, Fix, Rec,
     Import, Unit, Affine, TypeMatch, TypeOf, Not,
-    While, Loop, For,
+    While, Loop, For, // reserved for future loop constructs (handled by Rx→Dew translator)
 
     // Literals
     IntLit(i64),
@@ -239,8 +239,7 @@ impl Lexer {
             "Unit" => TokenKind::Unit, "affine" => TokenKind::Affine,
             "type_match" => TokenKind::TypeMatch, "typeof" => TokenKind::TypeOf,
             "not" => TokenKind::Not, "_" => TokenKind::Underscore,
-            "while" => TokenKind::While, "forever" => TokenKind::Loop,
-            "for" => TokenKind::For, // reserved for for-in
+            // while/forever/for reserved — loops handled by Rx→Dew translator
             _ => TokenKind::Ident(name),
         }
     }
