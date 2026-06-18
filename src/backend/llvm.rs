@@ -23,11 +23,11 @@ pub fn generate(module: &Module) -> Result<String, String> {
         emit_thunk_cell(thunk, &mut out, &ctx)?;
     }
     for thunk in &module.thunks {
-        emit_thunk_force(thunk, &module.thunks, &module.fns, &mut out, &mut ctx)?;
+        emit_thunk_force(thunk, &module.thunks, &module.fns, &module.types, &mut out, &mut ctx)?;
     }
     // Function definitions
     for func in &module.fns {
-        emit_fn(func, &module.thunks, &module.fns, &mut out, &mut ctx)?;
+        emit_fn(func, &module.thunks, &module.fns, &module.types, &mut out, &mut ctx)?;
     }
     Ok(out)
 }
@@ -84,6 +84,8 @@ fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Resul
 }
 
 fn emit_externals(out: &mut String) {
+    writeln!(out, "@.fmt_int = private constant [4 x i8] c\"%ld\\00\"", ).ok();
+    writeln!(out, "@.fmt_char = private constant [4 x i8] c\"%c\\00\"", ).ok();
     writeln!(out, "declare i32 @printf(ptr, ...)").ok();
     writeln!(out, "declare i32 @scanf(ptr, ...)").ok();
     writeln!(out, "declare i32 @putchar(i32)").ok();
@@ -102,7 +104,7 @@ fn emit_thunk_cell(thunk: &Thunk, out: &mut String, _ctx: &LlvmCtx) -> Result<()
     Ok(())
 }
 
-fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
+fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: &TypeTable, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
     let ret_ty = ir_type_to_llvm(&thunk.result_type);
     writeln!(out, "define {} @force_{}() {{", ret_ty, thunk.name).ok();
 
@@ -120,7 +122,7 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], out: &m
     writeln!(out, "  store i64 1, ptr %state.ptr").ok();
 
     for instr in &thunk.blocks.first().map(|b| b.instrs.clone()).unwrap_or_default() {
-        emit_llvm_instr(&instr, all_thunks, all_fns, out, ctx)?;
+        emit_llvm_instr(&instr, all_thunks, all_fns, types, out, ctx)?;
     }
 
     let result_reg = thunk.blocks.first()
@@ -146,7 +148,7 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], out: &m
     Ok(())
 }
 
-fn emit_fn(func: &Fn, all_thunks: &[Thunk], all_fns: &[Fn], out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
+fn emit_fn(func: &Fn, all_thunks: &[Thunk], all_fns: &[Fn], types: &TypeTable, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
     let ret_ty = ir_type_to_llvm(&func.return_type);
     let params: Vec<String> = func.params.iter()
         .map(|(r, t)| format!("{} %r{}", ir_type_to_llvm(t), r))
@@ -156,7 +158,7 @@ fn emit_fn(func: &Fn, all_thunks: &[Thunk], all_fns: &[Fn], out: &mut String, ct
     for block in &func.blocks {
         writeln!(out, "{}:", block.label).ok();
         for instr in &block.instrs {
-            emit_llvm_instr(instr, all_thunks, all_fns, out, ctx)?;
+            emit_llvm_instr(instr, all_thunks, all_fns, types, out, ctx)?;
         }
         emit_terminator(&block.terminator, &func.return_type, out)?;
     }
@@ -164,7 +166,7 @@ fn emit_fn(func: &Fn, all_thunks: &[Thunk], all_fns: &[Fn], out: &mut String, ct
     Ok(())
 }
 
-fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], out: &mut String, _ctx: &mut LlvmCtx) -> Result<(), String> {
+fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTable, out: &mut String, _ctx: &mut LlvmCtx) -> Result<(), String> {
     match instr {
         Instr::Lit(r, v) => {
             match v {
@@ -222,11 +224,135 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], out: &mut Strin
             writeln!(out, "  %r{} = phi i64 [{}]", r, p.join("], [")).ok();
         }
         Instr::StructCons(r, name, fields) => {
-            let f: Vec<String> = fields.iter().map(|f| format!("i64 %r{}", f)).collect();
-            writeln!(out, "  %r{} = insertvalue %struct.{} undef, {}, 0", r, name, f.first().unwrap_or(&"i64 0".into())).ok();
-            for (i, fv) in fields.iter().skip(1).enumerate() {
-                writeln!(out, "  %r{} = insertvalue %struct.{} %r{}, i64 %r{}, {}", r, name, r, fv, i + 1).ok();
+            if fields.is_empty() {
+                writeln!(out, "  %r{} = add i64 0, 0", r).ok();
+            } else {
+                let f: Vec<String> = fields.iter().map(|f| format!("i64 %r{}", f)).collect();
+                writeln!(out, "  %r{}_0 = insertvalue %struct.{} undef, {}, 0", r, name, f.first().unwrap_or(&"i64 0".into())).ok();
+                let mut prev = format!("%r{}_0", r);
+                for (i, fv) in fields.iter().skip(1).enumerate() {
+                    let idx = i + 1;
+                    let next = format!("%r{}_{}", r, idx);
+                    writeln!(out, "  {} = insertvalue %struct.{} {}, i64 %r{}, {}", next, name, prev, fv, idx).ok();
+                    prev = next;
+                }
+                writeln!(out, "  %r{} = add i64 0, 0", r).ok(); // placeholder: structs don't fit i64
             }
+        }
+        Instr::EnumCons(r, enum_name, variant_name, fields) => {
+            let tag = types.enums.iter()
+                .find(|e| e.name == *enum_name)
+                .and_then(|e| e.variants.iter().position(|v| v.name == *variant_name))
+                .unwrap_or(0);
+            writeln!(out, "  %r{}_tag = add i64 0, {}", r, tag).ok();
+            writeln!(out, "  %r{} = insertvalue %enum.{} undef, i64 %r{}_tag, 0", r, enum_name, r).ok();
+            for (i, fv) in fields.iter().enumerate() {
+                writeln!(out, "  %r{} = insertvalue %enum.{} %r{}, i64 %r{}, {}", r, enum_name, r, fv, i + 1).ok();
+            }
+        }
+        Instr::EnumDisc(r, reg) => {
+            writeln!(out, "  %r{} = extractvalue %enum.unknown %r{}, 0", r, reg).ok();
+        }
+        Instr::EnumProj(r, _enum_name, _variant, idx, reg) => {
+            writeln!(out, "  %r{} = extractvalue %enum.unknown %r{}, {}", r, reg, idx + 1).ok();
+        }
+        Instr::Field(r, base, idx, ..) => {
+            writeln!(out, "  %r{} = extractvalue i64 %r{}, {}", r, base, idx).ok();
+        }
+        Instr::StructUpdate(r, base, fidx, val, ..) => {
+            writeln!(out, "  %r{} = insertvalue i64 %r{}, i64 %r{}, {}", r, base, val, fidx).ok();
+        }
+        Instr::ArrayLit(r, _ty, elems) => {
+            let n = elems.len();
+            writeln!(out, "  %r{}_arr = alloca [{} x i64]", r, n).ok();
+            for (i, e) in elems.iter().enumerate() {
+                writeln!(out, "  %r{}_ptr{} = getelementptr [{} x i64], ptr %r{}_arr, i32 0, i32 {}", r, i, n, r, i).ok();
+                writeln!(out, "  store i64 %r{}, ptr %r{}_ptr{}", e, r, i).ok();
+            }
+            writeln!(out, "  %r{} = ptrtoint ptr %r{}_arr to i64", r, r).ok();
+        }
+        Instr::ArrayFill(r, _ty, val, n) => {
+            writeln!(out, "  %r{}_arr = alloca [{} x i64]", r, n).ok();
+            for i in 0..*n {
+                writeln!(out, "  %r{}_ptr{} = getelementptr [{} x i64], ptr %r{}_arr, i32 0, i32 {}", r, i, n, r, i).ok();
+                writeln!(out, "  store i64 %r{}, ptr %r{}_ptr{}", val, r, i).ok();
+            }
+            writeln!(out, "  %r{} = ptrtoint ptr %r{}_arr to i64", r, r).ok();
+        }
+        Instr::ArrayAccess(r, arr, idx) => {
+            writeln!(out, "  %r{}_p = inttoptr i64 %r{} to ptr", r, arr).ok();
+            writeln!(out, "  %r{}_ep = getelementptr i64, ptr %r{}_p, i64 %r{}", r, r, idx).ok();
+            writeln!(out, "  %r{} = load i64, ptr %r{}_ep", r, r).ok();
+        }
+        Instr::ArrayUpdate(r, arr, idx, val) => {
+            writeln!(out, "  %r{}_p = inttoptr i64 %r{} to ptr", r, arr).ok();
+            writeln!(out, "  %r{}_ep = getelementptr i64, ptr %r{}_p, i64 %r{}", r, r, idx).ok();
+            writeln!(out, "  store i64 %r{}, ptr %r{}_ep", val, r).ok();
+            writeln!(out, "  %r{} = add i64 %r{}, 0", r, arr).ok();
+        }
+        Instr::TupleLit(r, _ty, elems) => {
+            writeln!(out, "  %r{} = add i64 0, 0", r).ok();
+            for (i, e) in elems.iter().enumerate() {
+                writeln!(out, "  %r{} = insertvalue {{ {} }} %r{}, i64 %r{}, {}", r,
+                    (0..elems.len()).map(|_| "i64").collect::<Vec<_>>().join(", "), r, e, i).ok();
+            }
+        }
+        Instr::TupleUpdate(r, tup, idx, val) => {
+            writeln!(out, "  %r{} = insertvalue i64 %r{}, i64 %r{}, {}", r, tup, val, idx).ok();
+        }
+        Instr::Fetch(r, base, path) => {
+            writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, base).ok();
+            let mut prev = format!("%r{}_ptr", r);
+            for (i, accessor) in path.iter().enumerate() {
+                match accessor {
+                    Accessor::Field(name) => {
+                        let next = format!("%r{}_f{}", r, i);
+                        writeln!(out, "  {} = getelementptr i64, ptr {}, i32 {}", next, prev, name.len()).ok();
+                        prev = next;
+                    }
+                    Accessor::Index(reg) => {
+                        let next = format!("%r{}_i{}", r, i);
+                        writeln!(out, "  {} = getelementptr i64, ptr {}, i64 %r{}", next, prev, reg).ok();
+                        prev = next;
+                    }
+                    Accessor::TupleIndex(idx) => {
+                        writeln!(out, "  %r{} = extractvalue i64 %r{}, {}", r, base, idx).ok();
+                        return Ok(());
+                    }
+                }
+            }
+            writeln!(out, "  %r{} = load i64, ptr {}", r, prev).ok();
+        }
+        Instr::Place(r, base, path, val) => {
+            let mut prev = format!("%r{}_p", r);
+            writeln!(out, "  {} = inttoptr i64 %r{} to ptr", prev, base).ok();
+            for (i, accessor) in path.iter().enumerate() {
+                match accessor {
+                    Accessor::Field(name) => {
+                        let next = format!("%r{}_f{}", r, i);
+                        writeln!(out, "  {} = getelementptr i64, ptr {}, i32 {}", next, prev, name.len()).ok();
+                        prev = next;
+                    }
+                    Accessor::Index(reg) => {
+                        let next = format!("%r{}_i{}", r, i);
+                        writeln!(out, "  {} = getelementptr i64, ptr {}, i64 %r{}", next, prev, reg).ok();
+                        prev = next;
+                    }
+                    Accessor::TupleIndex(idx) => {
+                        writeln!(out, "  %r{} = insertvalue i64 %r{}, i64 %r{}, {}", r, base, val, idx).ok();
+                        return Ok(());
+                    }
+                }
+            }
+            writeln!(out, "  store i64 %r{}, ptr {}", val, prev).ok();
+            writeln!(out, "  %r{} = add i64 %r{}, 0", r, base).ok();
+        }
+        Instr::Lambda(r, fn_name, _captures) => {
+            writeln!(out, "  ; lambda {} -> fn @{}, captures not yet lowered", r, fn_name).ok();
+            writeln!(out, "  %r{} = add i64 0, 0", r).ok();
+        }
+        Instr::Move(r, from) => {
+            writeln!(out, "  %r{} = add i64 %r{}, 0", r, from).ok();
         }
         _ => { writeln!(out, "  ; unimplemented instruction").ok(); }
     }

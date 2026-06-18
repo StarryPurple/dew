@@ -158,6 +158,7 @@ fn display_instr(instr: &Instr, _return_ty: &IrType) -> String {
         Instr::TupleUpdate(r, tup, idx, val) => {
             format!("%{} = tuple_update{{}} %{} .{} = %{}", r, tup, idx, val)
         }
+        Instr::Move(r, from) => format!("%{} = move %{}", r, from),
     }
 }
 

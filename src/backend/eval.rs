@@ -341,6 +341,9 @@ fn eval_instr(
                 frame.set(*r, frame.get(*val).clone());
             }
         }
+        Instr::Move(r, from) => {
+            frame.set(*r, frame.get(*from).clone());
+        }
         _ => return Err("instruction not implemented in eval".into()),
     }
     Ok(())

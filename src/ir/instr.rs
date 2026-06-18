@@ -41,6 +41,7 @@ pub enum Instr {
     ArrayAccess(Reg, Reg, Reg),
     ArrayUpdate(Reg, Reg, Reg, Reg),
     TupleUpdate(Reg, Reg, usize, Reg),
+    Move(Reg, Reg),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
