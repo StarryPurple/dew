@@ -99,19 +99,27 @@ fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Resul
         if !is_generic(&e.name, &all_fields) { concrete_e.insert(e.name.clone()); }
     }
     // Emit: concrete definitions for non-generic; opaque for generic without concrete fallback
+    let mut emitted_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     for s in &module.types.structs {
         if is_generic(&s.name, &s.fields) {
-            if !concrete_s.contains(&s.name) { writeln!(out, "%struct.{} = type opaque ; generic", s.name).ok(); }
+            if !concrete_s.contains(&s.name) && !emitted_types.contains(&s.name) {
+                writeln!(out, "%struct.{} = type opaque ; generic", s.name).ok();
+                emitted_types.insert(s.name.clone());
+            }
             continue;
         }
         let fields: Vec<String> = s.fields.iter().map(|(_, t)| ir_type_to_llvm(t)).collect();
         writeln!(out, "%struct.{} = type {{ {} }}", s.name, fields.join(", ")).ok();
+        emitted_types.insert(s.name.clone());
     }
     for e in &module.types.enums {
         let all_fields: Vec<(String, IrType)> = e.variants.iter()
             .flat_map(|v| v.fields.iter().map(|(n, t)| (n.clone(), t.clone()))).collect();
         if is_generic(&e.name, &all_fields) {
-            if !concrete_e.contains(&e.name) { writeln!(out, "%enum.{} = type opaque ; generic/recursive", e.name).ok(); }
+            if !concrete_e.contains(&e.name) && !emitted_types.contains(&e.name) {
+                writeln!(out, "%enum.{} = type opaque ; generic/recursive", e.name).ok();
+                emitted_types.insert(e.name.clone());
+            }
             continue;
         }
         let max_payload = e.variants.iter()
