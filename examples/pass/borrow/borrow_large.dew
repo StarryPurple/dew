@@ -1,0 +1,25 @@
+// expect: 145
+// Tier: Large
+// Feature: borrow, compound lvalue, struct update, multi-param, recursion, pipeline
+// Chained borrow operations on nested structs with intermediate state.
+struct Point { x: Int, y: Int }
+struct Size { w: Int, h: Int }
+struct Rect { origin: Point, size: Size }
+def translate = fn(&p: Point, dx: Int, dy: Int) -> Point {
+  &p { x = p.x + dx, y = p.y + dy }
+};
+def resize = fn(&s: Size, dw: Int, dh: Int) -> Size {
+  &s { w = s.w + dw, h = s.h + dh }
+};
+def move_rect = fn(&r: Rect, dx: Int, dy: Int) -> Rect {
+  &r { origin = translate(&r.origin, dx, dy) }
+};
+def main = fn {
+  def r = Rect { origin: Point { x: 10, y: 20 }, size: Size { w: 30, h: 40 } };
+  def o1 = translate(&r.origin, 5, 5);
+  def s1 = resize(&r.size, 10, 10);
+  def o2 = translate(&r.origin, 3, 2);
+  def s2 = resize(&r.size, 5, 5);
+  def sum = o2.x + o2.y + s2.w + s2.h;
+  sum -> stdout;
+};

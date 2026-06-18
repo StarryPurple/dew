@@ -1,5 +1,5 @@
 // expect: 9095
-// Tier: Large
+// Tier: Medium
 // Feature: recursion, factorial, fibonacci, ackermann, def binding, arithmetic
 // Multiple recursive functions composed in a single program.
 def fact = fn(n: Int) -> Int {

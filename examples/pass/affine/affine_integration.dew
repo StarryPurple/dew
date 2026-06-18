@@ -1,5 +1,5 @@
 // expect: 21
-// Tier: Large
+// Tier: Medium
 // Feature: affine struct, consumption, closure capture, IO effect
 // Affine types composed with function calls and IO.
 affine struct Resource { id: Int, data: Int }

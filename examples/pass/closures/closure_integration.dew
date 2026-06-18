@@ -1,5 +1,5 @@
 // expect: 128
-// Tier: Large
+// Tier: Medium
 // Feature: closure, recursion, lazy evaluation, def binding, arithmetic
 // Recursion with computed values across multiple def bindings —
 // integration of lazy thunks with arithmetic and pipeline.

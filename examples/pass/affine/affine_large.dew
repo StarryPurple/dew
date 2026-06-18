@@ -1,0 +1,30 @@
+// expect: 36
+// Tier: Large
+// Feature: affine struct, affine enum, consumption, closure, FnOnce, IO, pipeline
+// Multiple affine types consumed through functions and closures with intermediate state.
+affine struct Token { value: Int }
+affine enum Status { Active(Int), Done }
+def extract = fn(t: Token) -> Int { t.value }
+def process = fn(s: Status) -> Int {
+  match s {
+    Active(v) => v,
+    Done => 0,
+  }
+};
+def transform = fn(x: Int) -> Int {
+  def a = x + 2;
+  def b = a * 3;
+  b
+};
+def main = fn {
+  def tok1 = Token { value: 10 };
+  def v1 = extract(tok1);
+  def st1 = Active(v1);
+  def v2 = process(st1);
+  def v3 = transform(v2);
+  def tok2 = Token { value: v3 };
+  def v4 = extract(tok2);
+  def st2 = Active(v4);
+  def v5 = process(st2);
+  v5 -> stdout;
+};

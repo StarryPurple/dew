@@ -1,0 +1,16 @@
+// expect: 120
+// Tier: Medium
+// Feature: IO, pipeline, def binding, arithmetic, strict evaluation
+// Complex computation chain with multiple def bindings and pipeline output.
+def add = fn(x: Int, y: Int) { x + y }
+def mul = fn(x: Int, y: Int) { x * y }
+def main = fn {
+  def a = 10;
+  def b = add(a, 5);
+  def c = mul(b, 3);
+  def d = add(c, 10);
+  def e = mul(d, 2);
+  def f = add(e, 10);
+  def g = mul(f, 1);
+  g -> stdout;
+};

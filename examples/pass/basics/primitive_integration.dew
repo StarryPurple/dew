@@ -1,5 +1,5 @@
 // expect: 4226
-// Tier: Large
+// Tier: Medium
 // Feature: arithmetic, boolean, char, unit, def binding, if/else, pipeline
 // Compose primitives with control flow, def bindings, and pipeline.
 def classify = fn(n: Int) -> Int {

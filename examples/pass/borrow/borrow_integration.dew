@@ -1,5 +1,5 @@
 // expect: 70
-// Tier: Large
+// Tier: Medium
 // Feature: borrow, compound lvalue, struct update, recursion, closure
 // Borrow with compound lvalue across nested structs, recursive transformation,
 // and closure-based field updates.

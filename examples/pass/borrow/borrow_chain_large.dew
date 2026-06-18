@@ -1,0 +1,18 @@
+// expect: 115
+// Tier: Medium
+// Feature: borrow, compound lvalue, struct update, recursion, pipeline
+// Chained borrow operations with nested struct field access.
+struct Point { x: Int, y: Int }
+struct Rect { origin: Point, size: Point }
+def translate_x = fn(&p: Point, dx: Int) -> Point {
+  &p { x = p.x + dx }
+};
+def scale = fn(&p: Point, factor: Int) -> Point {
+  &p { x = p.x * factor, y = p.y * factor }
+};
+def main = fn {
+  def r = Rect { origin: Point { x: 10, y: 0 }, size: Point { x: 20, y: 30 } };
+  def o = translate_x(&r.origin, 5);
+  def s = scale(&r.size, 2);
+  o.x + o.y + s.x + s.y -> stdout;
+};

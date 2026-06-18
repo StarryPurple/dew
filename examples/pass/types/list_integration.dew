@@ -1,5 +1,5 @@
 // expect: 32
-// Tier: Large
+// Tier: Medium
 // Feature: list, enum, recursion, match, arithmetic
 // List length + sum composed with recursive functions and match.
 enum List { Cons(Int, List), Nil }
