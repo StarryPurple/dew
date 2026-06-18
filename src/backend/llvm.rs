@@ -33,15 +33,31 @@ pub fn generate(module: &Module) -> Result<String, String> {
 }
 
 struct LlvmCtx {
+    reg_types: std::collections::HashMap<usize, IrType>,
     struct_map: std::collections::HashMap<String, usize>,
     enum_map: std::collections::HashMap<String, usize>,
+    defined_types: std::collections::HashSet<String>,
     label_counter: usize,
 }
 
 impl LlvmCtx {
     fn new() -> Self {
-        LlvmCtx { struct_map: std::collections::HashMap::new(), enum_map: std::collections::HashMap::new(), label_counter: 0 }
+        LlvmCtx {
+            reg_types: std::collections::HashMap::new(),
+            struct_map: std::collections::HashMap::new(),
+            enum_map: std::collections::HashMap::new(),
+            defined_types: std::collections::HashSet::new(),
+            label_counter: 0,
+        }
     }
+    fn is_opaque(&self, name: &str, is_enum: bool) -> bool {
+        let prefix = if is_enum { "%enum." } else { "%struct." };
+        !self.defined_types.contains(&format!("{}{}", prefix, name))
+    }
+
+    fn set_reg(&mut self, r: usize, ty: IrType) { self.reg_types.insert(r, ty); }
+    fn reg_ty(&self, r: &usize) -> &IrType { self.reg_types.get(r).unwrap_or(&IrType::Int) }
+    fn reg_llvm_ty(&self, r: &usize) -> String { ir_type_to_llvm(self.reg_ty(r)) }
 
     fn fresh_label(&mut self, prefix: &str) -> String {
         let l = format!("{}{}", prefix, self.label_counter);
@@ -70,7 +86,7 @@ fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Resul
         ctx.struct_map.insert(s.name.clone(), i);
         // Skip structs with generic type param fields
         let has_forward = s.fields.iter().any(|(_, t)| matches!(t, IrType::Struct(n) if n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase())));
-        if has_forward { continue; }
+        if has_forward { writeln!(out, "%struct.{} = type opaque ; generic", s.name).ok(); continue; }
         let fields: Vec<String> = s.fields.iter().map(|(_, t)| ir_type_to_llvm(t)).collect();
         writeln!(out, "%struct.{} = type {{ {} }}", s.name, fields.join(", ")).ok();
     }
@@ -80,13 +96,14 @@ fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Resul
         let payloads: Vec<&IrType> = e.variants.iter().flat_map(|v| v.fields.iter().map(|(_, t)| t)).collect();
         let has_forward_ref = payloads.iter().any(|t| matches!(t, IrType::Struct(n) if n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase())));
         if has_forward_ref {
+            writeln!(out, "%enum.{} = type opaque ; generic", e.name).ok();
             continue;
         }
         let max_payload = e.variants.iter()
             .map(|v| v.fields.iter().map(|(_, t)| ir_type_to_llvm(t)).collect::<Vec<_>>().join(", "))
             .max_by_key(|s| s.len())
             .unwrap_or_default();
-        let payload_type = if max_payload.is_empty() { "i64".into() } else { format!("{{ {} }}", max_payload) };
+        let payload_type = if max_payload.is_empty() { "i64".into() } else { format!("i64") };
         writeln!(out, "%enum.{} = type {{ i64, {} }}", e.name, payload_type).ok();
     }
     Ok(())
@@ -158,10 +175,12 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: 
 }
 
 fn emit_fn(func: &Fn, all_thunks: &[Thunk], all_fns: &[Fn], _types: &TypeTable, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
-    // Skip stdlib functions that use enum/struct types (can't lower without full type info)
+    ctx.reg_types.clear();
+    // Skip stdlib functions that use generic/opaque aggregate types
     if func.name == "list_sum" || func.name == "list_length" || func.name == "println" {
         return Ok(());
     }
+    for (r, t) in &func.params { ctx.set_reg(*r, t.clone()); }
     let ret_ty = if func.name == "main" { "i32".to_string() } else { ir_type_to_llvm(&func.return_type) };
     let params: Vec<String> = func.params.iter()
         .map(|(r, _)| format!("i64 %r{}", r))
@@ -180,101 +199,154 @@ fn emit_fn(func: &Fn, all_thunks: &[Thunk], all_fns: &[Fn], _types: &TypeTable, 
     Ok(())
 }
 
-fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTable, out: &mut String, _ctx: &mut LlvmCtx) -> Result<(), String> {
+fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTable, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
     match instr {
         Instr::Lit(r, v) => {
+            let ty = match v { LitValue::Int(_) => IrType::Int, LitValue::Bool(_) => IrType::Bool, LitValue::Char(_) => IrType::Char };
+            ctx.set_reg(*r, ty);
             match v {
                 LitValue::Int(n) => writeln!(out, "  %r{} = add i64 0, {}", r, n).ok(),
                 LitValue::Bool(b) => writeln!(out, "  %r{} = add i1 0, {}", r, if *b { "true" } else { "false" }).ok(),
                 LitValue::Char(c) => writeln!(out, "  %r{} = add i64 0, {}", r, *c as u32 as i64).ok(),
             };
         }
-        Instr::Add(r, a, b) => { writeln!(out, "  %r{} = add i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Sub(r, a, b) => { writeln!(out, "  %r{} = sub i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Mul(r, a, b) => { writeln!(out, "  %r{} = mul i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Div(r, a, b) => { writeln!(out, "  %r{} = sdiv i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Rem(r, a, b) => { writeln!(out, "  %r{} = srem i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Lt(r, a, b) => { writeln!(out, "  %r{} = icmp slt i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Gt(r, a, b) => { writeln!(out, "  %r{} = icmp sgt i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Le(r, a, b) => { writeln!(out, "  %r{} = icmp sle i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Ge(r, a, b) => { writeln!(out, "  %r{} = icmp sge i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Eq(r, a, b) => { writeln!(out, "  %r{} = icmp eq i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Ne(r, a, b) => { writeln!(out, "  %r{} = icmp ne i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::And(r, a, b) => { writeln!(out, "  %r{} = and i1 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Or(r, a, b) => { writeln!(out, "  %r{} = or i1 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Not(r, a) => { writeln!(out, "  %r{} = xor i1 %r{}, true", r, a).ok(); }
+        Instr::Add(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = add i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Sub(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = sub i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Mul(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = mul i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Div(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = sdiv i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Rem(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = srem i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Lt(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = icmp slt i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Gt(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = icmp sgt i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Le(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = icmp sle i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Ge(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = icmp sge i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Eq(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = icmp eq i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Ne(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = icmp ne i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::And(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = and i1 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Or(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = or i1 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Not(r, a) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = xor i1 %r{}, true", r, a).ok(); }
         Instr::Call(r, target, args, ..) => {
             match target {
                 CallTarget::Static(name) => {
                     let callee = fns.iter().find(|f| &f.name == name).ok_or("fn not found")?;
+                    ctx.set_reg(*r, callee.return_type.clone());
                     let ret_ty = ir_type_to_llvm(&callee.return_type);
                     let arg_str: Vec<String> = args.iter().enumerate()
-                        .map(|(i, reg)| format!("{} %r{}", ir_type_to_llvm(&callee.params.get(i).map(|(_, t)| t.clone()).unwrap_or(IrType::Int)), reg))
+                        .map(|(i, reg)| format!("{} %r{}", ctx.reg_llvm_ty(reg), reg))
                         .collect();
                     writeln!(out, "  %r{} = call {} @{}({})", r, ret_ty, name, arg_str.join(", ")).ok();
                 }
-                CallTarget::Dynamic(_) => { writeln!(out, "  ; dynamic call (not implemented)").ok(); }
+                CallTarget::Dynamic(_) => { writeln!(out, "  ; dynamic call (not implemented)").ok(); ctx.set_reg(*r, IrType::Int); }
             }
         }
         Instr::Force(r, target) => {
-            let name = match target {
-                ForceTarget::Static(n) => n.clone(),
-                ForceTarget::Dynamic(_) => "unknown".into(),
-            };
+            let name = match target { ForceTarget::Static(n) => n.clone(), ForceTarget::Dynamic(_) => "unknown".into() };
+            ctx.set_reg(*r, IrType::Int);
             writeln!(out, "  %r{} = call i64 @force_{}()", r, name).ok();
         }
-        Instr::Stdout(r) => {
-            writeln!(out, "  call i32 (ptr, ...) @printf(ptr @.fmt_int, i64 %r{})", r).ok();
-        }
-        Instr::Stdin(r) => {
+        Instr::Stdout(r) => { writeln!(out, "  call i32 (ptr, ...) @printf(ptr @.fmt_int, i64 %r{})", r).ok(); }
+        Instr::Stdin(r) => { ctx.set_reg(*r, IrType::Int);
             writeln!(out, "  %r{}_ptr = alloca i64", r).ok();
             writeln!(out, "  call i32 (ptr, ...) @scanf(ptr @.fmt_int, ptr %r{}_ptr)", r).ok();
             writeln!(out, "  %r{} = load i64, ptr %r{}_ptr", r, r).ok();
         }
         Instr::Phi(r, pairs) => {
-            let p: Vec<String> = pairs.iter()
-                .map(|(v, l)| format!("%r{}, %{}", v, l))
-                .collect();
+            let p: Vec<String> = pairs.iter().map(|(v, l)| format!("%r{}, %{}", v, l)).collect();
+            ctx.set_reg(*r, ctx.reg_ty(&pairs[0].0).clone());
             writeln!(out, "  %r{} = phi i64 [{}]", r, p.join("], [")).ok();
         }
         Instr::StructCons(r, name, fields) => {
+            ctx.set_reg(*r, IrType::Struct(name.clone()));
             if fields.is_empty() {
                 writeln!(out, "  %r{} = add i64 0, 0", r).ok();
             } else {
+                let st_ty = format!("%struct.{}", name);
                 let f: Vec<String> = fields.iter().map(|f| format!("i64 %r{}", f)).collect();
-                writeln!(out, "  %r{}_0 = insertvalue %struct.{} undef, {}, 0", r, name, f.first().unwrap_or(&"i64 0".into())).ok();
+                writeln!(out, "  %r{}_0 = insertvalue {} undef, {}, 0", r, st_ty, f.first().unwrap_or(&"i64 0".into())).ok();
                 let mut prev = format!("%r{}_0", r);
                 for (i, fv) in fields.iter().skip(1).enumerate() {
                     let idx = i + 1;
                     let next = format!("%r{}_{}", r, idx);
-                    writeln!(out, "  {} = insertvalue %struct.{} {}, i64 %r{}, {}", next, name, prev, fv, idx).ok();
+                    writeln!(out, "  {} = insertvalue {} {}, i64 %r{}, {}", next, st_ty, prev, fv, idx).ok();
                     prev = next;
                 }
-                writeln!(out, "  %r{} = add i64 0, 0", r).ok(); // placeholder: structs don't fit i64
+                // Ptr-to-int to fit struct in i64 register space
+                writeln!(out, "  %r{}_ptr = alloca {}", r, st_ty).ok();
+                writeln!(out, "  store {} {}, ptr %r{}_ptr", st_ty, prev, r).ok();
+                writeln!(out, "  %r{} = ptrtoint ptr %r{}_ptr to i64", r, r).ok();
             }
         }
         Instr::EnumCons(r, enum_name, variant_name, fields) => {
+            ctx.set_reg(*r, IrType::Enum(enum_name.clone()));
+            let en_ty = format!("%enum.{}", enum_name);
             let tag = types.enums.iter()
                 .find(|e| e.name == *enum_name)
                 .and_then(|e| e.variants.iter().position(|v| v.name == *variant_name))
                 .unwrap_or(0);
             writeln!(out, "  %r{}_tag = add i64 0, {}", r, tag).ok();
-            writeln!(out, "  %r{} = insertvalue %enum.{} undef, i64 %r{}_tag, 0", r, enum_name, r).ok();
+            writeln!(out, "  %r{}_0 = insertvalue {} undef, i64 %r{}_tag, 0", r, en_ty, r).ok();
+            let mut prev = format!("%r{}_0", r);
             for (i, fv) in fields.iter().enumerate() {
-                writeln!(out, "  %r{} = insertvalue %enum.{} %r{}, i64 %r{}, {}", r, enum_name, r, fv, i + 1).ok();
+                let next = format!("%r{}_{}", r, i + 1);
+                writeln!(out, "  {} = insertvalue {} {}, i64 %r{}, {}", next, en_ty, prev, fv, i + 1).ok();
+                prev = next;
             }
+            writeln!(out, "  %r{}_ptr = alloca {}", r, en_ty).ok();
+            writeln!(out, "  store {} {}, ptr %r{}_ptr", en_ty, prev, r).ok();
+            writeln!(out, "  %r{} = ptrtoint ptr %r{}_ptr to i64", r, r).ok();
         }
         Instr::EnumDisc(r, reg) => {
-            writeln!(out, "  %r{} = extractvalue i64 %r{}, 0", r, reg).ok();
+            ctx.set_reg(*r, IrType::Int);
+            match ctx.reg_ty(reg) {
+                IrType::Enum(name) | IrType::Struct(name) => {
+                    let is_opaque = name.len() == 1 && name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+                    if is_opaque { writeln!(out, "  %r{} = add i64 %r{}, 0", r, reg).ok(); }
+                    else {
+                        let base_ty = ctx.reg_llvm_ty(reg);
+                        writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, reg).ok();
+                        writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, base_ty, r).ok();
+                        writeln!(out, "  %r{} = extractvalue {} %r{}_p, 0", r, base_ty, r).ok();
+                    }
+                }
+                _ => { writeln!(out, "  %r{} = add i64 %r{}, 0", r, reg).ok(); }
+            }
         }
         Instr::EnumProj(r, _enum_name, _variant, idx, reg) => {
-            writeln!(out, "  %r{} = extractvalue i64 %r{}, {}", r, reg, idx + 1).ok();
+            ctx.set_reg(*r, IrType::Int);
+            match ctx.reg_ty(reg) {
+                IrType::Enum(name) | IrType::Struct(name) => {
+                    let is_opaque = name.len() == 1 && name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+                    if is_opaque { writeln!(out, "  %r{} = add i64 %r{}, 0", r, reg).ok(); }
+                    else {
+                        let base_ty = ctx.reg_llvm_ty(reg);
+                        writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, reg).ok();
+                        writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, base_ty, r).ok();
+                        writeln!(out, "  %r{} = extractvalue {} %r{}_p, {}", r, base_ty, r, idx + 1).ok();
+                    }
+                }
+                _ => { writeln!(out, "  %r{} = add i64 %r{}, 0", r, reg).ok(); }
+            }
         }
         Instr::Field(r, base, idx, ..) => {
-            writeln!(out, "  %r{} = extractvalue i64 %r{}, {}", r, base, idx).ok();
+            ctx.set_reg(*r, IrType::Int);
+            match ctx.reg_ty(base) {
+                IrType::Struct(name) | IrType::Enum(name) => {
+                    let is_generic = name.len() == 1 && name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+                    if !is_generic {
+                        let st_ty = if matches!(ctx.reg_ty(base), IrType::Enum(_)) { format!("%enum.{}", name) } else { format!("%struct.{}", name) };
+                        writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, base).ok();
+                        writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, st_ty, r).ok();
+                        writeln!(out, "  %r{} = extractvalue {} %r{}_p, {}", r, st_ty, r, idx).ok();
+                    } else {
+                        writeln!(out, "  %r{} = add i64 %r{}, 0", r, base).ok();
+                    }
+                }
+                _ => { writeln!(out, "  %r{} = add i64 %r{}, 0", r, base).ok(); }
+            }
         }
         Instr::StructUpdate(r, base, fidx, val, ..) => {
-            writeln!(out, "  %r{} = insertvalue i64 %r{}, i64 %r{}, {}", r, base, val, fidx).ok();
+            let base_ty = ctx.reg_llvm_ty(base);
+            ctx.set_reg(*r, ctx.reg_ty(base).clone());
+            writeln!(out, "  %r{} = insertvalue {} %r{}, i64 %r{}, {}", r, base_ty, base, val, fidx).ok();
         }
         Instr::ArrayLit(r, _ty, elems) => {
             let n = elems.len();

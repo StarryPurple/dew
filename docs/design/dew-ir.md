@@ -20,6 +20,8 @@
 - [§13 Backends](#13-backends)
   - [§13.1 Tree-Walking Evaluator](#131-tree-walking-evaluator-development)
   - [§13.2 LLVM IR Backend](#132-llvm-ir-backend-production)
+    - [§13.2.9 Register Type Tracking](#1329-register-type-tracking)
+    - [§13.2.10 Compilation Pipeline Integration](#13210-compilation-pipeline-integration)
 - [§14 Source → IR Examples](#14-source--ir-examples)
 - [§15 Future Work](#15-future-work)
 
@@ -1172,6 +1174,70 @@ The following runtime symbols must be available to the linked program. For the L
 | **No garbage collection** | ✅ Feasible | Aligns with Dew's design — no tracing GC. `malloc` without `free` is acceptable for closures (leaked on process exit). Future: arena allocation or `free` when affine tracking proves single-use. |
 
 > **All mappings are verified against LLVM 18+ semantics.** No Dew IR construct requires LLVM features beyond standard, stable IR. The translator is a simple recursive walk over the Dew IR module emitting the corresponding LLVM text.
+
+#### 13.2.9 Register Type Tracking
+
+The LLVM backend must know the LLVM type of each register to emit correct `extractvalue`/`insertvalue` instructions. Unlike the evaluator (which uses `enum Value` for runtime dispatch), LLVM requires static type agreement between instructions.
+
+**Problem.** Dew IR packs all values into virtual registers (`Reg = usize`) without type annotations. Struct fields, enum payloads, and tuple elements are all `%r42`. The LLVM backend previously defaulted to `i64` for all register types, causing type mismatches:
+
+```llvm
+; ERROR: %r0 is %struct.Point, not i64
+%r1 = extractvalue i64 %r0, 0
+```
+
+**Solution: register type map.** A `HashMap<Reg, IrType>` in the LLVM context tracks the Dew IR type of each register. When an instruction writes a result register, the type is recorded. Subsequent instructions reference it.
+
+```rust
+struct LlvmCtx {
+    reg_types: HashMap<Reg, IrType>,  // register → Dew IR type
+    // ...
+}
+```
+
+Each instruction emit records its result type. Field access and enum projection use the tracked type to emit the correct LLVM aggregate type:
+
+```llvm
+; After tracking: ctx.reg_types[%0] = Struct("Point")
+; Field access correctly uses the struct type:
+%r1 = extractvalue %struct.Point %r0, 0
+```
+
+**Implementation rules:**
+
+| Instruction | Records Reg Type |
+|------------|------------------|
+| `Lit` | Int, Bool, or Char |
+| `StructCons` | Struct(name) |
+| `EnumCons` | Enum(name) |
+| `Field` | Field type (from StructDef) |
+| `EnumProj` | Field type (from EnumDef) |
+| `Call` | Function return type |
+| `Add/Sub/Mul/Div/Rem` | Int |
+| `Lt/Gt/Le/Ge/Eq/Ne` | Bool |
+| `And/Or/Not` | Bool |
+| `Force` | Thunk result type |
+| `ArrayLit/ArrayFill` | Array(T, N) |
+| `TupleLit` | Tuple(elements) |
+| `StructUpdate` | Same as base (Struct) |
+| `Move` | Same as source |
+
+**Generic type monomorphization.** Structs and enums with type parameters (e.g., `affine struct Affine(T) { data: T }`) produce forward-reference LLVM types (`%struct.T`) that cannot be compiled. The backend resolves concrete type instantiations by scanning function bodies for `EnumCons`/`StructCons` instructions and emits monomorphized type definitions for each concrete parameter.
+
+> **Design choice: emit-time monomorphization vs pre-pass.** A two-pass approach (scan all IR, collect concrete types, then emit) would be cleaner but adds complexity for a text-emitting backend. The current single-pass approach with type accumulation via `reg_types` is simpler and sufficient for the translation layer. The cost is that generic type definitions must be discovered dynamically during instruction emission — if a type is referenced but never constructed in the current function, its LLVM definition is omitted.
+
+#### 13.2.10 Compilation Pipeline Integration
+
+The LLVM backend supports two modes via CLI flags:
+
+| Flag | Behavior |
+|------|----------|
+| `--emit=llvm` | Print LLVM IR text to stdout |
+| `--backend=llvm` | Compile LLVM IR via `clang` to an executable, run it, capture stdout + exit code |
+
+The `--backend=llvm` path writes the generated LLVM IR to a temporary file, invokes `clang -x ir <file> -o <out>`, executes the binary, and returns the exit code. This enables end-to-end testing of the LLVM codegen without an external build step.
+
+> **Why clang, not llc?** `clang` automatically links the C runtime (`libc`) which provides `printf`/`scanf` used by the `stdout`/`stdin` IR instructions. Using `llc` would require a separate `ld` invocation with explicit library paths. `clang` handles this transparently.
 ---
 
 ## 14. Source → IR Examples
