@@ -1,5 +1,5 @@
 // expect: 42
-// Tier: Medium
+// Tier: Small
 // Feature: force, nested binary, thunk
 // Force a deeply nested binary expression: !(a + b + c)
 def a = 10;

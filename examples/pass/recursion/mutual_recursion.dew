@@ -1,5 +1,5 @@
 // expect: 9
-// Tier: Small
+// Tier: Medium
 // Mutual recursion: even and odd call each other.
 def rec even = fn(n: Int) -> Int { if n == 0 { 1 } else { odd(n - 1) } };
 def rec odd = fn(n: Int) -> Int { if n == 0 { 0 } else { even(n - 1) } };

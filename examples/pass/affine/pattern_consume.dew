@@ -1,5 +1,5 @@
 // expect: 42
-// Tier: Small
+// Tier: Medium
 // Pattern match that destructures an affine struct, consuming its fields.
 #[affine]
 struct Pair { first: Int, second: Int }

@@ -1,0 +1,19 @@
+// expect: 5
+// Tier: Medium
+// Feature: control flow, if/else, nested match, fix, recursion
+// Nested if/else chains with fix-based recursion and match on enum.
+enum Dir { Left(Int), Right(Int), Stop }
+def walk = fn(d: Dir, acc: Int, steps: Int) -> Int {
+  if steps == 0 { acc }
+  else {
+    match d {
+      Left(v) => walk(Right(v), acc + v, steps - 1),
+      Right(v) => walk(Left(v), acc + v, steps - 1),
+      Stop => acc,
+    }
+  }
+};
+def main = fn {
+  def r = walk(Left(5), 0, 4);
+  r -> stdout;
+};

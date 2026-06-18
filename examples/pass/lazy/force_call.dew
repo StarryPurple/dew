@@ -1,5 +1,5 @@
 // expect: 42
-// Tier: Medium
+// Tier: Small
 // Feature: force, function call, pipeline
 // Force a pipeline expression: !(expr -> fn)
 def add = fn(x: Int, y: Int) -> Int { x + y };

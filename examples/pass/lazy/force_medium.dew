@@ -1,5 +1,5 @@
 // expect: 21
-// Tier: Small
+// Tier: Medium
 // Medium: force operator in conditional and arithmetic contexts.
 def a = 5 + 5;              // suspended — 10
 def b = 3 + 2;              // suspended — 5

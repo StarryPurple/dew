@@ -1,5 +1,5 @@
 // expect: 55
-// Tier: Small
+// Tier: Medium
 // Large: array in recursive function — sum of squares via array.
 def squares = [1, 4, 9, 16, 25];
 def rec sum_arr = fn(i: Int, acc: Int) -> Int {

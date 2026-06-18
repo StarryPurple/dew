@@ -1,0 +1,20 @@
+// expect: 105
+// Tier: Medium
+// Feature: struct, enum, match, recursion
+// Compose struct with enum matching and selection.
+struct Item { price: Int }
+enum Result { Found(Int), Missing }
+def find = fn(id: Int, price: Int) -> Result {
+  if id == 1 { Found(price) } else { Missing }
+};
+def calc = fn(r: Result, fallback: Int) -> Int {
+  match r {
+    Found(p) => p,
+    Missing => fallback,
+  }
+};
+def main = fn {
+  def p1 = calc(find(1, 50), 0);
+  def p2 = calc(find(2, 55), 55);
+  p1 + p2 -> stdout;
+};

@@ -1,0 +1,15 @@
+// expect: 101
+// Tier: Medium
+// Feature: lazy, affine, closure, IO, pipeline, three pillars
+// Compose all three pillars: lazy thunk, affine consumption, closure capture.
+affine struct Token { value: Int }
+def process = fn(t: Int) -> Int { t * 2 }
+def main = fn {
+  def a = Token { value: 40 };
+  def v = a.value;
+  def r1 = process(v);
+  def add_one = fn(x: Int) -> Int { x + 1 };
+  def r2 = add_one(r1);
+  def r3 = r2 + 20;
+  r3 -> stdout;
+};
