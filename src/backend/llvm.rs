@@ -117,17 +117,18 @@ fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Resul
             .flat_map(|v| v.fields.iter().map(|(n, t)| (n.clone(), t.clone()))).collect();
         if is_generic(&e.name, &all_fields) {
             if !concrete_e.contains(&e.name) && !emitted_types.contains(&e.name) {
-                writeln!(out, "%enum.{} = type opaque ; generic/recursive", e.name).ok();
+                // Recursive/generic: flat {i64,i64} — payload field is ptrtoint of an alloca'd struct
+                writeln!(out, "%enum.{} = type {{ i64, i64 }}", e.name).ok();
                 emitted_types.insert(e.name.clone());
             }
             continue;
         }
         let max_payload = e.variants.iter()
-            .map(|v| v.fields.iter().map(|(_, t)| ir_type_to_llvm(t)).collect::<Vec<_>>().join(", "))
-            .max_by_key(|s| s.len())
-            .unwrap_or_default();
-        let payload_type = if max_payload.is_empty() { "i64".into() } else { format!("i64") };
+            .map(|v| v.fields.len())
+            .max().unwrap_or(0);
+        let payload_type = if max_payload <= 1 { "i64".into() } else { format!("{{ {} }}", (0..max_payload).map(|_| "i64").collect::<Vec<_>>().join(", ")) };
         writeln!(out, "%enum.{} = type {{ i64, {} }}", e.name, payload_type).ok();
+        emitted_types.insert(e.name.clone());
     }
     Ok(())
 }
