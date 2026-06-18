@@ -19,7 +19,7 @@
   - [§3.2 Lazy Evaluation](#32-lazy-evaluation)
   - [§3.3 Strict Evaluation](#33-strict-evaluation)
   - [§3.4 Resource Kinds](#34-resource-kinds)
-  - [§3.5 IO Effect System](#35-io-effect-system)
+  - [§3.5 Impure Effect System](#35-impure-effect-system)
   - [§3.6 Properties](#36-properties)
 - [§4 Type System](#4-type-system)
   - [§4.1 HM Inference](#41-hindley-milner-type-inference)
@@ -127,7 +127,7 @@ def main = fn {
 
 ### 2.2 Entry Point
 
-Dew execution begins at the `main` binding. `main` is expected to have signature `() -> IO Unit` — a zero-argument function with [IO side effects](#35-io-effect-system).
+Dew execution begins at the `main` binding. `main` is expected to have signature `() -> IO Unit` — a zero-argument function that is impure (marked `IO`). See [§3.5 Impure Effect System](#35-impure-effect-system).
 
 ```dew
 def main = fn { 2026 -> stdout; }
@@ -227,18 +227,18 @@ users write no laziness annotations.
 | Context | Classification |
 |---------|---------------|
 | Arithmetic/comparison operands | Strict |
-| IO function call (`stdin`, `stdout`, any IO-marked function) | Strict |
-| IO-marked function body | Strict (all expressions within) |
-| Function arguments (non-IO) | Lazy (ambient) |
+| Impure function call (`stdin`, `stdout`, any IO-marked function) | Strict |
+| IO-marked (impure) function body | Strict (all expressions within) |
+| Function arguments (non-impure) | Lazy (ambient) |
 | `if` condition | Strict |
 | `match` scrutinee | Strict |
 | `let` binding value | Lazy |
 | Block expression statements | Lazy (discarded) |
 | Block final expression | Ambient (follows enclosing context) |
 
-> IO functions are always strict because side effects have ordering dependencies. `stdout` must output immediately; `stdin` must read at the point of call. An IO-marked function's entire body is evaluated strictly — lazily deferring a side effect would make program behavior unpredictable.
+> Impure functions are always strict because side effects have ordering dependencies. `stdout` must output immediately; `stdin` must read at the point of call. An IO-marked function's entire body is evaluated strictly — lazily deferring a side effect would make program behavior unpredictable.
 
-**Function argument semantics.** Function arguments in the "Lazy (ambient)" row above means arguments are **passed as unevaluated thunks**, not forced at the call site. The thunk is forced on first use in a strict context within the function body. This is the same model as Haskell: `f(some_thunk)` passes the thunk unevaluated; `f`'s body forces it when the parameter first appears in arithmetic, comparison, IO, or a `match` scrutinee.
+**Function argument semantics.** Function arguments in the "Lazy (ambient)" row above means arguments are **passed as unevaluated thunks**, not forced at the call site. The thunk is forced on first use in a strict context within the function body. This is the same model as Haskell: `f(some_thunk)` passes the thunk unevaluated; `f`'s body forces it when the parameter first appears in arithmetic, comparison, an impure context, or a `match` scrutinee.
 
 ```dew
 def expensive = 40 + 2;
@@ -277,21 +277,25 @@ The `!` (force) operator immediately evaluates a lazy thunk. It is a prefix oper
 >
 > Unlike C++ smart pointers, Dew values are **never null**. `unique_ptr<T>` can be null (default-constructed, moved-from); Dew's Affine values cannot. After `def y = x`, `x` is consumed at compile time — the compiler rejects any further use. There is no null sentinel and no runtime validity check. The compile-time consume tracking is a stronger guarantee than C++'s runtime null.
 
-### 3.5 IO Effect System
+### 3.5 Impure Effect System
 
-Dew tracks **side effects** (I/O, external state) through an **infectious IO effect** on function types. This is analogous to Haskell's `IO` monad: both separate pure computation from effectful computation at the type level. Dew's approach is monad-free — there is no `do` notation, no `>>=`, no `return`. Effects propagate implicitly through the type system.
+Dew separates **pure** from **impure** computation at the type level, using the `IO` marker for all impure functions. This follows Haskell's convention: `IO` denotes **any function with side effects** — not just literal input/output. In the current implementation, all side effects come from I/O primitives (`stdin`/`stdout`), but the design anticipates future impure sources (FFI, mutable globals, system calls, randomness). The marker is `IO` regardless of the specific impure action.
 
-> Haskell uses the `IO` monad to sequence side effects: `getLine >>= \x -> putStrLn x`. Dew achieves the same sequencing guarantee through **strict evaluation of IO function calls** (§3.2): an IO function body runs in strict context, and its calls are evaluated in order. The type-level `IO` marker serves the same purpose as Haskell's `IO a` — it is the compiler-visible sign that a function interacts with the external world.
+> **`IO` = impure, not "performs I/O."** This is the Haskell naming convention: `IO a` means "a computation that may have side effects, producing a value of type `a`." Future FFI calls, mutable state, and other non-pure operations will be marked `IO` — the name stays the same even though the impurity source changes. Currently, all impurity comes from I/O primitives.
+
+Dew's impurity tracking is **infectious**: any function that calls an impure (IO-marked) function becomes impure itself. This is analogous to Haskell's `IO` monad but Dew achieves the same sequencing guarantee through **strict evaluation of impure function calls** (§3.2): an IO function body runs in strict context, and its calls are evaluated in order.
+
+> Haskell uses the `IO` monad to sequence side effects. Dew achieves the same through strict evaluation of IO-marked function bodies. The type-level `IO` marker serves the same purpose as Haskell's `IO a` — it is the compiler-visible sign that a function is impure.
 
 #### Effect Primitives
 
-`stdin` and `stdout` are the only IO primitives. Any function that calls them (directly or transitively) is marked `IO`.
+`stdin` and `stdout` are currently the only impure primitives. Any function that calls them (directly or transitively) is marked `IO`. Future versions will add FFI calls, mutable state, and other impure operations — all marked `IO`.
 
 ```dew
-// Pure function — no IO
+// Pure function — no side effects
 def add = fn(x: Int, y: Int) -> Int { x + y }
 
-// IO function — calls stdout
+// Impure function — calls stdout, marked IO
 def print_sum = fn(x: Int, y: Int) -> Int {
   x + y -> stdout
 }
@@ -302,16 +306,16 @@ def print_sum = fn(x: Int, y: Int) -> Int {
 
 | Rule | Description |
 |------|-------------|
-| **Primitives** | `stdin`, `stdout` are IO primitives |
-| **Direct invocation** | A body calling an IO function → itself is IO |
-| **Transitive** | Calling an IO function → caller is IO (infectious upward) |
-| **Closure capture** | Capturing an IO-marked closure does NOT make the capturer IO (only invoking it does) |
-| **Program entry** | `main` must be IO. A program with no side effects is detected (and warned) at compile time. |
-| **Strict evaluation** | IO function calls are always evaluated strictly. IO-marked function bodies run in strict context. See §3.2. |
+| **Primitives** | `stdin`, `stdout` are impure primitives; future FFI etc. also impure |
+| **Direct invocation** | A body calling an impure function → itself is impure |
+| **Transitive** | Calling an impure function → caller is impure (infectious upward) |
+| **Closure capture** | Capturing an impure closure does NOT make the capturer impure (only invoking it does) |
+| **Program entry** | `main` must be impure (IO). A program with no side effects is warned at compile time. |
+| **Strict evaluation** | Impure function calls are always evaluated strictly. IO-marked function bodies run in strict context. See §3.2. |
 
-> Effects are on **function signatures**, not on data. An `Affine(Int)` value is not intrinsically IO — only the functions that use it with `stdin`/`stdout` are. This mirrors how Haskell treats `Handle`: the handle is a pure value; `hGetLine :: Handle -> IO String` is the IO operation.
+> Effects are on **function signatures**, not on data. An `Affine(Int)` value is not intrinsically impure — only the functions that use it with `stdin`/`stdout` are. This mirrors how Haskell treats `Handle`: the handle is a pure value; `hGetLine :: Handle -> IO String` is the impure operation.
 >
-> **Storing vs. calling.** A struct field of type `(Int) -> IO Int` does not make the struct IO. Holding an IO-capable closure is just data — the effect only propagates when the closure is *called*. Constructing a closure that would do IO later is also not IO: `fn { fn { stdin() } }` returns a closure without calling `stdin`, so the outer function is pure. The rule: **IO propagates through calls, not through storage or construction.**
+> **Storing vs. calling.** A struct field of type `(Int) -> IO Int` does not make the struct impure. Holding an impure-capable closure is just data — the effect only propagates when the closure is *called*. The rule: **impurity propagates through calls, not through storage or construction.**
 
 #### Syntax
 
@@ -321,7 +325,7 @@ def print_sum = fn(x: Int, y: Int) -> Int {
 () -> IO Unit            // side-effect-only function
 ```
 
-`IO` is an **effect marker**, not a type constructor. `IO (IO Int)` is meaningless and rejected.
+`IO` is an **impurity marker**, not a type constructor. `IO (IO Int)` is meaningless and rejected. The marker is called `IO` per Haskell convention rather than `Impure` for brevity and familiarity.
 
 #### Explicit Annotation as Contract
 
@@ -339,9 +343,9 @@ The rule: **omission = inference; annotation = verification.** If you promise a 
 
 > `affine` does not appear in type annotations for function returns — the return type itself (`Affine(Int)` vs `Int`) carries the information. Writing `fn -> affine Int` is rejected; write `fn -> Affine(Int)` instead. Whether a closure is Fn vs FnOnce is always inferred from captures and cannot be manually annotated.
 
-#### IO and Affine Interaction
+#### Impurity and Affine Interaction
 
-IO and Affine are **orthogonal**:
+Impurity (IO) and Affine are **orthogonal**:
 
 ```dew
 // IO + Normal — result can be used multiple times
@@ -360,7 +364,7 @@ def main = fn {
 }
 ```
 
-**Borrow sugar is not a side effect.** [`&` borrow sugar](#55-borrow-parameter--sugar) desugars to pure tuple returns and `def` rebindings — the effect checker never sees it. A function using `&` parameters does not gain an `IO` effect:
+**Borrow sugar is not a side effect.** [`&` borrow sugar](#55-borrow-parameter--sugar) desugars to pure tuple returns and `def` rebindings — the effect checker never sees it. A function using `&` parameters is not marked impure:
 
 ```dew
 def f = fn(&x: Int) { &x = x + 1; x }
@@ -386,11 +390,11 @@ Dew tracks two orthogonal **type system properties**:
 - For data types: `affine struct` / `affine enum` marks the type. Fields with affine-typed fields cause the containing type to be affine.
 - For closures: the Resource property is derived from captured variables. Capturing only Normal values → closure is Normal (can be called multiple times, like `Fn` in Rust). Capturing any affine value → closure is Affine (can be called once, like `FnOnce` in Rust). Always inferred — never manually annotated.
 
-**Effect property** — see §3.5. Pure functions compute without side effects; IO functions interact with the external world via `stdin`/`stdout`. Marked as `-> IO T` in function type signatures (inferred when omitted).
+**Impurity (Effect) property** — see §3.5. Pure functions compute without side effects; impure functions are marked `IO` (Haskell convention for all side effects, not just literal I/O). Currently, the only impure primitives are `stdin`/`stdout`; future FFI, mutable state, and other side effects will also be marked `IO`. The effect is marked as `-> IO T` in function type signatures (inferred when omitted).
 
 > `Fn` and `FnOnce` are the user-facing names for the Resource property applied to closures. They are not a third property — they are Resource projected onto function values.
 >
-> The two properties are **orthogonal**. An affine value can be used in a pure function (`a.data` — consumes affine value without IO). An IO function can return Normal values (`stdin` returns `Int`). A closure's Fn/FnOnce (Resource) is independent of its pure/IO (Effect) — `fn { a.data -> stdout; }` captures an affine value (→ FnOnce) and does IO (→ IO). Each property answers a different question about the code.
+> The two properties are **orthogonal**. An affine value can be used in a pure function (`a.data` — consumes affine value without side effects). An impure function can return Normal values (`stdin` returns `Int`). A closure's Fn/FnOnce (Resource) is independent of its pure/impure (Effect) — `fn { a.data -> stdout; }` captures an affine value (→ FnOnce) and is impure (→ IO). Each property answers a different question about the code.
 
 ---
 
@@ -449,7 +453,7 @@ def pair = fn(x: _, y: _) -> (_, _) { (x, y) }
 **Property propagation through generics.** HM naturally carries affine and IO properties through type parameters:
 
 - **Affine**: `List(Affine(Int))` — the list contains affine elements. If any variant payload is affine-typed, the enum is affine. HM substitutes concrete types for `T` and the [affine rules](#42-affine-type-modifier) apply to the result. No extra mechanism needed.
-- **IO**: `fn(x: T) -> IO T` — the IO effect is on the function signature, not the type parameter. HM universally quantifies `T` while preserving the `IO` marker. Calling this function propagates IO to the caller; the type `T` itself is unaffected.
+- **Impurity**: `fn(x: T) -> IO T` — the impurity marker is on the function signature, not the type parameter. HM universally quantifies `T` while preserving the `IO` marker. Calling this function propagates impure to the caller; the type `T` itself is unaffected.
 
 ### 4.2 Affine Type Modifier
 
@@ -810,7 +814,7 @@ def main = fn {
 
 ### 4.8 Function Types
 
-`->` notation, right-associative. Functions with IO side effects append `IO` before the return type:
+`->` notation, right-associative. Impure functions are marked with `IO` before the return type:
 
 ```
 Int -> Bool                      // single param
@@ -850,7 +854,7 @@ The distinction matters for [borrow sugar](#55-borrow-parameter--sugar): `(&Int,
 
 The `->` is used for function types only in type position. Pipeline operator `->` is expression-level. No ambiguity: in type context, `->` is always the function type constructor.
 
-`IO` is an effect marker, not a type constructor. `IO (IO Int)` is rejected. See §3.5 for effect propagation rules.
+`IO` is an impurity marker, not a type constructor. `IO (IO Int)` is rejected (impurity is not nestable). See §3.5 for propagation rules. The name `IO` follows Haskell convention — it marks all side effects, not just literal I/O.
 
 ### 4.9 `typeof` + `type_match` — Compile-Time Reflection
 
