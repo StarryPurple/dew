@@ -34,9 +34,7 @@ pub fn generate(module: &Module) -> Result<String, String> {
 
 struct LlvmCtx {
     reg_types: std::collections::HashMap<usize, IrType>,
-    struct_map: std::collections::HashMap<String, usize>,
-    enum_map: std::collections::HashMap<String, usize>,
-    defined_types: std::collections::HashSet<String>,
+    enum_names: std::collections::HashSet<String>,
     label_counter: usize,
 }
 
@@ -44,20 +42,13 @@ impl LlvmCtx {
     fn new() -> Self {
         LlvmCtx {
             reg_types: std::collections::HashMap::new(),
-            struct_map: std::collections::HashMap::new(),
-            enum_map: std::collections::HashMap::new(),
-            defined_types: std::collections::HashSet::new(),
+            enum_names: std::collections::HashSet::new(),
             label_counter: 0,
         }
     }
-    fn is_opaque(&self, name: &str, is_enum: bool) -> bool {
-        let prefix = if is_enum { "%enum." } else { "%struct." };
-        !self.defined_types.contains(&format!("{}{}", prefix, name))
-    }
-
     fn set_reg(&mut self, r: usize, ty: IrType) { self.reg_types.insert(r, ty); }
     fn reg_ty(&self, r: &usize) -> &IrType { self.reg_types.get(r).unwrap_or(&IrType::Int) }
-    fn reg_llvm_ty(&self, r: &usize) -> String { ir_type_to_llvm(self.reg_ty(r)) }
+    fn reg_llvm_ty(&self, r: &usize) -> String { llvm_type_for(self.reg_ty(r), &self.enum_names) }
 
     fn fresh_label(&mut self, prefix: &str) -> String {
         let l = format!("{}{}", prefix, self.label_counter);
@@ -81,22 +72,46 @@ fn ir_type_to_llvm(ty: &IrType) -> String {
     }
 }
 
+fn llvm_type_for(ty: &IrType, enum_names: &std::collections::HashSet<String>) -> String {
+    match ty {
+        IrType::Struct(name) if enum_names.contains(name) => format!("%enum.{}", name),
+        IrType::Struct(name) => format!("%struct.{}", name),
+        _ => ir_type_to_llvm(ty),
+    }
+}
+
 fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
-    for (i, s) in module.types.structs.iter().enumerate() {
-        ctx.struct_map.insert(s.name.clone(), i);
-        // Skip structs with generic type param fields
-        let has_forward = s.fields.iter().any(|(_, t)| matches!(t, IrType::Struct(n) if n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase())));
-        if has_forward { writeln!(out, "%struct.{} = type opaque ; generic", s.name).ok(); continue; }
+    // Collect enum names for type resolution (Struct→Enum)
+    for e in &module.types.enums { ctx.enum_names.insert(e.name.clone()); }
+    // Two-pass: first collect concrete (non-generic, non-recursive) type names
+    let is_generic = |name: &str, fields: &[(String, IrType)]| -> bool {
+        fields.iter().any(|(_, t)| {
+            matches!(t, IrType::Struct(n) if n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase()))
+            || matches!(t, IrType::Enum(n) | IrType::Struct(n) if n == name)
+        })
+    };
+    let mut concrete_s: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut concrete_e: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for s in &module.types.structs { if !is_generic(&s.name, &s.fields) { concrete_s.insert(s.name.clone()); } }
+    for e in &module.types.enums {
+        let all_fields: Vec<(String, IrType)> = e.variants.iter()
+            .flat_map(|v| v.fields.iter().map(|(n, t)| (n.clone(), t.clone()))).collect();
+        if !is_generic(&e.name, &all_fields) { concrete_e.insert(e.name.clone()); }
+    }
+    // Emit: concrete definitions for non-generic; opaque for generic without concrete fallback
+    for s in &module.types.structs {
+        if is_generic(&s.name, &s.fields) {
+            if !concrete_s.contains(&s.name) { writeln!(out, "%struct.{} = type opaque ; generic", s.name).ok(); }
+            continue;
+        }
         let fields: Vec<String> = s.fields.iter().map(|(_, t)| ir_type_to_llvm(t)).collect();
         writeln!(out, "%struct.{} = type {{ {} }}", s.name, fields.join(", ")).ok();
     }
-    for (i, e) in module.types.enums.iter().enumerate() {
-        ctx.enum_map.insert(e.name.clone(), i);
-        // Skip enums with forward-reference type params (e.g. %struct.T, %struct.List)
-        let payloads: Vec<&IrType> = e.variants.iter().flat_map(|v| v.fields.iter().map(|(_, t)| t)).collect();
-        let has_forward_ref = payloads.iter().any(|t| matches!(t, IrType::Struct(n) if n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase())));
-        if has_forward_ref {
-            writeln!(out, "%enum.{} = type opaque ; generic", e.name).ok();
+    for e in &module.types.enums {
+        let all_fields: Vec<(String, IrType)> = e.variants.iter()
+            .flat_map(|v| v.fields.iter().map(|(n, t)| (n.clone(), t.clone()))).collect();
+        if is_generic(&e.name, &all_fields) {
+            if !concrete_e.contains(&e.name) { writeln!(out, "%enum.{} = type opaque ; generic/recursive", e.name).ok(); }
             continue;
         }
         let max_payload = e.variants.iter()
@@ -181,7 +196,7 @@ fn emit_fn(func: &Fn, all_thunks: &[Thunk], all_fns: &[Fn], _types: &TypeTable, 
         return Ok(());
     }
     for (r, t) in &func.params { ctx.set_reg(*r, t.clone()); }
-    let ret_ty = if func.name == "main" { "i32".to_string() } else { ir_type_to_llvm(&func.return_type) };
+    let ret_ty = if func.name == "main" { "i32".to_string() } else { llvm_type_for(&func.return_type, &ctx.enum_names) };
     let params: Vec<String> = func.params.iter()
         .map(|(r, _)| format!("i64 %r{}", r))
         .collect();
