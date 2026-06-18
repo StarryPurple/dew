@@ -1,0 +1,7 @@
+// expect: 30
+// Tier: Small
+// Feature: force, binary expression, thunk
+// Force a compound binary expression: !(a + b)
+def a = 10;
+def b = 20;
+def main = fn { !(a + b) -> stdout; };

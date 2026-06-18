@@ -1,10 +1,31 @@
-// expect: 55
-// Tier: Medium
-// Large: force with recursive function — force lazy results in loop.
+// expect: 277
+// Tier: Large
+// Feature: force, nested force, recursion, binary, conditional, pipeline, match
+// Force complex nested expressions: recursive thunks, conditionals, match, binary chains.
+def rec fib = fn(n: Int) -> Int {
+  if n <= 1 { n } else { fib(n - 1) + fib(n - 2) }
+};
 def rec sum = fn(n: Int) -> Int {
   if n == 0 { 0 } else { n + sum(n - 1) }
 };
-def x = sum(5);             // suspended — 15
-def y = sum(10);            // suspended — 55
-def z = !x + !y - 15;       // force both, combine: 15 + 55 - 15 = 55
-def main = fn { z -> stdout; };
+enum Option { Some(Int), None }
+def f5 = fib(5);
+def s10 = sum(10);
+def s5 = sum(5);
+def a = 10;
+def b = 20;
+def c = 30;
+def d = 40;
+def e = 50;
+def f = 60;
+def g = 70;
+def opt = Some(42);
+def main = fn {
+  def v1 = !(f5 + s10);
+  def v2 = !(a + b + c + d);
+  def v3 = !(if v1 > 10 { v2 + e } else { 0 });
+  def v4 = !(v1 + v2 + v3 - d - e);
+  def v5 = !(match opt { Some(n) => n + v4, None => 0 });
+  def v6 = !(v5 + s5);
+  v6 -> stdout;
+};

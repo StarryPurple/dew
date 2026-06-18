@@ -1,0 +1,9 @@
+// expect: 45
+// Tier: Medium
+// Feature: force, match expression
+// Force a match expression result.
+enum Option { Some(Int), None }
+def main = fn {
+  def val = Some(45);
+  !(match val { Some(n) => n, None => 0 }) -> stdout;
+};

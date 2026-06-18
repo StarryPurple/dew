@@ -1,0 +1,11 @@
+// expect: 42
+// Tier: Medium
+// Feature: force, if/else, conditional
+// Force a conditional expression: !(if cond { then } else { else })
+def a = 10;
+def b = 20;
+def c = 12;
+def main = fn {
+  def cond = true;
+  !(if cond { a + b + c } else { 0 }) -> stdout;
+};

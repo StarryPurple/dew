@@ -1,0 +1,8 @@
+// expect: 42
+// Tier: Medium
+// Feature: force, nested binary, thunk
+// Force a deeply nested binary expression: !(a + b + c)
+def a = 10;
+def b = 20;
+def c = 12;
+def main = fn { !(a + b + c) -> stdout; };

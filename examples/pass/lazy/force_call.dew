@@ -1,0 +1,8 @@
+// expect: 42
+// Tier: Medium
+// Feature: force, function call, pipeline
+// Force a pipeline expression: !(expr -> fn)
+def add = fn(x: Int, y: Int) -> Int { x + y };
+def a = 30;
+def b = 12;
+def main = fn { !(add(a, b)) -> stdout; };
