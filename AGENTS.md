@@ -119,6 +119,17 @@ Methodology rules and constraints must be written in **generic, reusable terms**
 
 A rule must be valid when transplanted to a different project. If removing all project-specific nouns would break the rule's meaning, the rule is overfitted. This applies to AGENTS.md, methodology documents, and any constraint written for future readers or other agents. See `agents/researcher.md` for the full principle.
 
+### 14. Completion Follow-Up
+
+After completing a feature implementation or bug fix, **briefly suggest 2–4 concrete next steps** the user might want to pursue. These are suggestions only — do not create todo items for them, do not start working on them, and do not frame them as commitments.
+
+**Format**: A short bullet list at the end of the completion summary. Each item names a specific file, module, or test gap.
+
+**Example**:
+> Next steps available: fix Bool type `i1`→`i64` in LLVM backend; add three-tier tests for memoization; implement `Instr::Stdin` arena allocation; flatten multi-payload enum `extractvalue`.
+
+**Do NOT**: add these to todo lists, create work plans, or imply they are the user's obligation. They are a menu, not a task assignment.
+
 ---
 
 ## Project-Specific Conventions
