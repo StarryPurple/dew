@@ -1,5 +1,6 @@
-// expect: 42
+// expect: 42 42
 // Tier: Small
 // Forcing the same thunk twice should return the cached result.
+// Outputs both values separated by space for single-line expect validation.
 def x = 40 + 2;
-def main = fn { x -> stdout; '\n' -> stdout; x -> stdout; };
+def main = fn { x -> stdout; ' ' -> stdout; x -> stdout; };
