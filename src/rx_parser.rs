@@ -18,11 +18,13 @@ pub enum Token {
 pub struct Lexer {
     chars: Vec<char>,
     pos: usize,
+    line: usize,
+    col: usize,
 }
 
 impl Lexer {
     pub fn new(src: &str) -> Self {
-        Self { chars: src.chars().collect(), pos: 0 }
+        Self { chars: src.chars().collect(), pos: 0, line: 1, col: 1 }
     }
 
     fn peek_char(&self) -> Option<char> {
@@ -32,6 +34,7 @@ impl Lexer {
     fn advance(&mut self) -> Option<char> {
         let c = self.chars.get(self.pos).copied();
         self.pos += 1;
+        if c == Some('\n') { self.line += 1; self.col = 1; } else { self.col += 1; }
         c
     }
 
@@ -215,6 +218,8 @@ impl Parser {
         Self { lexer, current }
     }
 
+    fn pos(&self) -> String { format!("{}:{}", self.lexer.line, self.lexer.col) }
+
     fn advance(&mut self) {
         self.current = self.lexer.next_token();
     }
@@ -224,14 +229,14 @@ impl Parser {
             self.advance();
             Ok(())
         } else {
-            Err(format!("expected {:?}, got {:?}", expected, self.current))
+            Err(format!("{}: expected {:?}, got {:?}", self.pos(), expected, self.current))
         }
     }
 
     fn expect_ident(&mut self) -> Result<String, String> {
         match &self.current {
             Token::Ident(s) => { let s = s.clone(); self.advance(); Ok(s) }
-            t => Err(format!("expected ident, got {:?}", t))
+            t => Err(format!("{}: expected ident, got {:?}", self.pos(), t))
         }
     }
 
