@@ -852,6 +852,7 @@ impl Parser {
                     let mut elements = vec![elem];
                     while matches!(self.current, Token::Comma) {
                         self.advance();
+                        if matches!(self.current, Token::RBracket) { break; }
                         elements.push(self.parse_expr()?);
                     }
                     self.expect(&Token::RBracket)?;
