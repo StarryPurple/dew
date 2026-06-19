@@ -25,6 +25,9 @@
 - [§13 Backends](#13-backends)
   - [§13.1 Tree-Walking Evaluator](#131-tree-walking-evaluator)
   - [§13.2 LLVM IR Backend](#132-llvm-ir-backend)
+    - [§13.2.1 Enum Type Lowering](#1321-enum-type-lowering)
+    - [§13.2.2 Closure Lowering](#1322-closure-lowering)
+    - [§13.2.3 Known Limitations](#1323-known-limitations)
 
 ---
 
@@ -480,3 +483,57 @@ The payload block is arena-allocated and laid out as `[i64 × n]` where n is the
 ```
 
 Generic enums (with type parameters like `T`) that have no concrete instantiation are emitted as `type opaque` — they cannot be loaded or stored, but the presence of a concrete instantiation overrides the opaque fallback.
+
+### 13.2.2 Closure Lowering
+
+**Closure representation**: A closure is a two-word struct `{ i64 id, i64 env }` allocated on the arena:
+- `id`: unique closure identifier (module-scoped counter), used for future switch-based dispatch
+- `env`: ptrtoint of an arena-allocated capture block `[i64 × N]`
+
+**Lambda instruction** (`Instr::Lambda(r, fn_name, captures)`):
+
+```llvm
+; Allocate capture block on arena: [i64 × N]
+%cap_ptr = <arena_alloc N * 8>
+%cap_0 = getelementptr i64, ptr %cap_ptr, i32 0
+store i64 %capture_0, ptr %cap_0
+; ... for each capture ...
+
+; Allocate closure struct on arena: {i64 id, i64 env}
+%cls_ptr = <arena_alloc 16>
+%id_slot = getelementptr i64, ptr %cls_ptr, i32 0
+store i64 <id>, ptr %id_slot
+%env_slot = getelementptr i64, ptr %cls_ptr, i32 1
+%env_i64 = ptrtoint ptr %cap_ptr to i64
+store i64 %env_i64, ptr %env_slot
+
+%result = ptrtoint ptr %cls_ptr to i64
+```
+
+The closure's `fn_name`, capture count, and env SSA name are stored in `LlvmCtx::closure_env` keyed by the result register. This enables the Dynamic call handler to resolve the closure to a static call.
+
+**Dynamic call** (`CallTarget::Dynamic(reg)`):
+
+The handler looks up `closure_env[reg]`. If found, the call is resolved statically: the capture values are loaded from the env block via `inttoptr` + `getelementptr` + `load`, then a static `call @closure_N(args..., captures...)` is emitted.
+
+If `closure_env` has no entry for the register (closure flowed through a Phi or across function boundaries), the call falls back to a stub returning 0. This limitation will be addressed when the type checker provides enough information for global closure tracking.
+
+**Closure function signature**: Closure functions are emitted as ordinary LLVM functions with the closure's original parameters followed by capture parameters. Captures are appended to the parameter list: `fn @closure_N(%arg0, ..., %cap0, ...)`.
+
+### 13.2.3 Known Limitations
+
+**Borrow / Compound lvalue (§5.5)**. Borrow parameters (`&x`) desugar into tuple returns from functions. The current LLVM backend does not correctly lower tuple types in function returns or the `Field` instruction for tuple-typed registers. Specific gaps:
+
+1. **Tuple return values**: Functions with borrow params return multi-element tuples (e.g. `(Int, Int)`). The LLVM backend emits these as inline LLVM struct types via `insertvalue`, but the tuple is not arena-allocated, unlike struct/enum values. This creates a representation mismatch between tuple returns (inline struct) and aggregate returns (arena pointer).
+
+2. **Field on tuples**: The `Instr::Field` handler does not match `IrType::Tuple`. When a tuple is returned from a function and its elements are accessed via `field{Int} %r .N`, the base register type is `IrType::Tuple` which falls through to untyped handling — producing incorrect memory accesses.
+
+3. **Place / Fetch**: The `Instr::Place` and `Instr::Fetch` instructions (used for mutation desugaring) have incomplete LLVM lowering. Place ignores the accessor path and treats the base as a raw i64 pointer. Fetch wraps the base in `inttoptr` but uses an approximate GEP offset instead of the proper field index.
+
+**Effect system (IO/impure)**. Functions annotated with `IO` / `impure` have effect tracking in the IR, but the LLVM backend does not distinguish pure from impure functions — both emit identically. This is acceptable for the current evaluator-centric workflow but will need attention when cross-function optimization passes are added.
+
+**Bool type**. `IrType::Bool` is lowered to LLVM `i1`, but Dew's register model uses `i64` everywhere. This creates type mismatches at PHI nodes and function boundaries where bool values meet int values. The pragmatic fix is to convert bool operations to use `i64` throughout, or to insert `zext`/`trunc` at type boundaries.
+
+**Stdin**. The `Instr::Stdin` handler allocates a stack `alloca` for the scanf buffer, but this `alloca` is function-scoped. If stdin is read in a non-entry block or across branches, the alloca may be incorrectly scoped. Arena allocation would resolve this.
+
+**Multi-payload non-recursive enums**. Enums with multiple payload fields (e.g. `Shape { Circle(Int), Rect(Int, Int) }`) pack the payload into a nested LLVM struct `{ i64, { i64, i64 } }`. The `EnumProj` instruction extracts the payload struct (field 1) but does not then extract the individual field from within it — it returns the entire `{i64, i64}` as i64, which causes type errors in downstream arithmetic.
