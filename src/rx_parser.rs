@@ -9,7 +9,7 @@ pub enum Token {
     Plus, Minus, Star, Slash, Percent,
     EqEq, Ne, Lt, Gt, Le, Ge,
     And, Or, Not, Amp, BitOr, BitXor, Shl, Shr,
-    Eq, PlusEq, MinusEq, StarEq,
+    Eq, PlusEq, MinusEq, StarEq, SlashEq, PercentEq,
     LParen, RParen, LBrace, RBrace, LBracket, RBracket,
     Colon, DoubleColon, Semi, Comma, Dot, Arrow, FatArrow,
     Eof,
@@ -179,8 +179,8 @@ impl Lexer {
             '+' => if self.peek_char() == Some('=') { self.advance(); Token::PlusEq } else { Token::Plus },
             '-' => if self.peek_char() == Some('=') { self.advance(); Token::MinusEq } else if self.peek_char() == Some('>') { self.advance(); Token::Arrow } else { Token::Minus },
             '*' => if self.peek_char() == Some('=') { self.advance(); Token::StarEq } else { Token::Star },
-            '/' => Token::Slash,
-            '%' => Token::Percent,
+            '/' => if self.peek_char() == Some('=') { self.advance(); Token::SlashEq } else { Token::Slash },
+            '%' => if self.peek_char() == Some('=') { self.advance(); Token::PercentEq } else { Token::Percent },
             '=' => if self.peek_char() == Some('=') { self.advance(); Token::EqEq } else { Token::Eq },
             '!' => if self.peek_char() == Some('=') { self.advance(); Token::Ne } else { Token::Not },
             '<' => if self.peek_char() == Some('=') { self.advance(); Token::Le } else if self.peek_char() == Some('<') { self.advance(); Token::Shl } else { Token::Lt },
@@ -229,10 +229,11 @@ pub enum Stmt {
     Return(Option<Expr>),
     Continue,
     Expr(Expr),
+    Empty,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AssignOp { Plain, Plus, Minus, Star }
+pub enum AssignOp { Plain, Plus, Minus, Star, Slash, Percent }
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -249,6 +250,8 @@ pub enum Expr {
     Deref(Box<Expr>),
     /// if expression: if cond { then } else { else }
     If { cond: Box<Expr>, then_body: Vec<Stmt>, else_body: Vec<Stmt> },
+    /// Block expression: { stmts; final_expr }
+    Block(Vec<Stmt>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -477,6 +480,8 @@ impl Parser {
     }
 
     fn parse_stmt(&mut self, last_in_block: bool) -> Result<Stmt, String> {
+        // Skip empty statements (stray semicolons)
+        while matches!(self.current, Token::Semi) { self.advance(); }
         match &self.current {
             Token::KwLet => self.parse_let(),
             Token::KwWhile => self.parse_while(),
@@ -487,7 +492,8 @@ impl Parser {
                 self.advance();
                 if !matches!(self.current, Token::Semi) {
                     let expr = self.parse_expr()?;
-                    self.expect(&Token::Semi)?;
+                    // Return may omit semicolon when it's the final expression
+                    if matches!(self.current, Token::Semi) { self.advance(); }
                     Ok(Stmt::Return(Some(expr)))
                 } else {
                     self.advance();
@@ -517,12 +523,14 @@ impl Parser {
             }
             _ => {
                 let expr = self.parse_expr()?;
-                if matches!(self.current, Token::Eq | Token::PlusEq | Token::MinusEq | Token::StarEq) {
+                if matches!(self.current, Token::Eq | Token::PlusEq | Token::MinusEq | Token::StarEq | Token::SlashEq | Token::PercentEq) {
                     let op = match self.current {
                         Token::Eq => AssignOp::Plain,
                         Token::PlusEq => AssignOp::Plus,
                         Token::MinusEq => AssignOp::Minus,
                         Token::StarEq => AssignOp::Star,
+                        Token::SlashEq => AssignOp::Slash,
+                        Token::PercentEq => AssignOp::Percent,
                         _ => AssignOp::Plain,
                     };
                     self.advance();
@@ -531,8 +539,10 @@ impl Parser {
                     Ok(Stmt::Assign { lhs: expr, op, rhs })
                 } else if last_in_block && matches!(self.current, Token::RBrace) {
                     Ok(Stmt::Expr(expr))
+                } else if matches!(self.current, Token::Semi) {
+                    self.advance();
+                    Ok(Stmt::Expr(expr))
                 } else {
-                    self.expect(&Token::Semi)?;
                     Ok(Stmt::Expr(expr))
                 }
             }
@@ -811,6 +821,7 @@ impl Parser {
             Token::KwSelf => { self.advance(); Ok(Expr::Ident("self".into())) }
             Token::KwIf => self.parse_if_expr(),
             Token::LParen => { self.advance(); let expr = self.parse_expr()?; self.expect(&Token::RParen)?; Ok(expr) }
+            Token::LBrace => self.parse_block().map(Expr::Block),
             Token::LBracket => {
                 self.advance();
                 let elem = self.parse_expr()?;

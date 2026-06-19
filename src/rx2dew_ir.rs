@@ -139,13 +139,15 @@ impl DewEmitter {
         // Phase 2: all expression statements
         for stmt in body {
             match stmt {
-                Stmt::Let { .. } => {}
+                Stmt::Let { .. } | Stmt::Empty => {}
                 Stmt::Assign { lhs, op, rhs } => {
                     let rhs_str = match op {
                         AssignOp::Plain => self.emit_expr(rhs),
                         AssignOp::Plus => format!("{} + {}", self.emit_expr(lhs), self.emit_expr(rhs)),
                         AssignOp::Minus => format!("{} - {}", self.emit_expr(lhs), self.emit_expr(rhs)),
                         AssignOp::Star => format!("{} * {}", self.emit_expr(lhs), self.emit_expr(rhs)),
+                        AssignOp::Slash => format!("{} / {}", self.emit_expr(lhs), self.emit_expr(rhs)),
+                        AssignOp::Percent => format!("{} % {}", self.emit_expr(lhs), self.emit_expr(rhs)),
                     };
                     out.push_str(&format!("{}&{} = {};\n", pad, self.emit_expr(lhs), rhs_str));
                 }
@@ -200,6 +202,7 @@ impl DewEmitter {
                 Stmt::Continue => {
                     out.push_str(&format!("{}// continue\n", pad));
                 }
+                Stmt::Empty => {}
                 Stmt::Expr(expr) => {
                     out.push_str(&format!("{}{};\n", pad, self.emit_expr(expr)));
                 }
@@ -287,6 +290,10 @@ impl DewEmitter {
                 let then_s = self.emit_stmts(then_body);
                 let else_s = self.emit_stmts(else_body);
                 format!("if ({}) {{ {} }} else {{ {} }}", self.emit_expr(cond), then_s, else_s)
+            }
+            Expr::Block(stmts) => {
+                let s = self.emit_stmts(stmts);
+                format!("{{ {} }}", s)
             }
         }
     }
