@@ -118,7 +118,7 @@ impl<'a> IrGenerator<'a> {
         }).collect();
 
         let fn_name = d.name.name.clone();
-        let return_ty = f.return_ty.as_ref().map(|t| self.ast_ty_to_ir(t)).unwrap_or(IrType::Unit);
+        let return_ty = f.return_ty.as_ref().map(|t| self.ast_ty_to_ir(t)).unwrap_or(IrType::Int);
 
         // Register parameter struct types in reg_struct before params is moved
         for (i, (_, ty)) in params.iter().enumerate() {
@@ -534,7 +534,7 @@ impl<'a> IrGenerator<'a> {
         let free_vars = collect_free_vars(&f.body, &param_names);
 
         // Generate unique closure name
-        let closure_name = format!("@closure_{}", self.next_closure);
+        let closure_name = format!("closure_{}", self.next_closure);
         self.next_closure += 1;
 
         // Build Fn IR: params = original params + captured vars
@@ -552,7 +552,7 @@ impl<'a> IrGenerator<'a> {
             }
         }
 
-        let return_ty = f.return_ty.as_ref().map(|t| self.ast_ty_to_ir(t)).unwrap_or(IrType::Unit);
+        let return_ty = f.return_ty.as_ref().map(|t| self.ast_ty_to_ir(t)).unwrap_or(IrType::Int);
 
         let mut ir_fn = Fn::new(closure_name.clone(), all_params, return_ty);
         let mut fn_block = BasicBlock::new("entry".into());

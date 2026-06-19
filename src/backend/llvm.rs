@@ -42,6 +42,16 @@ struct LlvmCtx {
     recursive_enums: std::collections::HashSet<String>,
     label_counter: usize,
     arena_used: usize,
+    closure_ids: std::collections::HashMap<String, usize>,
+    next_closure_id: usize,
+    closure_env: std::collections::HashMap<usize, ClosureEnv>,
+}
+
+#[derive(Clone)]
+struct ClosureEnv {
+    fn_name: String,
+    capture_count: usize,
+    cap_ptr_ssa: String,
 }
 
 impl LlvmCtx {
@@ -52,6 +62,9 @@ impl LlvmCtx {
             recursive_enums: std::collections::HashSet::new(),
             label_counter: 0,
             arena_used: 0,
+            closure_ids: std::collections::HashMap::new(),
+            next_closure_id: 0,
+            closure_env: std::collections::HashMap::new(),
         }
     }
     fn set_reg(&mut self, r: usize, ty: IrType) { self.reg_types.insert(r, ty); }
@@ -59,6 +72,14 @@ impl LlvmCtx {
     fn reg_llvm_ty(&self, r: &usize) -> String { llvm_type_for(self.reg_ty(r), &self.enum_names) }
 
     fn is_recursive_enum(&self, name: &str) -> bool { self.recursive_enums.contains(name) }
+
+    fn register_closure(&mut self, fn_name: &str, _capture_count: usize) -> usize {
+        if let Some(&id) = self.closure_ids.get(fn_name) { return id; }
+        let id = self.next_closure_id;
+        self.next_closure_id += 1;
+        self.closure_ids.insert(fn_name.to_string(), id);
+        id
+    }
 
     fn arena_alloc(&mut self, size_bytes: usize, out: &mut String) -> String {
         let aligned = (size_bytes + 7) & !7;
@@ -131,7 +152,9 @@ fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Resul
     for s in &module.types.structs {
         if is_generic(&s.name, &s.fields) {
             if !concrete_s.contains(&s.name) && !emitted_types.contains(&s.name) {
-                writeln!(out, "%struct.{} = type opaque ; generic", s.name).ok();
+                // Generic with no concrete instantiation: emit with i64 fields (register model)
+                let fields: Vec<String> = s.fields.iter().map(|_| "i64".into()).collect();
+                writeln!(out, "%struct.{} = type {{ {} }}", s.name, fields.join(", ")).ok();
                 emitted_types.insert(s.name.clone());
             }
             continue;
@@ -260,6 +283,7 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: 
 
 fn emit_fn(func: &Fn, all_thunks: &[Thunk], all_fns: &[Fn], _types: &TypeTable, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
     ctx.reg_types.clear();
+    ctx.closure_env.clear();
     for (r, t) in &func.params { ctx.set_reg(*r, t.clone()); }
     let ret_llvm = if func.name == "main" {
         "i32".to_string()
@@ -324,7 +348,41 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                         .collect();
                     writeln!(out, "  %r{} = call {} @{}({})", r, ret_llvm, name, arg_str.join(", ")).ok();
                 }
-                CallTarget::Dynamic(_) => { writeln!(out, "  ; dynamic call (not implemented)").ok(); ctx.set_reg(*r, IrType::Int); }
+                CallTarget::Dynamic(reg) => {
+                    if let Some(env) = ctx.closure_env.get(reg).cloned() {
+                        let callee = fns.iter().find(|f| f.name == env.fn_name)
+                            .ok_or("closure fn not found")?;
+                        ctx.set_reg(*r, callee.return_type.clone());
+                        let ret_llvm = match &callee.return_type {
+                            IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
+                            _ => ir_type_to_llvm(&callee.return_type),
+                        };
+                        let mut call_args: Vec<String> = args.iter()
+                            .map(|reg| format!("i64 %r{}", reg))
+                            .collect();
+                        if env.capture_count > 0 {
+                            let env_ptr = format!("%r{}_env_ptr", r);
+                            writeln!(out, "  {} = inttoptr i64 {} to ptr", env_ptr, env.cap_ptr_ssa).ok();
+                            for i in 0..env.capture_count {
+                                let gep = format!("%r{}_cap{}_p", r, i);
+                                let cap = format!("%r{}_cap{}", r, i);
+                                writeln!(out, "  {} = getelementptr i64, ptr {}, i32 {}", gep, env_ptr, i).ok();
+                                writeln!(out, "  {} = load i64, ptr {}", cap, gep).ok();
+                                call_args.push(format!("i64 {}", cap));
+                            }
+                        }
+                        if ret_llvm == "void" {
+                            writeln!(out, "  call void @{}({})", env.fn_name, call_args.join(", ")).ok();
+                            writeln!(out, "  %r{} = add i64 0, 0", r).ok();
+                        } else {
+                            writeln!(out, "  %r{} = call {} @{}({})", r, ret_llvm, env.fn_name, call_args.join(", ")).ok();
+                        }
+                    } else {
+                        writeln!(out, "  ; dynamic call (unknown closure — returns 0)").ok();
+                        ctx.set_reg(*r, IrType::Int);
+                        writeln!(out, "  %r{} = add i64 0, 0", r).ok();
+                    }
+                }
             }
         }
         Instr::Force(r, target) => {
@@ -464,6 +522,12 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                         writeln!(out, "  %r{} = add i64 %r{}, 0", r, base).ok();
                     }
                 }
+                IrType::Int => {
+                    // Untyped pointer — treat as struct at offset idx
+                    writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, base).ok();
+                    writeln!(out, "  %r{}_ep = getelementptr i64, ptr %r{}_ptr, i32 {}", r, r, idx).ok();
+                    writeln!(out, "  %r{} = load i64, ptr %r{}_ep", r, r).ok();
+                }
                 _ => { writeln!(out, "  %r{} = add i64 %r{}, 0", r, base).ok(); }
             }
         }
@@ -557,9 +621,33 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             writeln!(out, "  store i64 %r{}, ptr {}", val, prev).ok();
             writeln!(out, "  %r{} = add i64 %r{}, 0", r, base).ok();
         }
-        Instr::Lambda(r, fn_name, _captures) => {
-            writeln!(out, "  ; lambda {} -> fn @{}, captures not yet lowered", r, fn_name).ok();
-            writeln!(out, "  %r{} = add i64 0, 0", r).ok();
+        Instr::Lambda(r, fn_name, captures) => {
+            ctx.set_reg(*r, IrType::Int);
+            let id = ctx.register_closure(fn_name, captures.len());
+            if captures.is_empty() {
+                let cls_ptr = ctx.arena_alloc(16, out);
+                writeln!(out, "  %r{}_idp = getelementptr i64, ptr {}, i32 0", r, cls_ptr).ok();
+                writeln!(out, "  store i64 {}, ptr %r{}_idp", id, r).ok();
+                writeln!(out, "  %r{}_evp = getelementptr i64, ptr {}, i32 1", r, cls_ptr).ok();
+                writeln!(out, "  store i64 0, ptr %r{}_evp", r).ok();
+                writeln!(out, "  %r{} = ptrtoint ptr {} to i64", r, cls_ptr).ok();
+                ctx.closure_env.insert(*r, ClosureEnv { fn_name: fn_name.clone(), capture_count: 0, cap_ptr_ssa: "0".into() });
+            } else {
+                let cap_ptr = ctx.arena_alloc(captures.len() * 8, out);
+                for (i, cap_reg) in captures.iter().enumerate() {
+                    writeln!(out, "  %r{}_c{} = getelementptr i64, ptr {}, i32 {}", r, i, cap_ptr, i).ok();
+                    writeln!(out, "  store i64 %r{}, ptr %r{}_c{}", cap_reg, r, i).ok();
+                }
+                let cap_i64 = format!("%r{}_cap_i64", r);
+                writeln!(out, "  {} = ptrtoint ptr {} to i64", cap_i64, cap_ptr).ok();
+                let cls_ptr = ctx.arena_alloc(16, out);
+                writeln!(out, "  %r{}_idp = getelementptr i64, ptr {}, i32 0", r, cls_ptr).ok();
+                writeln!(out, "  store i64 {}, ptr %r{}_idp", id, r).ok();
+                writeln!(out, "  %r{}_evp = getelementptr i64, ptr {}, i32 1", r, cls_ptr).ok();
+                writeln!(out, "  store i64 {}, ptr %r{}_evp", cap_i64, r).ok();
+                writeln!(out, "  %r{} = ptrtoint ptr {} to i64", r, cls_ptr).ok();
+                ctx.closure_env.insert(*r, ClosureEnv { fn_name: fn_name.clone(), capture_count: captures.len(), cap_ptr_ssa: cap_i64 });
+            }
         }
         Instr::Move(r, from) => {
             writeln!(out, "  %r{} = add i64 %r{}, 0", r, from).ok();
