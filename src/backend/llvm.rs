@@ -18,11 +18,13 @@ pub fn generate(module: &Module) -> Result<String, String> {
     emit_type_defs(module, &mut out, &mut ctx)?;
     // External declarations
     emit_externals(&mut out);
-    // Thunk cells + force functions
+    // Thunk cells + force functions (deduplicated)
+    let mut emitted_thunks: std::collections::HashSet<String> = std::collections::HashSet::new();
     for thunk in &module.thunks {
+        let name = thunk.name.clone();
+        if emitted_thunks.contains(&name) { continue; }
+        emitted_thunks.insert(name);
         emit_thunk_cell(thunk, &mut out, &ctx)?;
-    }
-    for thunk in &module.thunks {
         emit_thunk_force(thunk, &module.thunks, &module.fns, &module.types, &mut out, &mut ctx)?;
     }
     // Function definitions (deduplicated, last definition wins for overrides)
@@ -279,21 +281,23 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: 
     writeln!(out, "eval:").ok();
     writeln!(out, "  store i64 1, ptr %state.ptr").ok();
 
-    for instr in &thunk.blocks.first().map(|b| b.instrs.clone()).unwrap_or_default() {
-        emit_llvm_instr(&instr, all_thunks, all_fns, types, out, ctx)?;
+    // Process first block's instructions directly into eval,
+    // then follow its terminator to other blocks.
+    let first = thunk.blocks.first().ok_or("thunk has no blocks")?;
+    for instr in &first.instrs {
+        emit_llvm_instr(instr, all_thunks, all_fns, types, out, ctx)?;
     }
+    // Emit first block's terminator — for Ret, store+return; for Br/Jmp, follow
+    emit_thunk_terminator(&first.terminator, &thunk.result_type, &thunk.name, &ret_llvm, all_thunks, all_fns, types, out, ctx)?;
 
-    let result_reg = thunk.blocks.first()
-        .and_then(|b| match &b.terminator {
-            Terminator::Ret(r) => Some(*r),
-            _ => None,
-        })
-        .unwrap_or(0);
-
-    writeln!(out, "  %val.ptr = getelementptr %thunk.{}, ptr @{}.cell, i32 0, i32 1", thunk.name, thunk.name).ok();
-    writeln!(out, "  store {} %r{}, ptr %val.ptr", ret_llvm, result_reg).ok();
-    writeln!(out, "  store i64 2, ptr %state.ptr").ok();
-    writeln!(out, "  ret {} %r{}", ret_llvm, result_reg).ok();
+    // Process remaining blocks
+    for block in thunk.blocks.iter().skip(1) {
+        writeln!(out, "{}:", block.label).ok();
+        for instr in &block.instrs {
+            emit_llvm_instr(instr, all_thunks, all_fns, types, out, ctx)?;
+        }
+        emit_thunk_terminator(&block.terminator, &thunk.result_type, &thunk.name, &ret_llvm, all_thunks, all_fns, types, out, ctx)?;
+    }
 
     writeln!(out, "cycle:").ok();
     writeln!(out, "  call void @llvm.trap()").ok();
@@ -305,6 +309,29 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: 
     writeln!(out, "  ret {} %val_cached", ret_llvm).ok();
 
     writeln!(out, "}}\n").ok();
+    Ok(())
+}
+
+fn emit_thunk_terminator(t: &Terminator, ret_ty: &IrType, thunk_name: &str, ret_llvm: &str, all_thunks: &[Thunk], all_fns: &[Fn], types: &TypeTable, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
+    match t {
+        Terminator::Ret(r) => {
+            // Store result in cell before returning
+            writeln!(out, "  %val.ptr = getelementptr %thunk.{}, ptr @{}.cell, i32 0, i32 1", thunk_name, thunk_name).ok();
+            writeln!(out, "  store {} %r{}, ptr %val.ptr", ret_llvm, r).ok();
+            writeln!(out, "  store i64 2, ptr %state.ptr").ok();
+            let val = match (ret_ty, ctx.reg_ty(r)) {
+                (IrType::Int, IrType::Char) => { writeln!(out, "  %r{}_ret = zext i32 %r{} to i64", r, r).ok(); format!("%r{}_ret", r) }
+                _ => format!("%r{}", r),
+            };
+            writeln!(out, "  ret {} {}", ret_llvm, val).ok();
+        }
+        Terminator::Br(cond, t_label, f_label) => {
+            writeln!(out, "  br i1 %r{}, label %{}, label %{}", cond, t_label, f_label).ok();
+        }
+        Terminator::Jmp(label) => {
+            writeln!(out, "  br label %{}", label).ok();
+        }
+    }
     Ok(())
 }
 
