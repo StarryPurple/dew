@@ -415,6 +415,16 @@ impl Parser {
                 }
             }
             Token::KwContinue => { self.advance(); self.expect(&Token::Semi)?; Ok(Stmt::Continue) }
+            Token::KwMut => {
+                self.advance(); // mut
+                let name = self.expect_ident()?;
+                self.expect(&Token::Colon)?;
+                let ty = self.parse_type()?;
+                self.expect(&Token::Eq)?;
+                let init = self.parse_expr()?;
+                self.expect(&Token::Semi)?;
+                Ok(Stmt::Let { name, mutable: true, ty, init: Some(init) })
+            }
             _ => {
                 let expr = self.parse_expr()?;
                 if matches!(self.current, Token::Eq | Token::PlusEq | Token::MinusEq | Token::StarEq) {
