@@ -108,6 +108,15 @@ fn as_i64(r: usize, reg: usize, out: &mut String, ctx: &LlvmCtx) -> String {
     }
 }
 
+/// Convert a register to i64 with a unique temp name, used for comparison operands.
+fn as_i64_tmp(r: usize, tag: &str, reg: usize, out: &mut String, ctx: &LlvmCtx) -> String {
+    match ctx.reg_ty(&reg) {
+        IrType::Bool => { writeln!(out, "  %r{}_{} = zext i1 %r{} to i64", r, tag, reg).ok(); format!("%r{}_{}", r, tag) }
+        IrType::Char => { writeln!(out, "  %r{}_{} = zext i32 %r{} to i64", r, tag, reg).ok(); format!("%r{}_{}", r, tag) }
+        _ => format!("%r{}", reg),
+    }
+}
+
 fn ir_type_to_llvm(ty: &IrType) -> String {
     match ty {
         IrType::Int => "i64".into(),
@@ -126,12 +135,18 @@ fn ir_type_to_llvm(ty: &IrType) -> String {
 
 fn llvm_type_for(ty: &IrType, enum_names: &std::collections::HashSet<String>) -> String {
     match ty {
-        IrType::Struct(name) if name == "%tuple" => "i64".into(), // tuple placeholder
+        IrType::Struct(name) if name == "%tuple" => "i64".into(),
         IrType::Struct(name) if enum_names.contains(name) => format!("%enum.{}", name),
         IrType::Struct(name) => format!("%struct.{}", name),
         IrType::Tuple(elements) => format!("{{ {} }}", (0..elements.len()).map(|_| "i64").collect::<Vec<_>>().join(", ")),
         _ => ir_type_to_llvm(ty),
     }
+}
+
+/// LLVM type for a register used in function boundaries (params, call args).
+/// Aggregates → i64; primitive types use their natural LLVM type.
+fn llvm_boundary_type(ty: &IrType) -> String {
+    match ty { IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(), _ => ir_type_to_llvm(ty) }
 }
 
 fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
@@ -236,7 +251,7 @@ fn emit_externals(out: &mut String) {
 fn emit_thunk_cell(thunk: &Thunk, out: &mut String, _ctx: &LlvmCtx) -> Result<(), String> {
     let val_type = match &thunk.result_type {
         IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
-        _ => ir_type_to_llvm(&thunk.result_type),
+        _ => llvm_boundary_type(&thunk.result_type),
     };
     writeln!(out, "%thunk.{} = type {{ i64, {} }}", thunk.name, val_type).ok();
     writeln!(out, "@{}.cell = global %thunk.{} zeroinitializer", thunk.name, thunk.name).ok();
@@ -247,7 +262,7 @@ fn emit_thunk_cell(thunk: &Thunk, out: &mut String, _ctx: &LlvmCtx) -> Result<()
 fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: &TypeTable, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
     let ret_llvm = match &thunk.result_type {
         IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
-        _ => ir_type_to_llvm(&thunk.result_type),
+        _ => llvm_boundary_type(&thunk.result_type),
     };
     writeln!(out, "define {} @force_{}() {{", ret_llvm, thunk.name).ok();
 
@@ -302,14 +317,11 @@ fn emit_fn(func: &Fn, all_thunks: &[Thunk], all_fns: &[Fn], _types: &TypeTable, 
     } else {
         match &func.return_type {
             IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".to_string(),
-            _ => llvm_type_for(&func.return_type, &ctx.enum_names),
+            _ => llvm_boundary_type(&func.return_type),
         }
     };
     let params: Vec<String> = func.params.iter()
-        .map(|(r, t)| {
-            let lt = match t { IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(), _ => ir_type_to_llvm(t) };
-            format!("{} %r{}", lt, r)
-        })
+        .map(|(r, t)| format!("{} %r{}", llvm_boundary_type(t), r))
         .collect();
     writeln!(out, "define {} @{}({}) {{", ret_llvm, func.name, params.join(", ")).ok();
 
@@ -340,12 +352,12 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
         Instr::Mul(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = mul i64 %r{}, %r{}", r, a, b).ok(); }
         Instr::Div(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = sdiv i64 %r{}, %r{}", r, a, b).ok(); }
         Instr::Rem(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = srem i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Lt(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = icmp slt i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Gt(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = icmp sgt i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Le(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = icmp sle i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Ge(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = icmp sge i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Eq(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = icmp eq i64 %r{}, %r{}", r, a, b).ok(); }
-        Instr::Ne(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = icmp ne i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Lt(r, a, b) => { ctx.set_reg(*r, IrType::Bool); let va = as_i64_tmp(*r, "la", *a, out, ctx); let vb = as_i64_tmp(*r, "lb", *b, out, ctx); writeln!(out, "  %r{} = icmp slt i64 {}, {}", r, va, vb).ok(); }
+        Instr::Gt(r, a, b) => { ctx.set_reg(*r, IrType::Bool); let va = as_i64_tmp(*r, "ga", *a, out, ctx); let vb = as_i64_tmp(*r, "gb", *b, out, ctx); writeln!(out, "  %r{} = icmp sgt i64 {}, {}", r, va, vb).ok(); }
+        Instr::Le(r, a, b) => { ctx.set_reg(*r, IrType::Bool); let va = as_i64_tmp(*r, "lea", *a, out, ctx); let vb = as_i64_tmp(*r, "leb", *b, out, ctx); writeln!(out, "  %r{} = icmp sle i64 {}, {}", r, va, vb).ok(); }
+        Instr::Ge(r, a, b) => { ctx.set_reg(*r, IrType::Bool); let va = as_i64_tmp(*r, "gea", *a, out, ctx); let vb = as_i64_tmp(*r, "geb", *b, out, ctx); writeln!(out, "  %r{} = icmp sge i64 {}, {}", r, va, vb).ok(); }
+        Instr::Eq(r, a, b) => { ctx.set_reg(*r, IrType::Bool); let va = as_i64_tmp(*r, "eqa", *a, out, ctx); let vb = as_i64_tmp(*r, "eqb", *b, out, ctx); writeln!(out, "  %r{} = icmp eq i64 {}, {}", r, va, vb).ok(); }
+        Instr::Ne(r, a, b) => { ctx.set_reg(*r, IrType::Bool); let va = as_i64_tmp(*r, "nea", *a, out, ctx); let vb = as_i64_tmp(*r, "neb", *b, out, ctx); writeln!(out, "  %r{} = icmp ne i64 {}, {}", r, va, vb).ok(); }
         Instr::And(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = and i1 %r{}, %r{}", r, a, b).ok(); }
         Instr::Or(r, a, b) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = or i1 %r{}, %r{}", r, a, b).ok(); }
         Instr::Not(r, a) => { ctx.set_reg(*r, IrType::Bool); writeln!(out, "  %r{} = xor i1 %r{}, true", r, a).ok(); }
@@ -354,12 +366,9 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                 CallTarget::Static(name) => {
                     let callee = fns.iter().find(|f| &f.name == name).ok_or("fn not found")?;
                     ctx.set_reg(*r, callee.return_type.clone());
-                    let ret_llvm = match &callee.return_type {
-                        IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
-                        _ => ir_type_to_llvm(&callee.return_type),
-                    };
+                    let ret_llvm = llvm_boundary_type(&callee.return_type);
                     let arg_str: Vec<String> = args.iter()
-                        .map(|reg| format!("{} %r{}", ctx.reg_llvm_ty(reg), reg))
+                            .map(|reg| format!("{} %r{}", llvm_boundary_type(ctx.reg_ty(reg)), reg))
                         .collect();
                     writeln!(out, "  %r{} = call {} @{}({})", r, ret_llvm, name, arg_str.join(", ")).ok();
                 }
@@ -368,12 +377,9 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                         let callee = fns.iter().find(|f| f.name == env.fn_name)
                             .ok_or("closure fn not found")?;
                         ctx.set_reg(*r, callee.return_type.clone());
-                        let ret_llvm = match &callee.return_type {
-                            IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
-                            _ => ir_type_to_llvm(&callee.return_type),
-                        };
+                        let ret_llvm = llvm_boundary_type(&callee.return_type);
                         let mut call_args: Vec<String> = args.iter()
-                            .map(|reg| format!("{} %r{}", ctx.reg_llvm_ty(reg), reg))
+                        .map(|reg| format!("{} %r{}", llvm_boundary_type(ctx.reg_ty(reg)), reg))
                             .collect();
                         if env.capture_count > 0 {
                             let env_ptr = format!("%r{}_env_ptr", r);
@@ -406,7 +412,7 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                 .map(|t| infer_thunk_result_type(t))
                 .unwrap_or(IrType::Int);
             ctx.set_reg(*r, thunk_ty.clone());
-            let force_ret = match thunk_ty { IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(), _ => ir_type_to_llvm(&thunk_ty) };
+            let force_ret = llvm_boundary_type(&thunk_ty);
             writeln!(out, "  %r{} = call {} @force_{}()", r, force_ret, name).ok();
         }
         Instr::Stdout(r) => {
@@ -493,7 +499,43 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                 writeln!(out, "  store {} %r{}_1, ptr %r{}_cast", en_ty, r, r).ok();
                 writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
             } else {
+                let max_fields = types.enums.iter().find(|e| e.name == *enum_name)
+                    .map(|e| e.variants.iter().map(|v| v.fields.len()).max().unwrap_or(1))
+                    .unwrap_or(1);
                 writeln!(out, "  %r{}_0 = insertvalue {} undef, i64 %r{}_tag, 0", r, en_ty, r).ok();
+                if max_fields > 1 {
+                    // Multi-payload: build sub-struct, then insert at field 1
+                    let pl_ty = format!("{{ {} }}", (0..max_fields).map(|_| "i64").collect::<Vec<_>>().join(", "));
+                    if fields.is_empty() {
+                        writeln!(out, "  %r{}_pl = insertvalue {} undef, i64 0, 0", r, pl_ty).ok();
+                        for fi in 1..max_fields {
+                            writeln!(out, "  %r{}_pl{} = insertvalue {} %r{}_pl, i64 0, {}", r, fi, pl_ty, r, fi).ok();
+                        }
+                        let pl_final = if max_fields > 1 { format!("%r{}_pl{}", r, max_fields - 1) } else { format!("%r{}_pl", r) };
+                        writeln!(out, "  %r{}_1 = insertvalue {} %r{}_0, {} {}, 1", r, en_ty, r, pl_ty, pl_final).ok();
+                    } else {
+                        let fv0_i64 = as_i64(r * 1000 + 1, fields[0], out, ctx);
+                        writeln!(out, "  %r{}_pl0 = insertvalue {} undef, i64 {}, 0", r, pl_ty, fv0_i64).ok();
+                        let mut pl_prev = format!("%r{}_pl0", r);
+                        for (i, fv) in fields.iter().skip(1).enumerate() {
+                            let fi = i + 1;
+                            let fv_i64 = as_i64(r * 1000 + fi + 1, *fv, out, ctx);
+                            let pl_next = format!("%r{}_pl{}", r, fi);
+                            writeln!(out, "  {} = insertvalue {} {}, i64 {}, {}", pl_next, pl_ty, pl_prev, fv_i64, fi).ok();
+                            pl_prev = pl_next;
+                        }
+                        for fi in fields.len()..max_fields {
+                            let pl_next = format!("%r{}_pl{}", r, fi);
+                            writeln!(out, "  {} = insertvalue {} {}, i64 0, {}", pl_next, pl_ty, pl_prev, fi).ok();
+                            pl_prev = pl_next;
+                        }
+                        writeln!(out, "  %r{}_1 = insertvalue {} %r{}_0, {} {}, 1", r, en_ty, r, pl_ty, pl_prev).ok();
+                    }
+                    let arena_ptr = ctx.arena_alloc(8 + max_fields * 8, out);
+                    writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr).ok();
+                    writeln!(out, "  store {} %r{}_1, ptr %r{}_cast", en_ty, r, r).ok();
+                    writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
+                } else {
                 let mut prev = format!("%r{}_0", r);
                 for (i, fv) in fields.iter().enumerate() {
                     let next = format!("%r{}_{}", r, i + 1);
@@ -501,11 +543,12 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                     writeln!(out, "  {} = insertvalue {} {}, i64 {}, {}", next, en_ty, prev, fv_i64, i + 1).ok();
                     prev = next;
                 }
-                let size = 8 + fields.len() * 8; // tag + payload
+                let size = 8 + fields.len() * 8;
                 let arena_ptr = ctx.arena_alloc(size, out);
                 writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr).ok();
                 writeln!(out, "  store {} {}, ptr %r{}_cast", en_ty, prev, r).ok();
                 writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
+                }
             }
         }
         Instr::EnumDisc(r, reg) => {
@@ -541,7 +584,16 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                         let base_ty = ctx.reg_llvm_ty(reg);
                         writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, reg).ok();
                         writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, base_ty, r).ok();
-                        writeln!(out, "  %r{} = extractvalue {} %r{}_p, {}", r, base_ty, r, idx + 1).ok();
+                        let max_fields = types.enums.iter().find(|e| e.name == *name)
+                            .map(|e| e.variants.iter().map(|v| v.fields.len()).max().unwrap_or(1))
+                            .unwrap_or(1);
+                        if max_fields > 1 {
+                            let pl_ty = format!("{{ {} }}", (0..max_fields).map(|_| "i64").collect::<Vec<_>>().join(", "));
+                            writeln!(out, "  %r{}_pl = extractvalue {} %r{}_p, 1", r, base_ty, r).ok();
+                            writeln!(out, "  %r{} = extractvalue {} %r{}_pl, {}", r, pl_ty, r, idx).ok();
+                        } else {
+                            writeln!(out, "  %r{} = extractvalue {} %r{}_p, {}", r, base_ty, r, idx + 1).ok();
+                        }
                     }
                 }
                 _ => { writeln!(out, "  %r{} = add i64 %r{}, 0", r, reg).ok(); }
@@ -778,10 +830,7 @@ fn emit_terminator(t: &Terminator, ret_ty: &IrType, out: &mut String, ctx: &Llvm
             } else if *ret_ty == IrType::Unit {
                 writeln!(out, "  ret void").ok();
             } else {
-                let rt = match ret_ty {
-                    IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
-                    _ => ir_type_to_llvm(ret_ty),
-                };
+                let rt = llvm_boundary_type(ret_ty);
                 // If register type doesn't match declared return type, convert
                 let val = match (ret_ty, ctx.reg_ty(r)) {
                     (IrType::Int, IrType::Char) => { writeln!(out, "  %r{}_ret = zext i32 %r{} to i64", r, r).ok(); format!("%r{}_ret", r) }
