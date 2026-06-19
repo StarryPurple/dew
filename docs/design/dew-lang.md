@@ -1339,11 +1339,23 @@ def name = fn(p: T, q: S, args...) -> (T, S, U) { ...body'... }
 The return tuple is `(T1, ..., Tn, U)` for `n` borrow parameters. Each borrow parameter gets its own internal `%` binding.
 
 In `body'`:
-- Every `&p = expr` → `def %p = expr` (internal name; `%` prefix rejected by parser)
-- Every `&p { f1 = v1, f2 = v2 }` → `def %p = p { f1 = v1, f2 = v2 }`
-- `p` in all expressions continues to refer to the original parameter (unchanged)
-- Sequential `&p` rebindings chain naturally: each `def %p = ...` shadows the previous, with RHS references resolving to the most recent binding
-- The final expression `expr` → `(%p, expr)`
+- Every `&p = expr` → `def p = expr` (reuses the parameter name; shadows the original)
+- Every `&p { f1 = v1, f2 = v2 }` → `def p = p { f1 = v1, f2 = v2 }`
+- Sequential `&p` rebindings chain naturally: each `def p = ...` shadows the previous, with RHS references resolving to the most recent binding
+- The final expression `expr` → `(p, expr)`
+- The user **must not** rebind a borrow parameter with `def p = ...` inside the function body — this would shadow the internal borrow chain and cause the updated value to be lost. The compiler should emit a warning for such rebindings.
+
+> **Design note — why `%p` is not used.** The spec originally proposed renaming borrow parameters to `%p` (internal-only names) to prevent user shadowing. This was attempted but abandoned because:
+>
+> 1. **Nested borrow ambiguity.** In `&r { origin = translate(&r.origin, dx, dy) }`, the inner `&r.origin` is a call-site borrow that desugars to a compound lvalue update on `r`. If `r` had been renamed to `%r` in the function body, the inner expression's `r` reference would be ambiguous — does it refer to the original `r` or the to-be-renamed `%r`? The desugar pass runs before name resolution and cannot distinguish these.
+>
+> 2. **Whole-body AST walk required.** The rename cannot be localized to `desugar_fn` — it must traverse every expression, every `def` binding, every field access in the function body. Any missed variant produces "unbound variable" errors for `%`-prefixed names.
+>
+> 3. **Scope entanglement.** User-level `def p = ...` (shadowing the original) and desugar-generated `def p = ...` (from `&p = expr`) are indistinguishable in the AST. Renaming ALL of them to `%p` prevents the user from intentionally shadowing, while renaming NONE preserves the current clear behavior (with the "must not shadow" rule enforced by static analysis).
+>
+> The simpler solution — keep parameter names unchanged, require no-shadowing, and enforce with a compiler warning — is correct, testable, and avoids the AST traversal complexity.
+>
+> See [tests](#borrow-shadowing-tests) for the test cases that validate this design choice.
 
 ```dew
 // Source
@@ -1353,8 +1365,8 @@ def translate = fn(&p: Point, dx: Int) -> Point {
 
 // Desugared
 def translate = fn(p: Point, dx: Int) -> (Point, Point) {
-  def %p = p { x = p.x + dx };   // %p shadows; RHS p is the original param
-  (%p, %p)
+  def p = p { x = p.x + dx };   // p shadows; RHS p is still in scope from param
+  (p, p)
 }
 ```
 
@@ -1365,11 +1377,11 @@ def shift = fn(&p: Point, dx: Int, dy: Int) -> Point {
   &p { y = p.y + dy };
 }
 
-// Desugared — each %p shadows the previous
+// Desugared — each def p shadows the previous
 def shift = fn(p: Point, dx: Int, dy: Int) -> (Point, Point) {
-  def %p = p { x = p.x + dx };
-  def %p = %p { y = %p.y + dy };   // RHS %p is the updated value from line above
-  (%p, %p)
+  def p = p { x = p.x + dx };
+  def p = p { y = p.y + dy };   // RHS p is the updated value from line above
+  (p, p)
 }
 ```
 
@@ -1381,16 +1393,16 @@ def move_to = fn(&p: Point, &q: Point, dx: Int) -> Point {
   p   // use p (not returned as Point, but bound in return tuple)
 }
 
-// Desugared — each borrow param gets its own % name
+// Desugared
 def move_to = fn(p: Point, q: Point, dx: Int) -> (Point, Point, Point) {
-  def %p = p { x = p.x + dx };
-  def %q = q { x = q.x + dx };
-  (%p, %q, %p)
+  def p = p { x = p.x + dx };
+  def q = q { x = q.x + dx };
+  (p, q, p)
 }
 // Surface display: (&Point, &Point, Int) -> Point
 ```
 
-Multiple borrow parameters compose naturally. Each `&` parameter receives its own internal `%` binding. The return tuple grows linearly: `(T1, T2, ..., Tn, U)` for `n` borrow parameters and original return type `U`. At the call site, `n` tuple destructuring bindings rebind each borrow argument.
+Multiple borrow parameters compose naturally. Each `&` parameter is rebound via `def` within the function body. The return tuple grows linearly: `(T1, T2, ..., Tn, U)` for `n` borrow parameters and original return type `U`. At the call site, `n` tuple destructuring bindings rebind each borrow argument.
 
 ```dew
 // Mixed borrow and normal parameters — Source
@@ -1404,9 +1416,9 @@ def process = fn(&p: Point, scale: Int, &color: Int, text: Array(Char, 8)) -> Po
 // Desugared — borrow returns precede original return type
 def process = fn(p: Point, scale: Int, color: Int, text: Array(Char, 8))
                -> (Point, Int, Point) {
-  def %p = p { x = p.x * scale };
-  def %color = color + 1;
-  (%p, %color, %p)
+  def p = p { x = p.x * scale };
+  def color = color + 1;
+  (p, color, p)
 }
 
 // Call site:
@@ -1416,7 +1428,7 @@ def result = process(&p, 2, &color, "hello");
 def (p, color, result) = process(p, 2, color, "hello");
 ```
 
-**Rebinding is immediate.** After `&p = expr` or `&p { ... }`, subsequent references to `p` resolve to the most recent rebound value. The `def %p = ...` shadow chain guarantees this — `%p` shadows itself in sequence, so all later code sees the updated binding. The original `p` is only accessible in the RHS of the first `&p` rebinding:
+**Rebinding is immediate.** After `&p = expr` or `&p { ... }`, subsequent references to `p` resolve to the most recent rebound value. The `def p = ...` shadow chain guarantees this — `p` shadows itself in sequence, so all later code sees the updated binding. The original `p` is only accessible in the RHS of the first `&p` rebinding:
 
 ```dew
 def f = fn(&p: Point) {
@@ -1816,7 +1828,7 @@ def h: (&Int, Bool, &Char) -> Unit;  // fn(&_: Int, _: Bool, &_: Char) -> Unit {
 
 The default function is universal: ignore all parameters (bind with `_`), pass borrow parameters through unchanged (identity in the return tuple), and return `default(R)`. This is not an identity, constant, or bottom function — it is **identity for borrows, default for result**, and applies uniformly to all function types.
 
-> Each borrow parameter in a function is always rebound — even if no `&p = ...` statement appears in the body. The desugar pass always includes borrow parameters in the return tuple. When the body makes no change, this is equivalent to `def %p = p` (a no-op identity pass-through), which the optimizer may eliminate.
+> Each borrow parameter in a function is always rebound — even if no `&p = ...` statement appears in the body. The desugar pass always includes borrow parameters in the return tuple. When the body makes no change, this is equivalent to `def p = p` (a no-op identity pass-through), which the optimizer may eliminate.
 
 **Pattern destructuring.** `def` supports pattern matching on the left side for struct and tuple values:
 

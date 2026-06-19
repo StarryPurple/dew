@@ -1,0 +1,20 @@
+// expect: 15
+// Tier: Large
+// Feature: borrow param shadowing, multi-param, recursion, compound lvalue
+// Two borrow params, one shadowed, one not. Recursive accumulator with shadow.
+struct Acc { v: Int }
+def rec sum = fn(n: Int, &a: Acc) -> Acc {
+  if n == 0 {
+    a
+  }
+  else {
+    def a = Acc { v: a.v };     // shadow: copy the current a
+    &a { v = a.v + n };         // borrow rebind: a.v = a.v + n
+    sum(n - 1, &a)
+  }
+};
+def main = fn {
+  def s = Acc { v: 0 };
+  def r = sum(5, &s);
+  r.v -> stdout;
+};

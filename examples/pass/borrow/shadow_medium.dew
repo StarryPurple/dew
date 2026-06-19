@@ -1,0 +1,16 @@
+// expect: 30
+// Tier: Medium
+// Feature: borrow param shadowing, struct, field update
+// Shadow a struct borrow param with a Point, then use sequential borrow field updates.
+struct Point { x: Int, y: Int }
+def shift = fn(&p: Point, dx: Int) -> Point {
+  def p = Point { x: 0, y: 0 };   // shadow the original param
+  &p { x = p.x + dx };
+  &p { y = p.y + dx };
+  p   // returns the twice-updated shadowed p: Point{x:10,y:10}
+};
+def main = fn {
+  def pt = Point { x: 100, y: 100 };
+  def r = shift(&pt, 10);
+  (r.x * 2 + r.y) -> stdout;  // 10 * 2 + 10 = 30
+};

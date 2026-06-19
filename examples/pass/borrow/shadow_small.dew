@@ -1,0 +1,14 @@
+// expect: 20
+// Tier: Small
+// Feature: borrow param shadowing
+// User shadows borrow param with def — the shadowed value feeds into the borrow chain.
+def f = fn(&p: Int) -> Int {
+  def p = 10;
+  &p = p * 2;
+  p
+};
+def main = fn {
+  def v = 0;
+  def r = f(&v);
+  r -> stdout;
+};
