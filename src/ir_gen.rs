@@ -614,18 +614,20 @@ impl<'a> IrGenerator<'a> {
         let mut block_true = BasicBlock::new(l_true.clone());
         let true_reg = self.compile_expr(&m.arms[0].body, &mut block_true);
         block_true.terminator = Terminator::Jmp(l_merge.clone());
+        let true_label = block_true.label.clone();
         self.extra_blocks.push(block_true);
 
         let mut block_false = BasicBlock::new(l_false.clone());
         let false_reg = self.compile_expr(&m.arms[1].body, &mut block_false);
         block_false.terminator = Terminator::Jmp(l_merge.clone());
+        let false_label = block_false.label.clone();
         self.extra_blocks.push(block_false);
 
         let mut block_merge = BasicBlock::new(l_merge);
         let result_r = self.fresh_reg();
         block_merge.instrs.push(Instr::Phi(result_r, vec![
-            (true_reg, l_true),
-            (false_reg, l_false),
+            (true_reg, true_label),
+            (false_reg, false_label),
         ]));
         *block = block_merge;
         result_r
@@ -673,8 +675,8 @@ impl<'a> IrGenerator<'a> {
 
             let arm_reg = self.compile_expr(&m.arms[i].body, &mut arm_block);
             arm_block.terminator = Terminator::Jmp(l_merge.clone());
+            arm_results.push((arm_reg, arm_block.label.clone()));
             self.extra_blocks.push(arm_block);
-            arm_results.push((arm_reg, chain_labels[i].clone()));
         }
 
         let mut block_merge = BasicBlock::new(l_merge);

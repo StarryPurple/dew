@@ -80,8 +80,9 @@ fn eval_block(
         }
         Terminator::Jmp(target) => {
             let next = blocks.iter().find(|b| &b.label == target).ok_or("block not found")?;
-            let is_merge = block.instrs.iter().any(|i| matches!(i, Instr::Phi(..)));
-            if !is_merge {
+            let target_is_merge = next.instrs.iter().any(|i| matches!(i, Instr::Phi(..)));
+            let current_is_merge = block.instrs.iter().any(|i| matches!(i, Instr::Phi(..)));
+            if !current_is_merge || target_is_merge {
                 frame.label_stack.push(block.label.clone());
             }
             eval_block(next, blocks, fns, thunks, types, frame, runtime)
