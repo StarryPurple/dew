@@ -428,10 +428,55 @@ Emits LLVM IR text. Pipeline:
 emit_type_defs → emit_externals → emit_thunk_cell → emit_thunk_force → emit_fn
 ```
 
-**Current status**: skeleton. Core lowering structure defined but instruction-level translation is being built. The evaluator serves as the primary backend.
+**Current status**: active. All 33 Dew IR instructions have LLVM lowering. Handles arithmetic, structs, non-recursive enums, and recursive enums (arena-allocated).
 
 **Key differences from evaluator**:
 - SSA registers instead of flat array
 - Global thunk cells instead of runtime HashMap
 - Function-level translation instead of block-walking
-- `alloca` + `load`/`store` for struct/enum values instead of `Value::Tuple`/`Value::Enum`
+- Arena-allocated struct/enum values instead of `Value::Tuple`/`Value::Enum`
+
+**Register model**: All Dew values are `i64` in LLVM. Aggregate values (structs, enums, arrays, tuples) are stored in arena-allocated memory and represented as `ptrtoint` of that memory. On access, `inttoptr` recovers the pointer for field extraction.
+
+**Arena allocation**: A global static buffer `@arena.buf[65536 x i8]` with a bump pointer `@arena.off` provides program-lifetime allocation. All struct/enum/tuple construction uses bump allocation instead of stack `alloca`, preventing use-after-free when aggregate values escape across function boundaries. This approach was chosen for simplicity — the compiler targets small test programs where 64KB is sufficient. Future iterations may adopt reference counting for finer-grained memory reclamation.
+
+### 13.2.1 Enum Type Lowering
+
+Non-recursive enums (e.g. `Option`) use flat LLVM struct types with inline payload fields:
+
+```llvm
+%enum.Option = type { i64, i64 }           ; tag + one payload field
+%enum.Shape  = type { i64, { i64, i64 } }  ; tag + multi-field payload
+```
+
+**Recursive enums** (self-referencing variant fields, e.g. `Cons(Int, List)` in `List`) use pointer indirection to break the infinite-size recursion:
+
+```llvm
+%enum.List = type { i64, ptr }             ; tag + pointer to payload block
+```
+
+The payload block is arena-allocated and laid out as `[i64 × n]` where n is the variant's field count. This is transparent to the Dew IR — the IR uses the same `EnumCons`/`EnumProj`/`EnumDisc` instructions regardless of whether the enum is recursive.
+
+```llvm
+; EnumCons: List::Cons(42, rest)
+  %tag = add i64 0, 0                       ; tag for Cons
+  %payload = <arena_alloc 16>               ; 2 fields × 8 bytes
+  %f0 = getelementptr i8, ptr %payload, i64 0
+  store i64 42, ptr %f0                     ; field 0: Int
+  %f1 = getelementptr i8, ptr %payload, i64 8
+  store i64 %rest, ptr %f1                  ; field 1: List (as i64)
+  %e0 = insertvalue %enum.List undef, i64 %tag, 0
+  %e1 = insertvalue %enum.List %e0, ptr %payload, 1
+  %e_ptr = <arena_alloc 16>                 ; {i64, ptr} = 16 bytes
+  store %enum.List %e1, ptr %e_ptr
+  %r = ptrtoint ptr %e_ptr to i64
+
+; EnumProj: extract Cons field 0 (head)
+  %p = inttoptr i64 %r to ptr
+  %v = load %enum.List, ptr %p
+  %pl_ptr = extractvalue %enum.List %v, 1   ; get payload pointer
+  %fp = getelementptr i64, ptr %pl_ptr, i64 0
+  %head = load i64, ptr %fp
+```
+
+Generic enums (with type parameters like `T`) that have no concrete instantiation are emitted as `type opaque` — they cannot be loaded or stored, but the presence of a concrete instantiation overrides the opaque fallback.

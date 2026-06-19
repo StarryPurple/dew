@@ -25,8 +25,12 @@ pub fn generate(module: &Module) -> Result<String, String> {
     for thunk in &module.thunks {
         emit_thunk_force(thunk, &module.thunks, &module.fns, &module.types, &mut out, &mut ctx)?;
     }
-    // Function definitions
+    // Function definitions (deduplicated, last definition wins for overrides)
+    let mut emitted_fns: std::collections::HashSet<String> = std::collections::HashSet::new();
     for func in &module.fns {
+        let name = func.name.clone();
+        if emitted_fns.contains(&name) { continue; }
+        emitted_fns.insert(name);
         emit_fn(func, &module.thunks, &module.fns, &module.types, &mut out, &mut ctx)?;
     }
     Ok(out)
@@ -35,7 +39,9 @@ pub fn generate(module: &Module) -> Result<String, String> {
 struct LlvmCtx {
     reg_types: std::collections::HashMap<usize, IrType>,
     enum_names: std::collections::HashSet<String>,
+    recursive_enums: std::collections::HashSet<String>,
     label_counter: usize,
+    arena_used: usize,
 }
 
 impl LlvmCtx {
@@ -43,12 +49,27 @@ impl LlvmCtx {
         LlvmCtx {
             reg_types: std::collections::HashMap::new(),
             enum_names: std::collections::HashSet::new(),
+            recursive_enums: std::collections::HashSet::new(),
             label_counter: 0,
+            arena_used: 0,
         }
     }
     fn set_reg(&mut self, r: usize, ty: IrType) { self.reg_types.insert(r, ty); }
     fn reg_ty(&self, r: &usize) -> &IrType { self.reg_types.get(r).unwrap_or(&IrType::Int) }
     fn reg_llvm_ty(&self, r: &usize) -> String { llvm_type_for(self.reg_ty(r), &self.enum_names) }
+
+    fn is_recursive_enum(&self, name: &str) -> bool { self.recursive_enums.contains(name) }
+
+    fn arena_alloc(&mut self, size_bytes: usize, out: &mut String) -> String {
+        let aligned = (size_bytes + 7) & !7;
+        let a = self.arena_used;
+        self.arena_used += 1;
+        writeln!(out, "  %a_off{} = load i64, ptr @arena.off", a).ok();
+        writeln!(out, "  %a_new{} = add i64 %a_off{}, {}", a, a, aligned).ok();
+        writeln!(out, "  store i64 %a_new{}, ptr @arena.off", a).ok();
+        writeln!(out, "  %a_ptr{} = getelementptr [65536 x i8], ptr @arena.buf, i32 0, i64 %a_off{}", a, a).ok();
+        format!("%a_ptr{}", a)
+    }
 
     fn fresh_label(&mut self, prefix: &str) -> String {
         let l = format!("{}{}", prefix, self.label_counter);
@@ -83,6 +104,13 @@ fn llvm_type_for(ty: &IrType, enum_names: &std::collections::HashSet<String>) ->
 fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
     // Collect enum names for type resolution (Struct→Enum)
     for e in &module.types.enums { ctx.enum_names.insert(e.name.clone()); }
+    // Detect recursive enums (self-referencing variant fields)
+    for e in &module.types.enums {
+        let is_recursive = e.variants.iter().any(|v|
+            v.fields.iter().any(|(_, t)| matches!(t, IrType::Enum(n) | IrType::Struct(n) if n == &e.name))
+        );
+        if is_recursive { ctx.recursive_enums.insert(e.name.clone()); }
+    }
     // Two-pass: first collect concrete (non-generic, non-recursive) type names
     let is_generic = |name: &str, fields: &[(String, IrType)]| -> bool {
         fields.iter().any(|(_, t)| {
@@ -98,7 +126,7 @@ fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Resul
             .flat_map(|v| v.fields.iter().map(|(n, t)| (n.clone(), t.clone()))).collect();
         if !is_generic(&e.name, &all_fields) { concrete_e.insert(e.name.clone()); }
     }
-    // Emit: concrete definitions for non-generic; opaque for generic without concrete fallback
+    // Emit: concrete for non-generic; arena-based {i64,ptr} for recursive
     let mut emitted_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     for s in &module.types.structs {
         if is_generic(&s.name, &s.fields) {
@@ -113,11 +141,17 @@ fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Resul
         emitted_types.insert(s.name.clone());
     }
     for e in &module.types.enums {
+        if ctx.is_recursive_enum(&e.name) {
+            if !emitted_types.contains(&e.name) {
+                writeln!(out, "%enum.{} = type {{ i64, ptr }}", e.name).ok();
+                emitted_types.insert(e.name.clone());
+            }
+            continue;
+        }
         let all_fields: Vec<(String, IrType)> = e.variants.iter()
             .flat_map(|v| v.fields.iter().map(|(n, t)| (n.clone(), t.clone()))).collect();
         if is_generic(&e.name, &all_fields) {
             if !concrete_e.contains(&e.name) && !emitted_types.contains(&e.name) {
-                // Recursive/generic: flat {i64,i64} — payload field is ptrtoint of an alloca'd struct
                 writeln!(out, "%enum.{} = type {{ i64, i64 }}", e.name).ok();
                 emitted_types.insert(e.name.clone());
             }
@@ -133,7 +167,25 @@ fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Resul
     Ok(())
 }
 
+fn infer_thunk_result_type(thunk: &Thunk) -> IrType {
+    if thunk.result_type != IrType::Int { return thunk.result_type.clone(); }
+    let ret_reg = thunk.blocks.first()
+        .and_then(|b| match &b.terminator { Terminator::Ret(r) => Some(r), _ => None });
+    if let Some(&reg) = ret_reg {
+        for instr in thunk.blocks.first().map(|b| &b.instrs).unwrap_or(&vec![]) {
+            match instr {
+                Instr::EnumCons(dst, name, _, _) if *dst == reg => return IrType::Enum(name.clone()),
+                Instr::StructCons(dst, name, _) if *dst == reg => return IrType::Struct(name.clone()),
+                _ => {}
+            }
+        }
+    }
+    IrType::Int
+}
+
 fn emit_externals(out: &mut String) {
+    writeln!(out, "@arena.buf = global [65536 x i8] zeroinitializer").ok();
+    writeln!(out, "@arena.off = global i64 0").ok();
     writeln!(out, "@.fmt_int = private constant [4 x i8] c\"%ld\\00\"", ).ok();
     writeln!(out, "@.fmt_char = private constant [3 x i8] c\"%c\\00\"", ).ok();
     writeln!(out, "declare i32 @printf(ptr, ...)").ok();
@@ -147,7 +199,10 @@ fn emit_externals(out: &mut String) {
 }
 
 fn emit_thunk_cell(thunk: &Thunk, out: &mut String, _ctx: &LlvmCtx) -> Result<(), String> {
-    let val_type = ir_type_to_llvm(&thunk.result_type);
+    let val_type = match &thunk.result_type {
+        IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
+        _ => ir_type_to_llvm(&thunk.result_type),
+    };
     writeln!(out, "%thunk.{} = type {{ i64, {} }}", thunk.name, val_type).ok();
     writeln!(out, "@{}.cell = global %thunk.{} zeroinitializer", thunk.name, thunk.name).ok();
     writeln!(out).ok();
@@ -155,8 +210,11 @@ fn emit_thunk_cell(thunk: &Thunk, out: &mut String, _ctx: &LlvmCtx) -> Result<()
 }
 
 fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: &TypeTable, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
-    let ret_ty = ir_type_to_llvm(&thunk.result_type);
-    writeln!(out, "define {} @force_{}() {{", ret_ty, thunk.name).ok();
+    let ret_llvm = match &thunk.result_type {
+        IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
+        _ => ir_type_to_llvm(&thunk.result_type),
+    };
+    writeln!(out, "define {} @force_{}() {{", ret_llvm, thunk.name).ok();
 
     writeln!(out, "entry:").ok();
     writeln!(out, "  %state.ptr = getelementptr %thunk.{}, ptr @{}.cell, i32 0, i32 0", thunk.name, thunk.name).ok();
@@ -176,14 +234,16 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: 
     }
 
     let result_reg = thunk.blocks.first()
-        .and_then(|b| b.instrs.last())
-        .map(|i| match i { Instr::Lit(r, _) | Instr::Add(r, ..) | Instr::Sub(r, ..) | Instr::Mul(r, ..) | Instr::Div(r, ..) | Instr::Rem(r, ..) | Instr::Call(r, ..) | Instr::Force(r, ..) => *r, _ => 0 })
+        .and_then(|b| match &b.terminator {
+            Terminator::Ret(r) => Some(*r),
+            _ => None,
+        })
         .unwrap_or(0);
 
     writeln!(out, "  %val.ptr = getelementptr %thunk.{}, ptr @{}.cell, i32 0, i32 1", thunk.name, thunk.name).ok();
-    writeln!(out, "  store {} %r{}, ptr %val.ptr", ret_ty, result_reg).ok();
+    writeln!(out, "  store {} %r{}, ptr %val.ptr", ret_llvm, result_reg).ok();
     writeln!(out, "  store i64 2, ptr %state.ptr").ok();
-    writeln!(out, "  ret {} %r{}", ret_ty, result_reg).ok();
+    writeln!(out, "  ret {} %r{}", ret_llvm, result_reg).ok();
 
     writeln!(out, "cycle:").ok();
     writeln!(out, "  call void @llvm.trap()").ok();
@@ -191,8 +251,8 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: 
 
     writeln!(out, "cached:").ok();
     writeln!(out, "  %val.ptr2 = getelementptr %thunk.{}, ptr @{}.cell, i32 0, i32 1", thunk.name, thunk.name).ok();
-    writeln!(out, "  %cached = load {}, ptr %val.ptr2", ret_ty).ok();
-    writeln!(out, "  ret {} %cached", ret_ty).ok();
+    writeln!(out, "  %val_cached = load {}, ptr %val.ptr2", ret_llvm).ok();
+    writeln!(out, "  ret {} %val_cached", ret_llvm).ok();
 
     writeln!(out, "}}\n").ok();
     Ok(())
@@ -200,24 +260,26 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: 
 
 fn emit_fn(func: &Fn, all_thunks: &[Thunk], all_fns: &[Fn], _types: &TypeTable, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
     ctx.reg_types.clear();
-    // Skip stdlib functions that use generic/opaque aggregate types
-    if func.name == "list_sum" || func.name == "list_length" || func.name == "println" {
-        return Ok(());
-    }
     for (r, t) in &func.params { ctx.set_reg(*r, t.clone()); }
-    let ret_ty = if func.name == "main" { "i32".to_string() } else { llvm_type_for(&func.return_type, &ctx.enum_names) };
+    let ret_llvm = if func.name == "main" {
+        "i32".to_string()
+    } else {
+        match &func.return_type {
+            IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".to_string(),
+            _ => llvm_type_for(&func.return_type, &ctx.enum_names),
+        }
+    };
     let params: Vec<String> = func.params.iter()
         .map(|(r, _)| format!("i64 %r{}", r))
         .collect();
-    writeln!(out, "define {} @{}({}) {{", ret_ty, func.name, params.join(", ")).ok();
+    writeln!(out, "define {} @{}({}) {{", ret_llvm, func.name, params.join(", ")).ok();
 
     for block in &func.blocks {
         writeln!(out, "{}:", block.label).ok();
         for instr in &block.instrs {
             emit_llvm_instr(instr, all_thunks, all_fns, _types, out, ctx)?;
         }
-        let term_ret_ty = if func.name == "main" { IrType::Int } else { func.return_type.clone() };
-        emit_terminator(&block.terminator, &term_ret_ty, out, func.name == "main")?;
+        emit_terminator(&block.terminator, &func.return_type, out, func.name == "main")?;
     }
     writeln!(out, "}}\n").ok();
     Ok(())
@@ -253,18 +315,24 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                 CallTarget::Static(name) => {
                     let callee = fns.iter().find(|f| &f.name == name).ok_or("fn not found")?;
                     ctx.set_reg(*r, callee.return_type.clone());
-                    let ret_ty = ir_type_to_llvm(&callee.return_type);
-                    let arg_str: Vec<String> = args.iter().enumerate()
-                        .map(|(i, reg)| format!("{} %r{}", ctx.reg_llvm_ty(reg), reg))
+                    let ret_llvm = match &callee.return_type {
+                        IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
+                        _ => ir_type_to_llvm(&callee.return_type),
+                    };
+                    let arg_str: Vec<String> = args.iter()
+                        .map(|reg| format!("i64 %r{}", reg))
                         .collect();
-                    writeln!(out, "  %r{} = call {} @{}({})", r, ret_ty, name, arg_str.join(", ")).ok();
+                    writeln!(out, "  %r{} = call {} @{}({})", r, ret_llvm, name, arg_str.join(", ")).ok();
                 }
                 CallTarget::Dynamic(_) => { writeln!(out, "  ; dynamic call (not implemented)").ok(); ctx.set_reg(*r, IrType::Int); }
             }
         }
         Instr::Force(r, target) => {
             let name = match target { ForceTarget::Static(n) => n.clone(), ForceTarget::Dynamic(_) => "unknown".into() };
-            ctx.set_reg(*r, IrType::Int);
+            let thunk_ty = _thunks.iter().find(|t| t.name == name)
+                .map(|t| infer_thunk_result_type(t))
+                .unwrap_or(IrType::Int);
+            ctx.set_reg(*r, thunk_ty);
             writeln!(out, "  %r{} = call i64 @force_{}()", r, name).ok();
         }
         Instr::Stdout(r) => { writeln!(out, "  call i32 (ptr, ...) @printf(ptr @.fmt_int, i64 %r{})", r).ok(); }
@@ -293,10 +361,11 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                     writeln!(out, "  {} = insertvalue {} {}, i64 %r{}, {}", next, st_ty, prev, fv, idx).ok();
                     prev = next;
                 }
-                // Ptr-to-int to fit struct in i64 register space
-                writeln!(out, "  %r{}_ptr = alloca {}", r, st_ty).ok();
-                writeln!(out, "  store {} {}, ptr %r{}_ptr", st_ty, prev, r).ok();
-                writeln!(out, "  %r{} = ptrtoint ptr %r{}_ptr to i64", r, r).ok();
+                let size = fields.len() * 8;
+                let arena_ptr = ctx.arena_alloc(size, out);
+                writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr).ok();
+                writeln!(out, "  store {} {}, ptr %r{}_cast", st_ty, prev, r).ok();
+                writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
             }
         }
         Instr::EnumCons(r, enum_name, variant_name, fields) => {
@@ -307,16 +376,33 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                 .and_then(|e| e.variants.iter().position(|v| v.name == *variant_name))
                 .unwrap_or(0);
             writeln!(out, "  %r{}_tag = add i64 0, {}", r, tag).ok();
-            writeln!(out, "  %r{}_0 = insertvalue {} undef, i64 %r{}_tag, 0", r, en_ty, r).ok();
-            let mut prev = format!("%r{}_0", r);
-            for (i, fv) in fields.iter().enumerate() {
-                let next = format!("%r{}_{}", r, i + 1);
-                writeln!(out, "  {} = insertvalue {} {}, i64 %r{}, {}", next, en_ty, prev, fv, i + 1).ok();
-                prev = next;
+            if ctx.is_recursive_enum(enum_name) {
+                let payload_size = fields.len() * 8;
+                let arena_ptr = ctx.arena_alloc(payload_size, out);
+                for (i, fv) in fields.iter().enumerate() {
+                    writeln!(out, "  %r{}_f{}_ptr = getelementptr i8, ptr {}, i64 {}", r, i, arena_ptr, i * 8).ok();
+                    writeln!(out, "  store i64 %r{}, ptr %r{}_f{}_ptr", fv, r, i).ok();
+                }
+                writeln!(out, "  %r{}_0 = insertvalue {} undef, i64 %r{}_tag, 0", r, en_ty, r).ok();
+                writeln!(out, "  %r{}_1 = insertvalue {} %r{}_0, ptr {}, 1", r, en_ty, r, arena_ptr).ok();
+                let arena_ptr2 = ctx.arena_alloc(16, out); // {i64, ptr} = 16B
+                writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr2).ok();
+                writeln!(out, "  store {} %r{}_1, ptr %r{}_cast", en_ty, r, r).ok();
+                writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
+            } else {
+                writeln!(out, "  %r{}_0 = insertvalue {} undef, i64 %r{}_tag, 0", r, en_ty, r).ok();
+                let mut prev = format!("%r{}_0", r);
+                for (i, fv) in fields.iter().enumerate() {
+                    let next = format!("%r{}_{}", r, i + 1);
+                    writeln!(out, "  {} = insertvalue {} {}, i64 %r{}, {}", next, en_ty, prev, fv, i + 1).ok();
+                    prev = next;
+                }
+                let size = 8 + fields.len() * 8; // tag + payload
+                let arena_ptr = ctx.arena_alloc(size, out);
+                writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr).ok();
+                writeln!(out, "  store {} {}, ptr %r{}_cast", en_ty, prev, r).ok();
+                writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
             }
-            writeln!(out, "  %r{}_ptr = alloca {}", r, en_ty).ok();
-            writeln!(out, "  store {} {}, ptr %r{}_ptr", en_ty, prev, r).ok();
-            writeln!(out, "  %r{} = ptrtoint ptr %r{}_ptr to i64", r, r).ok();
         }
         Instr::EnumDisc(r, reg) => {
             ctx.set_reg(*r, IrType::Int);
@@ -340,7 +426,14 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                 IrType::Enum(name) | IrType::Struct(name) => {
                     let is_opaque = name.len() == 1 && name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
                     if is_opaque { writeln!(out, "  %r{} = add i64 %r{}, 0", r, reg).ok(); }
-                    else {
+                    else if ctx.is_recursive_enum(name) {
+                        let base_ty = ctx.reg_llvm_ty(reg);
+                        writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, reg).ok();
+                        writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, base_ty, r).ok();
+                        writeln!(out, "  %r{}_pl = extractvalue {} %r{}_p, 1", r, base_ty, r).ok();
+                        writeln!(out, "  %r{}_fp = getelementptr i64, ptr %r{}_pl, i64 {}", r, r, idx).ok();
+                        writeln!(out, "  %r{} = load i64, ptr %r{}_fp", r, r).ok();
+                    } else {
                         let base_ty = ctx.reg_llvm_ty(reg);
                         writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, reg).ok();
                         writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, base_ty, r).ok();
@@ -354,6 +447,13 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             ctx.set_reg(*r, IrType::Int);
             match ctx.reg_ty(base) {
                 IrType::Struct(name) | IrType::Enum(name) => {
+                    if ctx.is_recursive_enum(name) {
+                        let base_ty = ctx.reg_llvm_ty(base);
+                        writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, base).ok();
+                        writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, base_ty, r).ok();
+                        writeln!(out, "  %r{} = extractvalue {} %r{}_p, {}", r, base_ty, r, idx).ok();
+                        return Ok(());
+                    }
                     let is_generic = name.len() == 1 && name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
                     if !is_generic {
                         let st_ty = if matches!(ctx.reg_ty(base), IrType::Enum(_)) { format!("%enum.{}", name) } else { format!("%struct.{}", name) };
@@ -477,7 +577,11 @@ fn emit_terminator(t: &Terminator, ret_ty: &IrType, out: &mut String, is_main: b
             } else if *ret_ty == IrType::Unit {
                 writeln!(out, "  ret void").ok();
             } else {
-                writeln!(out, "  ret {} %r{}", ir_type_to_llvm(ret_ty), r).ok();
+                let rt = match ret_ty {
+                    IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
+                    _ => ir_type_to_llvm(ret_ty),
+                };
+                writeln!(out, "  ret {} %r{}", rt, r).ok();
             }
         }
         Terminator::Br(cond, t_label, f_label) => {
