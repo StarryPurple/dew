@@ -40,6 +40,14 @@ pub struct TypeChecker<'a> {
 }
 
 impl<'a> TypeChecker<'a> {
+    pub fn fn_effects(&self) -> &HashMap<String, Effect> {
+        &self.fn_effects
+    }
+
+    pub fn var_affine_hint(&self) -> &HashMap<String, bool> {
+        &self.var_affine_hint
+    }
+
     pub fn new(diag: &'a mut DiagnosticCollector) -> Self {
         TypeChecker {
             diag,

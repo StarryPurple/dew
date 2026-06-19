@@ -606,3 +606,60 @@ pub struct TypeOfType {
     pub span: Span,
     pub expr: Box<Expr>,
 }
+
+// ---------------------------------------------------------------------------
+// Semantic Tokens — for LSP semantic highlighting
+// ---------------------------------------------------------------------------
+
+/// Token types for LSP semantic highlighting.
+/// Indices correspond to the legend declared in the LSP initialize response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticTokenType {
+    /// Generic variable
+    Variable = 0,
+    /// Borrow parameter or borrow-rebound variable (`&p: T`, `&x = expr`)
+    BorrowVariable = 1,
+    /// Affine-typed variable
+    AffineVariable = 2,
+    /// Function name
+    Function = 3,
+    /// IO-marked function
+    IoFunction = 4,
+    /// Type name (struct, enum, variant constructor)
+    Type = 5,
+    /// Affine type declaration (`affine struct`, `affine enum`)
+    AffineType = 6,
+    /// Keyword (`def`, `fn`, `struct`, `enum`, `match`, `if`, `else`, `fix`, etc.)
+    Keyword = 7,
+    /// Borrow operator `&`
+    BorrowOperator = 8,
+    /// Force operator `!`
+    ForceOperator = 9,
+    /// String/array literal
+    String = 10,
+    /// Numeric literal
+    Number = 11,
+    /// Comment
+    Comment = 12,
+}
+
+/// Bit-flag modifiers for semantic tokens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticTokenModifiers(u16);
+
+impl SemanticTokenModifiers {
+    pub const NONE: SemanticTokenModifiers = SemanticTokenModifiers(0);
+    pub const DEFINITION: SemanticTokenModifiers = SemanticTokenModifiers(1 << 0);
+    pub const CONSUMED: SemanticTokenModifiers = SemanticTokenModifiers(1 << 1);
+
+    pub fn bits(self) -> u16 { self.0 }
+    pub fn is(self, flag: SemanticTokenModifiers) -> bool { self.0 & flag.0 != 0 }
+}
+
+/// A single semantic token: span + type + modifiers.
+#[derive(Debug, Clone)]
+pub struct SemanticToken {
+    pub span: Span,
+    pub token_type: SemanticTokenType,
+    pub modifiers: SemanticTokenModifiers,
+}

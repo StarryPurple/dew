@@ -1,14 +1,19 @@
-//! Minimal Language Server Protocol for Dew (.dew) and DewIR (.dewir).
+//! Language Server Protocol for Dew (.dew) and DewIR (.dewir).
 //!
 //! JSON-RPC over stdin/stdout. Supports:
-//! - initialize: registers .dew and .dewir extensions
+//! - initialize: registers .dew and .dewir extensions + semantic tokens
 //! - textDocument/didOpen, didChange: re-parses and publishes diagnostics
+//! - textDocument/semanticTokens/full: returns semantic highlighting tokens
 //!
 //! Zero external dependencies — raw JSON over stdio.
 
 use crate::diagnostics::DiagnosticCollector;
+use crate::desugar::desugar_program;
 use crate::lexer::Lexer;
+use crate::nameres::NameResolver;
 use crate::parser::Parser;
+use crate::semantic_tokens;
+use crate::typeck::TypeChecker;
 use std::io::{self, BufRead, Read, Write};
 
 pub fn run() -> Result<(), String> {
@@ -20,7 +25,6 @@ pub fn run() -> Result<(), String> {
 
     loop {
         buf.clear();
-        // Read Content-Length header
         let mut content_length: usize = 0;
         loop {
             let mut line = String::new();
@@ -35,23 +39,24 @@ pub fn run() -> Result<(), String> {
         if content_length == 0 { continue; }
         let mut body = vec![0u8; content_length];
         if stdin.lock().read_exact(&mut body).is_err() { return Ok(()); }
-        let body_str = String::from_utf8_lossy(&body).to_string();
+        let body_str = String::from_utf8_lossy(&mut body).to_string();
 
-        // Parse JSON-RPC message (minimal parser — only handle what we need)
         let id = extract_field(&body_str, "\"id\"");
         let method = extract_field(&body_str, "\"method\"");
 
         match method.as_str() {
             "initialize" => {
-                // Send capabilities
+                let (token_types, token_modifiers) = semantic_tokens::semantic_tokens_legend();
+                let tt_json: Vec<String> = token_types.iter().map(|t| format!("\"{}\"", t)).collect();
+                let tm_json: Vec<String> = token_modifiers.iter().map(|m| format!("\"{}\"", m)).collect();
                 let result = format!(
-                    "{{\"capabilities\":{{\"textDocumentSync\":{{\"openClose\":true,\"change\":1}},\"diagnosticProvider\":{{\"interFileDependencies\":false,\"workspaceDiagnostics\":false}}}},\"serverInfo\":{{\"name\":\"dew-lsp\",\"version\":\"0.1.0\"}}}}"
+                    "{{\"capabilities\":{{\"textDocumentSync\":{{\"openClose\":true,\"change\":1}},\"semanticTokensProvider\":{{\"legend\":{{\"tokenTypes\":[{}],\"tokenModifiers\":[{}]}},\"range\":false,\"full\":true}},\"diagnosticProvider\":{{\"interFileDependencies\":false,\"workspaceDiagnostics\":false}}}},\"serverInfo\":{{\"name\":\"dew-lsp\",\"version\":\"0.2.0\"}}}}",
+                    tt_json.join(","),
+                    tm_json.join(",")
                 );
                 send_response(&mut stdout, &id, &result);
             }
-            "initialized" => {
-                // No response needed
-            }
+            "initialized" => {}
             "textDocument/didOpen" | "textDocument/didChange" => {
                 let uri = extract_field(&body_str, "\"uri\"");
                 let text = extract_text_field(&body_str);
@@ -63,9 +68,25 @@ pub fn run() -> Result<(), String> {
             "textDocument/didClose" => {
                 let uri = extract_field(&body_str, "\"uri\"");
                 documents.remove(&uri);
-                // Clear diagnostics
                 send_notification(&mut stdout, "textDocument/publishDiagnostics",
                     &format!("{{\"uri\":\"{}\",\"diagnostics\":[]}}", uri));
+            }
+            "textDocument/semanticTokens/full" => {
+                let uri = extract_field(&body_str, "\"uri\"");
+                let text = documents.get(&uri);
+                let data = if let Some(src) = text {
+                    if uri.ends_with(".dewir") {
+                        Vec::new()
+                    } else {
+                        let tokens = semantic_tokens::extract_semantic_tokens(src);
+                        semantic_tokens::encode_tokens(&tokens, src)
+                    }
+                } else {
+                    Vec::new()
+                };
+                let data_json: Vec<String> = data.iter().map(|n| n.to_string()).collect();
+                let result = format!("{{\"data\":[{}]}}", data_json.join(","));
+                send_response(&mut stdout, &id, &result);
             }
             "shutdown" => {
                 send_response(&mut stdout, &id, "null");
@@ -74,29 +95,32 @@ pub fn run() -> Result<(), String> {
             "exit" => {
                 return Ok(());
             }
-            _ => {
-                // Ignore unknown methods
-            }
+            _ => {}
         }
     }
 }
 
-/// Extract a string field value from JSON (very hacky but works for LSP messages).
 fn extract_field(json: &str, field: &str) -> String {
-    if let Some(pos) = json.find(field) {
-        let rest = &json[pos + field.len()..];
-        // Find the first " after the field
-        if let Some(open) = rest.find('"') {
-            let after_open = &rest[open + 1..];
+    // Find the field as a JSON key: "field":
+    let needle = format!("{}:", field);
+    if let Some(pos) = json.find(&needle) {
+        let rest = &json[pos + needle.len()..];
+        let rest = rest.trim_start();
+        // Value can be a string "..." or a number
+        if rest.starts_with('"') {
+            let after_open = &rest[1..];
             if let Some(close) = after_open.find('"') {
                 return after_open[..close].to_string();
             }
+        } else {
+            // Numeric or other token — read until comma or } or ]
+            let end = rest.find(|c: char| c == ',' || c == '}' || c == ']').unwrap_or(rest.len());
+            return rest[..end].trim().to_string();
         }
     }
     String::new()
 }
 
-/// Extract the text field content from a didOpen/didChange notification.
 fn extract_text_field(json: &str) -> String {
     if let Some(pos) = json.find("\"text\"") {
         let rest = &json[pos + 6..];
@@ -127,7 +151,6 @@ fn extract_text_field(json: &str) -> String {
     String::new()
 }
 
-/// Parse a .dew or .dewir file and publish diagnostics.
 fn publish_diagnostics(stdout: &mut impl Write, uri: &str, text: &str) {
     let diagnostics = if uri.ends_with(".dewir") {
         parse_dewir(text)
@@ -150,17 +173,23 @@ struct Diag {
     line: usize,
     start_col: usize,
     end_col: usize,
-    severity: u8, // 1=error, 2=warning
+    severity: u8,
     message: String,
 }
 
-/// Parse Dew source and return diagnostics.
+/// Full pipeline parse → desugar → nameres → typeck, return diagnostics.
 fn parse_dew(text: &str) -> Vec<Diag> {
     let mut diag = DiagnosticCollector::new();
     let mut lexer = Lexer::new(text);
     let tokens = lexer.lex_all();
     let mut parser = Parser::new(tokens, &mut diag, text);
-    parser.parse_program();
+    let prog = parser.parse_program();
+    let desugared = desugar_program(&prog, &mut diag);
+    let mut resolver = NameResolver::new(&mut diag);
+    resolver.resolve(&desugared);
+    let mut tc = TypeChecker::new(&mut diag);
+    tc.check(&desugared);
+
     let mut result = Vec::new();
     for d in diag.all() {
         let sev = match d.severity {
@@ -168,7 +197,11 @@ fn parse_dew(text: &str) -> Vec<Diag> {
             crate::diagnostics::Severity::Warning => 2,
         };
         let (line, start_col, end_col) = match &d.span {
-            Some(s) => (s.line, s.col, s.col + 1),
+            Some(s) => {
+                let (sl, sc) = crate::semantic_tokens::byte_offset_to_line_col(text, s.start);
+                let (_el, ec) = crate::semantic_tokens::byte_offset_to_line_col(text, s.end);
+                (sl, sc, ec)
+            }
             None => (0, 0, 0),
         };
         result.push(Diag {
@@ -182,7 +215,6 @@ fn parse_dew(text: &str) -> Vec<Diag> {
     result
 }
 
-/// Parse DewIR text and return diagnostics (basic syntax checking).
 fn parse_dewir(text: &str) -> Vec<Diag> {
     let mut diags = Vec::new();
     for (i, line) in text.lines().enumerate() {
@@ -190,11 +222,6 @@ fn parse_dewir(text: &str) -> Vec<Diag> {
         if trimmed.is_empty() || trimmed.starts_with("//") {
             continue;
         }
-        // Check for obviously malformed lines
-        if trimmed.contains("->") && !trimmed.contains("->") {
-            // This doesn't catch anything useful — just a placeholder
-        }
-        // Check for unmatched braces (simple heuristic)
         let open = line.matches('{').count();
         let close = line.matches('}').count();
         if close > open && !trimmed.starts_with('}') {
@@ -208,22 +235,6 @@ fn parse_dewir(text: &str) -> Vec<Diag> {
         }
     }
     diags
-}
-
-/// Try to extract line/column from error message.
-fn extract_position(err: &str) -> (usize, usize) {
-    // Look for "at line N, col M" pattern
-    for part in err.split(" at ") {
-        let rest = part.trim().strip_prefix("line ").unwrap_or(part);
-        if let Some(comma) = rest.find(',') {
-            let line_str = &rest[..comma].trim();
-            let col_str = rest[comma + 1..].trim().strip_prefix("col ").unwrap_or("");
-            if let (Ok(l), Ok(c)) = (line_str.parse::<usize>(), col_str.parse::<usize>()) {
-                return (l, c);
-            }
-        }
-    }
-    (1, 1)
 }
 
 fn send_response(stdout: &mut impl Write, id: &str, result: &str) {

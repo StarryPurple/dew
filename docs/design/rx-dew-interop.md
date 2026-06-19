@@ -12,6 +12,12 @@
   - [§3.2 Function Translation](#32-function-translation)
   - [§3.3 Mutation → Ownership Transfer](#33-mutation--ownership-transfer)
   - [§3.4 Control Flow Translation](#34-control-flow-translation)
+    - [§3.4.1 if/else Restructuring](#341-ifelse-restructuring)
+    - [§3.4.2 Loop → Recursion](#342-loop--recursion)
+    - [§3.4.3 break and continue](#343-break-and-continue)
+    - [§3.4.4 return Translation](#344-return-translation)
+    - [§3.4.5 Nested Loops with return](#345-nested-loops-with-return)
+    - [§3.4.6 Worked Example — Tree DFS](#346-worked-example--tree-dfs-with-ancestor-table)
   - [§3.5 Reference → Ownership + Return](#35-reference--ownership--return)
   - [§3.6 Match Translation](#36-match-translation)
   - [§3.7 Special Cases](#37-special-cases)
@@ -446,6 +452,99 @@ def search = fn(grid: Array(Array(Int, C), R), rows: Int, cols: Int, target: Int
 ```
 
 > The propagation rule is uniform: if an inner loop returns `Some(v)`, the enclosing loop immediately returns `Some(v)` without further iteration. If the inner loop returns `None` (normal completion), the outer loop continues. This mirrors how `return` works in imperative languages — it unwinds all enclosing loops.
+
+#### 3.4.6 Worked Example — Tree DFS with Ancestor Table
+
+This example exercises multiple translation rules simultaneously: `&mut` array parameter, nested field/array updates, two sequential `while` loops, `continue`, and recursive function calls.
+
+**Rx source:**
+
+```rust
+fn prepare(node_pool: &mut [Node; MAXN + 1], v: usize, f: usize) {
+    node_pool[v].fa[0] = f;
+    node_pool[v].d = if (f == 0) { 1 } else { node_pool[f].d + 1 };
+    let mut i: usize = 1;
+    while (i <= LOG_MAXN) {
+        let ff: usize = node_pool[v].fa[i - 1];
+        if (ff != 0) {
+            node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
+        }
+        i += 1;
+    }
+    i = 0;
+    while (i < node_pool[v].edges_len) {
+        let to: usize = node_pool[v].edges[i];
+        i += 1;
+        if (to == f) {
+            continue;
+        }
+        prepare(node_pool, to, v);
+    }
+}
+```
+
+**Dew translation:**
+
+```dew
+def prepare = fn(&node_pool: Array(Node, MAXN + 1), v: Int, f: Int) -> Unit {
+
+  // node_pool[v].fa[0] = f;
+  &node_pool[v].fa[0] = f;
+
+  // node_pool[v].d = if (f == 0) { 1 } else { node_pool[f].d + 1 };
+  &node_pool[v].d = if f == 0 { 1 } else { node_pool[f].d + 1 };
+
+  // First while loop: build ancestor table (binary lifting)
+  def i = 1;
+  def node_pool = fix loop1 {
+    fn(&i: Int, &node_pool: Array(Node, MAXN + 1), v: Int) -> Array(Node, MAXN + 1) {
+      if i <= LOG_MAXN {
+        def ff = node_pool[v].fa[i - 1];
+        if ff != 0 {
+          &node_pool[v].fa[i] = node_pool[ff].fa[i - 1]
+        } else { Unit };
+        &i = i + 1;
+        loop1(&i, &node_pool, v)
+      } else { node_pool }
+    }
+  }(&i, &node_pool, v);
+
+  // Second while loop: DFS over edges
+  &i = 0;
+  def node_pool = fix loop2 {
+    fn(&i: Int, &node_pool: Array(Node, MAXN + 1), v: Int, f: Int) -> Array(Node, MAXN + 1) {
+      if i < node_pool[v].edges_len {
+        def to = node_pool[v].edges[i];
+        &i = i + 1;
+        if to == f {
+          loop2(&i, &node_pool, v, f)                    // continue
+        } else {
+          &node_pool = prepare(&node_pool, to, v);       // recursive call
+          loop2(&i, &node_pool, v, f)
+        }
+      } else { node_pool }
+    }
+  }(&i, &node_pool, v, f);
+
+  Unit
+}
+```
+
+**Translation notes:**
+
+1. **`&mut` array as borrow parameter.** `node_pool: &mut [Node; MAXN+1]` becomes `&node_pool: Array(Node, MAXN+1)` — the entire array is a borrow parameter. Every mutation to `node_pool` inside the function body is a `&node_pool[...] = ...` rebinding.
+
+2. **Nested array-field-subscript update.** `&node_pool[v].fa[i] = expr` is a compound lvalue update (dew-lang.md §5.5 Rule 5). The desugar pass expands it to nested struct/array updates: `def node_pool = node_pool { [v] = node_pool[v] { fa = node_pool[v].fa { [i] = expr } } }`. The surface syntax `&node_pool[v].fa[i] = expr` is the human-readable form.
+
+3. **`node_pool` flows through both loops.** The first `fix loop1` takes `&node_pool` as a borrow parameter and returns the updated `Array(Node, MAXN+1)`. The caller binds `def node_pool = loop1(...)`, then passes it into the second `fix loop2` as a fresh borrow parameter. This is the ownership-threading pattern: each loop receives the current state and returns the modified state.
+
+4. **`continue` in the second loop.** When `to == f`, `continue` becomes a direct recursive call `loop2(&i, &node_pool, v, f)` — skipping the `prepare` call and the rest of the loop body.
+
+5. **Recursive function call inside a loop.** `prepare(node_pool, to, v)` is a borrow call: `&node_pool = prepare(&node_pool, to, v)`. This follows dew-lang.md §5.5 Rule 4 (statement-level borrow call): the desugar pass produces `def (node_pool, _) = prepare(node_pool, to, v)`, rebinding `node_pool` to the modified value returned by the callee.
+
+6. **`if` without `else` in statement position.** `if ff != 0 { ... }` has no `else` branch in Rx. In Dew, all `if` must have `else`. The translator inserts `else { Unit }` because the `if` is in statement position (not the last expression in the block).
+
+7. **`usize` → `Int`.** All Rx `usize` values map to Dew `Int`. No information loss since Dew `Int` is `i64`.
 
 ### 3.5 Reference → Ownership + Return
 

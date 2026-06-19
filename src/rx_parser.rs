@@ -8,10 +8,10 @@ pub enum Token {
     Ident(String), IntLit(i64), BoolLit(bool), StrLit(String),
     Plus, Minus, Star, Slash, Percent,
     EqEq, Ne, Lt, Gt, Le, Ge,
-    And, Or, Not, Amp,
+    And, Or, Not, Amp, BitOr, BitXor, Shl, Shr,
     Eq, PlusEq, MinusEq, StarEq,
     LParen, RParen, LBrace, RBrace, LBracket, RBracket,
-    Colon, Semi, Comma, Dot, Arrow, FatArrow,
+    Colon, DoubleColon, Semi, Comma, Dot, Arrow, FatArrow,
     Eof,
 }
 
@@ -72,8 +72,57 @@ impl Lexer {
 
     fn read_number(&mut self) -> i64 {
         let mut n: i64 = 0;
+        // Check for 0x (hex), 0o (octal), 0b (binary)
+        if self.peek_char() == Some('0') {
+            self.advance();
+            match self.peek_char() {
+                Some('x') | Some('X') => {
+                    self.advance();
+                    while let Some(c) = self.peek_char() {
+                        if c.is_ascii_hexdigit() {
+                            n = n * 16 + (c.to_digit(16).unwrap() as i64);
+                            self.advance();
+                        } else { break; }
+                    }
+                    // Skip type suffix like u32, i64
+                    while let Some(c) = self.peek_char() {
+                        if c.is_alphabetic() || c == '_' { self.advance(); } else { break; }
+                    }
+                    return n;
+                }
+                Some('o') | Some('O') => {
+                    self.advance();
+                    while let Some(c) = self.peek_char() {
+                        if c.is_ascii_digit() && c != '8' && c != '9' {
+                            n = n * 8 + (c as i64 - '0' as i64);
+                            self.advance();
+                        } else { break; }
+                    }
+                    while let Some(c) = self.peek_char() {
+                        if c.is_alphabetic() || c == '_' { self.advance(); } else { break; }
+                    }
+                    return n;
+                }
+                Some('b') | Some('B') => {
+                    self.advance();
+                    while let Some(c) = self.peek_char() {
+                        if c == '0' || c == '1' { n = n * 2 + (c as i64 - '0' as i64); self.advance(); } else { break; }
+                    }
+                    while let Some(c) = self.peek_char() {
+                        if c.is_alphabetic() || c == '_' { self.advance(); } else { break; }
+                    }
+                    return n;
+                }
+                _ => { n = 0; } // just the digit 0
+            }
+        }
+        // Regular decimal with possible type suffix
         while let Some(c) = self.peek_char() {
             if c.is_ascii_digit() { n = n * 10 + (c as i64 - '0' as i64); self.advance(); } else { break; }
+        }
+        // Skip type suffix like u32, i64, usize
+        while let Some(c) = self.peek_char() {
+            if c.is_alphabetic() || c == '_' { self.advance(); } else { break; }
         }
         n
     }
@@ -134,13 +183,15 @@ impl Lexer {
             '%' => Token::Percent,
             '=' => if self.peek_char() == Some('=') { self.advance(); Token::EqEq } else { Token::Eq },
             '!' => if self.peek_char() == Some('=') { self.advance(); Token::Ne } else { Token::Not },
-            '<' => if self.peek_char() == Some('=') { self.advance(); Token::Le } else { Token::Lt },
-            '>' => if self.peek_char() == Some('=') { self.advance(); Token::Ge } else { Token::Gt },
-            '&' => if self.peek_char() == Some('&') { self.advance(); Token::And } else if self.peek_char() == Some('s') { let ident = self.read_ident(); if ident == "self" { Token::KwRefSelf } else { Token::Amp } } else { Token::Amp },
-            '|' => if self.peek_char() == Some('|') { self.advance(); Token::Or } else { Token::Eof },
+            '<' => if self.peek_char() == Some('=') { self.advance(); Token::Le } else if self.peek_char() == Some('<') { self.advance(); Token::Shl } else { Token::Lt },
+            '>' => if self.peek_char() == Some('=') { self.advance(); Token::Ge } else if self.peek_char() == Some('>') { self.advance(); Token::Shr } else { Token::Gt },
+            '&' => if self.peek_char() == Some('&') { self.advance(); Token::And } else { Token::Amp },
+            '|' => if self.peek_char() == Some('|') { self.advance(); Token::Or } else { Token::BitOr },
+            '^' => { Token::BitXor },
             '(' => Token::LParen, ')' => Token::RParen, '{' => Token::LBrace, '}' => Token::RBrace,
             '[' => Token::LBracket, ']' => Token::RBracket,
-            ':' => Token::Colon, ';' => Token::Semi, ',' => Token::Comma, '.' => Token::Dot,
+            ':' => if self.peek_char() == Some(':') { self.advance(); Token::DoubleColon } else { Token::Colon },
+            ';' => Token::Semi, ',' => Token::Comma, '.' => Token::Dot,
             _ => Token::Eof,
         }
     }
@@ -196,10 +247,12 @@ pub enum Expr {
     Cast(Box<Expr>, String),
     Ref(Box<Expr>),
     Deref(Box<Expr>),
+    /// if expression: if cond { then } else { else }
+    If { cond: Box<Expr>, then_body: Vec<Stmt>, else_body: Vec<Stmt> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BinOp { Add, Sub, Mul, Div, Rem, Eq, Ne, Lt, Gt, Le, Ge, And, Or }
+pub enum BinOp { Add, Sub, Mul, Div, Rem, Eq, Ne, Lt, Gt, Le, Ge, And, Or, BitAnd, BitOr, BitXor, Shl, Shr }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UnOp { Neg, Not }
@@ -219,6 +272,25 @@ impl Parser {
     }
 
     fn pos(&self) -> String { format!("{}:{}", self.lexer.line, self.lexer.col) }
+
+    /// Peek ahead to check if content inside `{` looks like struct fields (ident : expr).
+    /// The lexer is positioned right after `{`; we scan forward without consuming
+    /// to see if the next meaningful tokens match the `ident :` pattern.
+    fn looks_like_struct_lit(&self) -> bool {
+        let mut p = self.lexer.pos;
+        let chars = &self.lexer.chars;
+        // Skip whitespace
+        while p < chars.len() && chars[p].is_whitespace() { p += 1; }
+        if p >= chars.len() || chars[p] == '}' { return false; }
+        // Check if first non-whitespace char starts an identifier
+        if !chars[p].is_alphabetic() && chars[p] != '_' { return false; }
+        // Skip the identifier
+        while p < chars.len() && (chars[p].is_alphanumeric() || chars[p] == '_') { p += 1; }
+        // Skip whitespace
+        while p < chars.len() && chars[p].is_whitespace() { p += 1; }
+        // Check if followed by ':'
+        p < chars.len() && chars[p] == ':'
+    }
 
     fn advance(&mut self) {
         self.current = self.lexer.next_token();
@@ -353,29 +425,37 @@ impl Parser {
         let name = self.expect_ident()?;
         self.expect(&Token::LParen)?;
         let mut params = Vec::new();
-        let mut first = true;
         while !matches!(self.current, Token::RParen) {
-            if !first { self.expect(&Token::Comma)?; }
-            first = false;
-            // Handle self/&self/&mut self
-            if matches!(self.current, Token::KwSelf) {
-                params.push(("self".into(), "Self".into()));
-                self.advance();
-                continue;
-            }
-            if matches!(self.current, Token::KwRefSelf) {
-                params.push(("self".into(), "&Self".into()));
-                self.advance();
-                continue;
-            }
             // Handle mut keyword before parameter name
             if matches!(self.current, Token::KwMut) { self.advance(); }
-            // Handle & reference pattern before parameter name
-            if matches!(self.current, Token::Amp) { self.advance(); }
+            // &self (tokenized as single KwRefSelf token)
+            if matches!(self.current, Token::KwRefSelf) {
+                self.advance();
+                if matches!(self.current, Token::Comma) { self.advance(); }
+                continue;
+            }
+            // Handle & reference pattern before parameter name (&self, &mut self, &T, &self)
+            if matches!(self.current, Token::Amp) {
+                self.advance();
+                if matches!(self.current, Token::KwMut) { self.advance(); }
+                // &self or &mut self — consume self token
+                if matches!(self.current, Token::KwSelf) {
+                    self.advance();
+                    if matches!(self.current, Token::Comma) { self.advance(); }
+                    continue;
+                }
+            }
+            // Handle self without &
+            if matches!(self.current, Token::KwSelf) {
+                self.advance();
+                if matches!(self.current, Token::Comma) { self.advance(); }
+                continue;
+            }
             let pname = self.expect_ident()?;
             self.expect(&Token::Colon)?;
             let ptype = self.parse_type()?;
             params.push((pname, ptype));
+            if matches!(self.current, Token::Comma) { self.advance(); }
         }
         self.expect(&Token::RParen)?;
         let ret_type = if matches!(self.current, Token::Arrow) {
@@ -415,6 +495,16 @@ impl Parser {
                 }
             }
             Token::KwContinue => { self.advance(); self.expect(&Token::Semi)?; Ok(Stmt::Continue) }
+            Token::KwConst => {
+                self.advance(); // const
+                let name = self.expect_ident()?;
+                self.expect(&Token::Colon)?;
+                let ty = self.parse_type()?;
+                self.expect(&Token::Eq)?;
+                let init = self.parse_expr()?;
+                self.expect(&Token::Semi)?;
+                Ok(Stmt::Let { name, mutable: false, ty, init: Some(init) })
+            }
             Token::KwMut => {
                 self.advance(); // mut
                 let name = self.expect_ident()?;
@@ -454,8 +544,10 @@ impl Parser {
         let mutable = matches!(self.current, Token::KwMut);
         if mutable { self.advance(); }
         let name = self.expect_ident()?;
-        self.expect(&Token::Colon)?;
-        let ty = self.parse_type()?;
+        let ty = if matches!(self.current, Token::Colon) {
+            self.advance();
+            self.parse_type()?
+        } else { String::new() };
         let init = if matches!(self.current, Token::Eq) {
             self.advance();
             let expr = self.parse_expr()?;
@@ -485,6 +577,21 @@ impl Parser {
             }
         } else { None };
         Ok(Stmt::If { cond, then_body, else_body })
+    }
+
+    fn parse_if_expr(&mut self) -> Result<Expr, String> {
+        self.advance(); // if
+        let cond = self.parse_expr()?;
+        let then_body = self.parse_block()?;
+        let else_body = if matches!(self.current, Token::KwElse) {
+            self.advance();
+            if matches!(self.current, Token::KwIf) {
+                vec![Stmt::Expr(self.parse_if_expr()?)]
+            } else {
+                self.parse_block()?
+            }
+        } else { vec![] };
+        Ok(Expr::If { cond: Box::new(cond), then_body, else_body })
     }
 
     fn parse_expr(&mut self) -> Result<Expr, String> {
@@ -532,13 +639,54 @@ impl Parser {
     }
 
     fn parse_comparison(&mut self) -> Result<Expr, String> {
-        let mut left = self.parse_term()?;
+        let mut left = self.parse_bitor()?;
         while matches!(self.current, Token::Lt | Token::Gt | Token::Le | Token::Ge) {
             let op = match self.current {
                 Token::Lt => BinOp::Lt, Token::Gt => BinOp::Gt,
                 Token::Le => BinOp::Le, Token::Ge => BinOp::Ge,
                 _ => unreachable!(),
             };
+            self.advance();
+            let right = self.parse_bitor()?;
+            left = Expr::Binary(Box::new(left), op, Box::new(right));
+        }
+        Ok(left)
+    }
+
+    fn parse_bitor(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_bitxor()?;
+        while matches!(self.current, Token::BitOr) {
+            self.advance();
+            let right = self.parse_bitxor()?;
+            left = Expr::Binary(Box::new(left), BinOp::BitOr, Box::new(right));
+        }
+        Ok(left)
+    }
+
+    fn parse_bitxor(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_bitand()?;
+        while matches!(self.current, Token::BitXor) {
+            self.advance();
+            let right = self.parse_bitand()?;
+            left = Expr::Binary(Box::new(left), BinOp::BitXor, Box::new(right));
+        }
+        Ok(left)
+    }
+
+    fn parse_bitand(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_shift()?;
+        while matches!(self.current, Token::Amp) {
+            self.advance();
+            let right = self.parse_shift()?;
+            left = Expr::Binary(Box::new(left), BinOp::BitAnd, Box::new(right));
+        }
+        Ok(left)
+    }
+
+    fn parse_shift(&mut self) -> Result<Expr, String> {
+        let mut left = self.parse_term()?;
+        while matches!(self.current, Token::Shl | Token::Shr) {
+            let op = if matches!(self.current, Token::Shl) { BinOp::Shl } else { BinOp::Shr };
             self.advance();
             let right = self.parse_term()?;
             left = Expr::Binary(Box::new(left), op, Box::new(right));
@@ -548,17 +696,15 @@ impl Parser {
 
     fn parse_term(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_factor()?;
-        while matches!(self.current, Token::Plus | Token::Minus) {
-            let op = if matches!(self.current, Token::Plus) { BinOp::Add } else { BinOp::Sub };
-            self.advance();
-            let right = self.parse_factor()?;
-            left = Expr::Binary(Box::new(left), op, Box::new(right));
-        }
-        // as cast
-        if matches!(self.current, Token::KwAs) {
-            self.advance();
-            let ty = self.parse_type()?;
-            left = Expr::Cast(Box::new(left), ty);
+        loop {
+            if matches!(self.current, Token::Plus | Token::Minus) {
+                let op = if matches!(self.current, Token::Plus) { BinOp::Add } else { BinOp::Sub };
+                self.advance();
+                let right = self.parse_factor()?;
+                left = Expr::Binary(Box::new(left), op, Box::new(right));
+            } else {
+                break;
+            }
         }
         Ok(left)
     }
@@ -581,7 +727,13 @@ impl Parser {
         match self.current {
             Token::Minus => { self.advance(); Ok(Expr::Unary(UnOp::Neg, Box::new(self.parse_unary()?))) }
             Token::Not => { self.advance(); Ok(Expr::Unary(UnOp::Not, Box::new(self.parse_unary()?))) }
-            Token::Amp => { self.advance(); Ok(Expr::Ref(Box::new(self.parse_unary()?))) }
+            Token::Amp => {
+                self.advance();
+                // Drop &mut (mutation info not needed by translator)
+                if matches!(self.current, Token::KwMut) { self.advance(); }
+                let inner = self.parse_unary()?;
+                Ok(Expr::Ref(Box::new(inner)))
+            }
             Token::Star => { self.advance(); Ok(Expr::Deref(Box::new(self.parse_unary()?))) }
             _ => self.parse_postfix(),
         }
@@ -612,6 +764,12 @@ impl Parser {
                     self.expect(&Token::RBracket)?;
                     expr = Expr::Index(Box::new(expr), Box::new(index));
                 }
+                // as cast — postfix operator like field access
+                Token::KwAs => {
+                    self.advance();
+                    let ty = self.parse_type()?;
+                    expr = Expr::Cast(Box::new(expr), ty);
+                }
                 _ => break,
             }
         }
@@ -625,8 +783,13 @@ impl Parser {
             Token::StrLit(s) => { let s = s.clone(); self.advance(); Ok(Expr::Str(s)) }
             Token::Ident(s) => {
                 let name = s.clone(); self.advance();
+                // Handle :: path separators: Edge::new(...) → Ident("Edge::new")
+                if matches!(self.current, Token::DoubleColon) {
+                    self.advance();
+                    let method = self.expect_ident()?;
+                    return Ok(Expr::Ident(format!("{}::{}", name, method)));
                 // Struct literal: Name { field: val, ... }
-                if matches!(self.current, Token::LBrace) {
+                } else if matches!(self.current, Token::LBrace) && self.looks_like_struct_lit() {
                     self.advance();
                     let mut fields = Vec::new();
                     while !matches!(self.current, Token::RBrace) {
@@ -646,6 +809,7 @@ impl Parser {
             Token::KwPrintlnInt => { self.advance(); self.expect(&Token::LParen)?; let arg = self.parse_expr()?; self.expect(&Token::RParen)?; Ok(Expr::Call { func: Box::new(Expr::Ident("printlnInt".into())), args: vec![arg] }) }
             Token::KwExit => { self.advance(); self.expect(&Token::LParen)?; self.parse_expr()?; self.expect(&Token::RParen)?; Ok(Expr::Ident("exit".into())) }
             Token::KwSelf => { self.advance(); Ok(Expr::Ident("self".into())) }
+            Token::KwIf => self.parse_if_expr(),
             Token::LParen => { self.advance(); let expr = self.parse_expr()?; self.expect(&Token::RParen)?; Ok(expr) }
             Token::LBracket => {
                 self.advance();
