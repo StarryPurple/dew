@@ -101,11 +101,10 @@ impl LlvmCtx {
 
 /// Emit a register as i64 for struct/enum storage, zexting Bool → i64.
 fn as_i64(r: usize, reg: usize, out: &mut String, ctx: &LlvmCtx) -> String {
-    if matches!(ctx.reg_ty(&reg), IrType::Bool) {
-        writeln!(out, "  %r{}_z = zext i1 %r{} to i64", r, reg).ok();
-        format!("%r{}_z", r)
-    } else {
-        format!("%r{}", reg)
+    match ctx.reg_ty(&reg) {
+        IrType::Bool => { writeln!(out, "  %r{}_z = zext i1 %r{} to i64", r, reg).ok(); format!("%r{}_z", r) }
+        IrType::Char => { writeln!(out, "  %r{}_z = zext i32 %r{} to i64", r, reg).ok(); format!("%r{}_z", r) }
+        _ => format!("%r{}", reg),
     }
 }
 
@@ -113,7 +112,7 @@ fn ir_type_to_llvm(ty: &IrType) -> String {
     match ty {
         IrType::Int => "i64".into(),
         IrType::Bool => "i1".into(),
-        IrType::Char => "i64".into(),
+        IrType::Char => "i32".into(),
         IrType::Unit => "void".into(),
         IrType::Struct(name) if name == "%tuple" => "i64".into(), // tuple placeholder — use i64
         IrType::Struct(name) => format!("%struct.{}", name),
@@ -319,7 +318,7 @@ fn emit_fn(func: &Fn, all_thunks: &[Thunk], all_fns: &[Fn], _types: &TypeTable, 
         for instr in &block.instrs {
             emit_llvm_instr(instr, all_thunks, all_fns, _types, out, ctx)?;
         }
-        emit_terminator(&block.terminator, &func.return_type, out, func.name == "main")?;
+        emit_terminator(&block.terminator, &func.return_type, out, ctx, func.name == "main")?;
     }
     writeln!(out, "}}\n").ok();
     Ok(())
@@ -333,7 +332,7 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             match v {
                 LitValue::Int(n) => writeln!(out, "  %r{} = add i64 0, {}", r, n).ok(),
                 LitValue::Bool(b) => writeln!(out, "  %r{} = add i1 0, {}", r, if *b { "true" } else { "false" }).ok(),
-                LitValue::Char(c) => writeln!(out, "  %r{} = add i64 0, {}", r, *c as u32 as i64).ok(),
+                LitValue::Char(c) => writeln!(out, "  %r{} = add i32 0, {}", r, *c as u32 as i32).ok(),
             };
         }
         Instr::Add(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = add i64 %r{}, %r{}", r, a, b).ok(); }
@@ -411,13 +410,14 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             writeln!(out, "  %r{} = call {} @force_{}()", r, force_ret, name).ok();
         }
         Instr::Stdout(r) => {
-            let out_val = if matches!(ctx.reg_ty(r), IrType::Bool) {
-                writeln!(out, "  %r{}_p = zext i1 %r{} to i64", r, r).ok();
-                format!("i64 %r{}_p", r)
-            } else {
-                format!("i64 %r{}", r)
-            };
-            writeln!(out, "  call i32 (ptr, ...) @printf(ptr @.fmt_int, {})", out_val).ok();
+            match ctx.reg_ty(r) {
+                IrType::Char => { writeln!(out, "  %r{}_c = call i32 @putchar(i32 %r{})", r, r).ok(); }
+                IrType::Bool => {
+                    writeln!(out, "  %r{}_b = zext i1 %r{} to i64", r, r).ok();
+                    writeln!(out, "  call i32 (ptr, ...) @printf(ptr @.fmt_int, i64 %r{}_b)", r).ok();
+                }
+                _ => { writeln!(out, "  call i32 (ptr, ...) @printf(ptr @.fmt_int, i64 %r{})", r).ok(); }
+            }
         }
         Instr::Stdin(r) => { ctx.set_reg(*r, IrType::Int);
             writeln!(out, "  %r{}_ptr = alloca i64", r).ok();
@@ -770,7 +770,7 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
     Ok(())
 }
 
-fn emit_terminator(t: &Terminator, ret_ty: &IrType, out: &mut String, is_main: bool) -> Result<(), String> {
+fn emit_terminator(t: &Terminator, ret_ty: &IrType, out: &mut String, ctx: &LlvmCtx, is_main: bool) -> Result<(), String> {
     match t {
         Terminator::Ret(r) => {
             if is_main {
@@ -782,7 +782,12 @@ fn emit_terminator(t: &Terminator, ret_ty: &IrType, out: &mut String, is_main: b
                     IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
                     _ => ir_type_to_llvm(ret_ty),
                 };
-                writeln!(out, "  ret {} %r{}", rt, r).ok();
+                // If register type doesn't match declared return type, convert
+                let val = match (ret_ty, ctx.reg_ty(r)) {
+                    (IrType::Int, IrType::Char) => { writeln!(out, "  %r{}_ret = zext i32 %r{} to i64", r, r).ok(); format!("%r{}_ret", r) }
+                    _ => format!("%r{}", r),
+                };
+                writeln!(out, "  ret {} {}", rt, val).ok();
             }
         }
         Terminator::Br(cond, t_label, f_label) => {
