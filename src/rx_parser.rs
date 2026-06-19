@@ -363,6 +363,8 @@ impl Parser {
                 self.advance();
                 continue;
             }
+            // Handle mut keyword before parameter name
+            if matches!(self.current, Token::KwMut) { self.advance(); }
             let pname = self.expect_ident()?;
             self.expect(&Token::Colon)?;
             let ptype = self.parse_type()?;
@@ -626,6 +628,7 @@ impl Parser {
             Token::KwPrintInt => { self.advance(); self.expect(&Token::LParen)?; let arg = self.parse_expr()?; self.expect(&Token::RParen)?; Ok(Expr::Call { func: Box::new(Expr::Ident("printInt".into())), args: vec![arg] }) }
             Token::KwPrintlnInt => { self.advance(); self.expect(&Token::LParen)?; let arg = self.parse_expr()?; self.expect(&Token::RParen)?; Ok(Expr::Call { func: Box::new(Expr::Ident("printlnInt".into())), args: vec![arg] }) }
             Token::KwExit => { self.advance(); self.expect(&Token::LParen)?; self.parse_expr()?; self.expect(&Token::RParen)?; Ok(Expr::Ident("exit".into())) }
+            Token::KwSelf => { self.advance(); Ok(Expr::Ident("self".into())) }
             Token::LParen => { self.advance(); let expr = self.parse_expr()?; self.expect(&Token::RParen)?; Ok(expr) }
             Token::LBracket => {
                 self.advance();
