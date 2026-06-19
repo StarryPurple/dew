@@ -9,7 +9,7 @@ pub enum Token {
     Plus, Minus, Star, Slash, Percent,
     EqEq, Ne, Lt, Gt, Le, Ge,
     And, Or, Not, Amp, BitOr, BitXor, Shl, Shr,
-    Eq, PlusEq, MinusEq, StarEq, SlashEq, PercentEq,
+    Eq, PlusEq, MinusEq, StarEq, SlashEq, PercentEq, CaretEq, ShlEq, ShrEq,
     LParen, RParen, LBrace, RBrace, LBracket, RBracket,
     Colon, DoubleColon, Semi, Comma, Dot, Arrow, FatArrow,
     Eof,
@@ -84,10 +84,7 @@ impl Lexer {
                             self.advance();
                         } else { break; }
                     }
-                    // Skip type suffix like u32, i64
-                    while let Some(c) = self.peek_char() {
-                        if c.is_alphabetic() || c == '_' { self.advance(); } else { break; }
-                    }
+                    skip_type_suffix(self);
                     return n;
                 }
                 Some('o') | Some('O') => {
@@ -98,9 +95,7 @@ impl Lexer {
                             self.advance();
                         } else { break; }
                     }
-                    while let Some(c) = self.peek_char() {
-                        if c.is_alphabetic() || c == '_' { self.advance(); } else { break; }
-                    }
+                    skip_type_suffix(self);
                     return n;
                 }
                 Some('b') | Some('B') => {
@@ -108,9 +103,7 @@ impl Lexer {
                     while let Some(c) = self.peek_char() {
                         if c == '0' || c == '1' { n = n * 2 + (c as i64 - '0' as i64); self.advance(); } else { break; }
                     }
-                    while let Some(c) = self.peek_char() {
-                        if c.is_alphabetic() || c == '_' { self.advance(); } else { break; }
-                    }
+                    skip_type_suffix(self);
                     return n;
                 }
                 _ => { n = 0; } // just the digit 0
@@ -121,9 +114,7 @@ impl Lexer {
             if c.is_ascii_digit() { n = n * 10 + (c as i64 - '0' as i64); self.advance(); } else { break; }
         }
         // Skip type suffix like u32, i64, usize
-        while let Some(c) = self.peek_char() {
-            if c.is_alphabetic() || c == '_' { self.advance(); } else { break; }
-        }
+        skip_type_suffix(self);
         n
     }
 
@@ -183,16 +174,40 @@ impl Lexer {
             '%' => if self.peek_char() == Some('=') { self.advance(); Token::PercentEq } else { Token::Percent },
             '=' => if self.peek_char() == Some('=') { self.advance(); Token::EqEq } else { Token::Eq },
             '!' => if self.peek_char() == Some('=') { self.advance(); Token::Ne } else { Token::Not },
-            '<' => if self.peek_char() == Some('=') { self.advance(); Token::Le } else if self.peek_char() == Some('<') { self.advance(); Token::Shl } else { Token::Lt },
-            '>' => if self.peek_char() == Some('=') { self.advance(); Token::Ge } else if self.peek_char() == Some('>') { self.advance(); Token::Shr } else { Token::Gt },
+            '>' => {
+                if self.peek_char() == Some('>') { self.advance(); 
+                    if self.peek_char() == Some('=') { self.advance(); Token::ShrEq }
+                    else { Token::Shr }
+                } else if self.peek_char() == Some('=') { self.advance(); Token::Ge }
+                else { Token::Gt }
+            },
+            '<' => {
+                if self.peek_char() == Some('<') { self.advance();
+                    if self.peek_char() == Some('=') { self.advance(); Token::ShlEq }
+                    else { Token::Shl }
+                } else if self.peek_char() == Some('=') { self.advance(); Token::Le }
+                else { Token::Lt }
+            },
             '&' => if self.peek_char() == Some('&') { self.advance(); Token::And } else { Token::Amp },
             '|' => if self.peek_char() == Some('|') { self.advance(); Token::Or } else { Token::BitOr },
-            '^' => { Token::BitXor },
+            '^' => if self.peek_char() == Some('=') { self.advance(); Token::CaretEq } else { Token::BitXor },
             '(' => Token::LParen, ')' => Token::RParen, '{' => Token::LBrace, '}' => Token::RBrace,
             '[' => Token::LBracket, ']' => Token::RBracket,
             ':' => if self.peek_char() == Some(':') { self.advance(); Token::DoubleColon } else { Token::Colon },
             ';' => Token::Semi, ',' => Token::Comma, '.' => Token::Dot,
             _ => Token::Eof,
+        }
+    }
+}
+
+/// Skip Rust integer type suffix (u32, i64, usize, etc.)
+fn skip_type_suffix(lex: &mut Lexer) {
+    if let Some(c) = lex.peek_char() {
+        if c.is_alphabetic() || c == '_' {
+            lex.advance();
+            while let Some(c) = lex.peek_char() {
+                if c.is_alphanumeric() || c == '_' { lex.advance(); } else { break; }
+            }
         }
     }
 }
@@ -523,7 +538,7 @@ impl Parser {
             }
             _ => {
                 let expr = self.parse_expr()?;
-                if matches!(self.current, Token::Eq | Token::PlusEq | Token::MinusEq | Token::StarEq | Token::SlashEq | Token::PercentEq) {
+                if matches!(self.current, Token::Eq | Token::PlusEq | Token::MinusEq | Token::StarEq | Token::SlashEq | Token::PercentEq | Token::CaretEq | Token::ShlEq | Token::ShrEq) {
                     let op = match self.current {
                         Token::Eq => AssignOp::Plain,
                         Token::PlusEq => AssignOp::Plus,
@@ -531,6 +546,9 @@ impl Parser {
                         Token::StarEq => AssignOp::Star,
                         Token::SlashEq => AssignOp::Slash,
                         Token::PercentEq => AssignOp::Percent,
+                        Token::CaretEq => AssignOp::Plain,
+                        Token::ShlEq => AssignOp::Plain,
+                        Token::ShrEq => AssignOp::Plain,
                         _ => AssignOp::Plain,
                     };
                     self.advance();
