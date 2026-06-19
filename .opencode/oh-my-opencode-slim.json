@@ -39,5 +39,13 @@
         "mcps": []
       }
     }
+  },
+  "servers": {
+    "dew-lsp": {
+      "type": "lsp",
+      "command": "./target/debug/dew",
+      "args": ["lsp"],
+      "languages": { "dew": ".dew", "dewir": ".dewir" }
+    }
   }
 }

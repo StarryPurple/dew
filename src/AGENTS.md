@@ -32,7 +32,7 @@ Rx Source ──► rx_parser ──► rx2dew_ir ──► Dew Source
 | 8 | Evaluator | `src/eval.rs` | ✅ Stable | — |
 | 9 | Values | `src/value.rs` | ✅ Stable | — |
 | 10 | Diagnostics | `src/diagnostics.rs` | ✅ Stable | — |
-| 11 | LSP | `src/lsp.rs` | ✅ Stable | — |
+| 11 | LSP | `src/lsp.rs` | ✅ Stable | JSON-RPC diagnostics for .dew/.dewir |
 | 12 | CLI | `src/main.rs` | ✅ Stable | — |
 | 13 | Rx Parser | `src/rx_parser.rs` | 🔶 Active dev | — |
 | 14 | Rx→Dew Translator | `src/rx2dew_ir.rs` | 🔶 Active dev | — |
@@ -289,9 +289,13 @@ Comma, Semicolon, Colon, Underscore, Eq, Eof
 **Purpose**: Language Server Protocol implementation (JSON-RPC over stdio).
 
 **Supported features**:
-- `textDocument/didOpen` — parse and check documents
-- `textDocument/didChange` — incremental re-parse
-- Diagnostics published on change
+- `textDocument/didOpen` — parse and check documents, publish diagnostics
+- `textDocument/didChange` — incremental re-parse, publish diagnostics
+- `textDocument/didClose` — clear diagnostics
+- Registers `.dew` and `.dewir` language extensions
+- Zero external Rust dependencies — raw JSON parsing
+
+**Supported diagnostics**: Errors from parse, name resolution, type checking, borrow/effect checking.
 
 ---
 
