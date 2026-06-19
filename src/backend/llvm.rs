@@ -240,6 +240,8 @@ fn emit_externals(out: &mut String) {
     writeln!(out, "@arena.off = global i64 0").ok();
     writeln!(out, "@.fmt_int = private constant [4 x i8] c\"%ld\\00\"", ).ok();
     writeln!(out, "@.fmt_char = private constant [3 x i8] c\"%c\\00\"", ).ok();
+    writeln!(out, "@.str_true = private constant [5 x i8] c\"true\\00\"").ok();
+    writeln!(out, "@.str_false = private constant [6 x i8] c\"false\\00\"").ok();
     writeln!(out, "declare i32 @printf(ptr, ...)").ok();
     writeln!(out, "declare i32 @scanf(ptr, ...)").ok();
     writeln!(out, "declare i32 @putchar(i32)").ok();
@@ -446,8 +448,16 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             match ctx.reg_ty(r) {
                 IrType::Char => { writeln!(out, "  %r{}_c = call i32 @putchar(i32 %r{})", r, r).ok(); }
                 IrType::Bool => {
-                    writeln!(out, "  %r{}_b = zext i1 %r{} to i64", r, r).ok();
-                    writeln!(out, "  call i32 (ptr, ...) @printf(ptr @.fmt_int, i64 %r{}_b)", r).ok();
+                    writeln!(out, "  %r{}_z = zext i1 %r{} to i64", r, r).ok();
+                    writeln!(out, "  %r{}_c = icmp ne i64 %r{}_z, 0", r, r).ok();
+                    writeln!(out, "  br i1 %r{}_c, label %sout_t{}, label %sout_f{}", r, r, r).ok();
+                    writeln!(out, "sout_t{}:", r).ok();
+                    writeln!(out, "  %r{}_st = call i32 (ptr, ...) @printf(ptr @.str_true)", r).ok();
+                    writeln!(out, "  br label %sout_d{}", r).ok();
+                    writeln!(out, "sout_f{}:", r).ok();
+                    writeln!(out, "  %r{}_sf = call i32 (ptr, ...) @printf(ptr @.str_false)", r).ok();
+                    writeln!(out, "  br label %sout_d{}", r).ok();
+                    writeln!(out, "sout_d{}:", r).ok();
                 }
                 _ => { writeln!(out, "  call i32 (ptr, ...) @printf(ptr @.fmt_int, i64 %r{})", r).ok(); }
             }
