@@ -1,0 +1,26 @@
+{
+  "name": "dew-lang",
+  "displayName": "Dew Language",
+  "description": "Dew, a pure functional language with affine types",
+  "version": "0.1.0",
+  "publisher": "dew-org",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:dew", "onLanguage:dewir"],
+  "main": "./src/extension",
+  "contributes": {
+    "languages": [
+      { "id": "dew", "aliases": ["Dew"], "extensions": [".dew"], "configuration": "./language-config.json" },
+      { "id": "dewir", "aliases": ["Dew IR"], "extensions": [".dewir"], "configuration": "./language-config.json" }
+    ],
+    "grammars": [
+      { "language": "dew", "scopeName": "source.dew", "path": "./syntaxes/dew.json" },
+      { "language": "dewir", "scopeName": "source.dewir", "path": "./syntaxes/dewir.json" }
+    ],
+    "configuration": {
+      "title": "Dew",
+      "properties": { "dew.compilerPath": { "type": "string", "default": "dew", "description": "Path to the 'dew' compiler binary" } }
+    }
+  },
+  "dependencies": { "vscode-languageclient": "^9.0.0" }
+}

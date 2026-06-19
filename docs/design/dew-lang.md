@@ -1972,16 +1972,17 @@ let mut n = 5;
 while n > 0 { n = n - 1; }
 
 // Dew (output from translator)
-{ def rec %loop = fn(&n: Int) -> Int {
-    if n > 0 { &n = n - 1; %loop(&n) } else { n }
-  };
-  %loop(&n)
-}
+def n = 5;
+def n = fix loop {
+  fn(&n: Int) -> Int {
+    if n > 0 { &n = n - 1; loop(&n) } else { n }
+  }
+}(&n)
 ```
 
-The translator performs variable analysis on the loop body to identify mutated state, collects it into borrow parameters, and generates tail-recursive function calls. The Dew core language sees only `def rec`, `fn`, `if`/`else`, and `&` rebinding — no loop primitives needed.
+The translator performs variable analysis on the loop body to identify mutated state, collects it into borrow parameters, and generates `fix` expressions with tail-recursive calls. The Dew core language sees only `fix`, `fn`, `if`/`else`, and `&` rebinding — no loop primitives needed.
 
-See [§3.4 While Loop Translation](rx-dew-interop.md#34-control-flow-translation) in the interop specification for the complete translation rules including `break` and `continue`.
+See [§3.4 Control Flow Translation](rx-dew-interop.md#34-control-flow-translation) in the interop specification for the complete translation rules including `break`, `continue`, and `return`.
 
 ---
 

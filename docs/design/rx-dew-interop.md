@@ -1,15 +1,38 @@
 # Rx ↔ Dew Interop
 
 > **Canonical specification** for translating between Rx (Rust-like imperative) and Dew (pure functional).  
-> Last updated: 2026-06-15.
+> Last updated: 2026-06-19.
 
-[§1 Motivation](#1-motivation) ·
-[§2 Rx Profile](#2-rx-language-profile) ·
-[§3 Translation Rules](#3-translation-rules) ·
-[§4 Architecture](#4-architecture) ·
-[§5 Invariants](#5-translation-invariants) ·
-[§6 Limitations](#6-limitations-and-future-work) ·
-[§7 Reference](#7-reference)
+### Contents
+
+- [§1 Motivation](#1-motivation)
+- [§2 Rx Language Profile](#2-rx-language-profile)
+- [§3 Translation Rules](#3-translation-rules)
+  - [§3.1 Type Mapping](#31-type-mapping)
+  - [§3.2 Function Translation](#32-function-translation)
+  - [§3.3 Mutation → Ownership Transfer](#33-mutation--ownership-transfer)
+  - [§3.4 Control Flow Translation](#34-control-flow-translation)
+  - [§3.5 Reference → Ownership + Return](#35-reference--ownership--return)
+  - [§3.6 Match Translation](#36-match-translation)
+  - [§3.7 Special Cases](#37-special-cases)
+- [§4 Architecture](#4-architecture)
+  - [§4.1 Translation Pipeline](#41-translation-pipeline)
+  - [§4.2 DewEmitter](#42-dewemitter)
+  - [§4.3 Safety Analysis](#43-safety-analysis)
+- [§5 Safety Analysis Layers](#5-safety-analysis-layers)
+  - [§5.1 Affiliation to Poison Value Mapping](#51-affiliation-to-poison-value-mapping)
+  - [§5.2 Owned Pointer Encoding](#52-owned-pointer-encoding)
+  - [§5.3 Provenance Encoding](#53-provenance-encoding)
+- [§6 Translation Invariants](#6-translation-invariants)
+- [§7 Reverse Translation (Dew → Rx)](#7-reverse-translation-dew--rx)
+  - [§7.1 Type Mapping](#71-type-mapping)
+  - [§7.2 Function Translation](#72-function-translation)
+  - [§7.3 Ownership → Mutation](#73-ownership--mutation)
+  - [§7.4 Recursion → Loop](#74-recursion--loop)
+  - [§7.5 Match → if/else](#75-match--ifelse)
+  - [§7.6 Limitations](#76-limitations)
+- [§8 Limitations and Future Work](#8-limitations-and-future-work)
+- [§9 Reference](#9-reference)
 
 ---
 
@@ -43,16 +66,18 @@ Rx is a **Rust subset** implemented by the RustShard-Compiler. Key characteristi
 
 | Category | Rx Feature | Notes |
 |----------|-----------|-------|
-| **Types** | `i32`, `bool`, `()`, `f64`, `&T`, `&mut T`, `[T]`, `[T; N]`, user structs/enums | No generics, no lifetimes |
+| **Types** | `i8`–`i64`, `u8`–`u64`, `bool`, `()`, `&T`, `&mut T`, `[T; N]`, user structs/enums | No generics, no lifetimes |
 | **Mutability** | `let mut`, `=`, `+=`, `-=`, `*=` etc. | Full mutation model |
 | **Control** | `if`, `else`, `loop`, `while`, `match`, `break`, `continue`, `return` | All imperative control flow |
 | **Functions** | `fn`, `impl`, methods, `self`, `&self`, `&mut self` | No closures |
 | **Memory** | References `&T`, `&mut T`, deref `*expr` | No borrow checker (compiler only checks syntax) |
-| **Structs** | Named fields (`S { x: 1, y: 2 }`) | Positional construction |
-| **Enums** | Simple variants, optional discriminant | No payload (limited) |
+| **Structs** | Named fields (`S { x: 1, y: 2 }`) | Named construction |
+| **Enums** | Simple variants, optional discriminant | Limited payload support |
 | **Other** | `trait`, `impl Trait for Type`, `const`, `type` alias | Typeclass-like features |
 
-**What Rx does NOT have**: closures, generics, lifetimes, pattern matching on enums, iterators, `for` loops.
+**What Rx does NOT have**: closures, generics, lifetimes, iterators, `for` loops, labeled `break`/`continue`.
+
+> The Rx compiler's internal type system includes entries for `f32`, `f64`, `str`, and `Range` types. However, these are not meaningfully exercised by current Rx programs. The translator maps `f64` → `Int` as a temporary measure; full float support awaits a Dew `Float` type. Range expressions (`a..b`, `a..=b`) are desugared to explicit bounds at translation time (see [§3.7](#37-special-cases)).
 
 ---
 
@@ -62,17 +87,20 @@ Rx is a **Rust subset** implemented by the RustShard-Compiler. Key characteristi
 
 | Rx Type | Dew Type | Notes |
 |---------|----------|-------|
-| `i32` | `Int` | Signed 64-bit (Dew has no 32-bit) |
+| `i8`, `i16`, `i32`, `i64` | `Int` | Dew `Int` is signed 64-bit; all Rx signed integers fit |
+| `u8`, `u16`, `u32`, `u64` | `Int` | Same — Dew has no unsigned type; values fit in `i64` |
 | `bool` | `Bool` | Direct mapping |
-| `char` | `Char` | (Rx: 8-bit ASCII → Dew: Unicode) |
-| `()` | `Unit` | Dew rejects `()`, uses `Unit` keyword |
-| `f64` | `Int` (temporary) | Dew has no Float; truncate for now |
+| `char` | `Char` | Rx: 8-bit ASCII → Dew: `Char` (ASCII in current Dew) |
+| `()` | `Unit` | Dew uses `Unit` keyword, not `()` |
+| `f64` | `Int` (temporary) | Dew has no Float; truncate for now. See [§8](#8-limitations-and-future-work) |
 | `[T; N]` | `Array(T, N)` | Direct mapping |
-| `[T]` | `Array(T, ?)` | Slice size unknown → needs length parameter |
+| `[T]` (slice) | — | No direct Dew equivalent; requires length parameter or `List(T)` |
 | `&T` | `T` | Reference → owned value (ownership passed) |
 | `&mut T` | `T` + `&` rebinding | Mutable ref → ownership transfer + rebind |
-| `Struct S { .. }` | `struct S { .. }` | Named → positional (Dew convention) |
-| `Enum E { .. }` | `enum E { .. }` | Direct mapping |
+| `Struct S { .. }` | `struct S { .. }` | Both use named fields; Dew construction uses `{ field: val }` |
+| `Enum E { .. }` | `enum E { .. }` | Direct mapping; Rx payloads become Dew variant payloads |
+
+> **Integer widening is safe.** All Rx integer types (`i8`–`i64`, `u8`–`u64`) fit within Dew's `Int` (= `i64`). Negative `i64` values in Rx map to negative `Int` values in Dew. Unsigned values `u64` up to `2^63 - 1` map directly; values above `2^63 - 1` would require `u128` or bigint, which Dew does not currently support — the translator rejects such programs with an error.
 
 ### 3.2 Function Translation
 
@@ -124,6 +152,14 @@ def x = 1;
 
 `let mut` → `def` (initial binding). Subsequent mutations → `&name = expr;` (rebind with ownership transfer).
 
+**Compound assignment operators** desugar before translation:
+
+| Rx | Desugared Rx | Dew |
+|----|-------------|-----|
+| `x += 1` | `x = x + 1` | `&x = x + 1` |
+| `x -= 1` | `x = x - 1` | `&x = x - 1` |
+| `x *= 2` | `x = x * 2` | `&x = x * 2` |
+
 **Complex mutation (field access):**
 ```rust
 let mut p = Point { x: 1, y: 2 };
@@ -132,14 +168,64 @@ p.x = 10;
 
 **Dew:**
 ```dew
-def p = Point(1, 2);
+def p = Point { x: 1, y: 2 };
 &p { x = 10 };
 ```
 
-### 3.4 Loop → Recursion
+### 3.4 Control Flow Translation
 
-**Rx:**
+Imperative control flow in Rx must be translated to Dew's expression-based, `if`-with-`else`, no-`return` model. The translator restructures control flow so every code path produces a value.
+
+> This section is the hardest part of the translation. Rx has three non-local exit mechanisms (`return`, `break`, `continue`) that Dew has no direct equivalent for. The translation strategy follows three principles: (1) **restructure** — push code after an early exit into the `else` branch; (2) **Option-encode** — use `Option(T)` to distinguish normal completion from early exit when restructuring alone is insufficient; (3) **never-type elimination** — ensure no expression in the translated Dew code has a "never" type, because Dew does not have one.
+
+#### 3.4.1 `if`/`else` Restructuring
+
+Rx allows `if` without `else` (producing `()` in the missing branch). Dew requires `else`. The translator inserts `else { Unit }` for Rx `if` statements without `else`:
+
 ```rust
+// Rx:
+if cond { do_something(); }
+```
+
+```dew
+// Dew:
+if cond { do_something(); Unit } else { Unit }
+```
+
+**`return` inside `if` blocks** requires restructuring. Each `return expr` pushes all remaining code into the `else` branch:
+
+```rust
+// Rx:
+fn f(x: i32) -> i32 {
+    if x < 0 { return 0; }
+    if x > 100 { return 100; }
+    x
+}
+```
+
+```dew
+// Dew:
+def f = fn(x: Int) -> Int {
+  if x < 0 { 0 }
+  else if x > 100 { 100 }
+  else { x }
+}
+```
+
+The translator walks the function body linearly. When it encounters a `return expr` inside an `if` branch, it replaces the `return expr` with `expr` and wraps all subsequent statements in the `else` branch. Multiple `return` statements produce nested `if`/`else` chains, which Dew's `else if` sugar renders naturally.
+
+#### 3.4.2 Loop → Recursion
+
+Rx loops become recursive functions in Dew. The translator:
+
+1. Identifies all mutable variables modified in the loop body
+2. Collects them into [borrow parameters](#35-reference--ownership--return) of the loop function
+3. Generates a `fix` expression with tail-recursive calls
+
+**`while` loop:**
+
+```rust
+// Rx:
 let mut i = 0;
 while i < n {
     // body
@@ -147,44 +233,219 @@ while i < n {
 }
 ```
 
-**Dew:**
 ```dew
-def loop_body = fn(&i: Int, n: Int) -> Int {
-  if i < n {
-    &i = i + 1;
-    loop_body(&i, n)
-  } else { i }
-};
-loop_body(&0, n)
-```
-
-Or using `fix`:
-```dew
-fix loop {
+// Dew:
+def i = 0;
+def i = fix loop {
   fn(&i: Int, n: Int) -> Int {
-    if i < n { loop(&i + 1, n) } else { i }
+    if i < n {
+      // body
+      &i = i + 1;
+      loop(&i, n)
+    } else { i }
   }
-}(&0, n)
+}(&i, n)
 ```
 
-**`break` with value → return from loop function:**
+**`loop` (infinite loop):**
+
 ```rust
+// Rx:
 loop {
-    if cond { break value; }
+    if done { break; }
     // body
 }
 ```
 
-**Dew:**
 ```dew
+// Dew:
 fix loop {
-  fn(state: T) -> Int {
-    if cond { value } else { loop(next_state) }
+  fn(state: T) -> T {
+    if done { state }
+    else {
+      // body
+      loop(next_state)
+    }
   }
 }(initial_state)
 ```
 
-**`continue` → recursive call without value change.**
+> The loop function name (`loop` in these examples) is a local binding created by `fix`. It does not conflict with user-defined names because `fix` introduces a new scope. The translator generates fresh names if needed to avoid shadowing user bindings.
+
+#### 3.4.3 `break` and `continue`
+
+**`break` without value** → return the current loop state from the loop function.
+
+**`break expr`** → return `expr` from the loop function. The loop function's return type must accommodate `expr`'s type.
+
+**`continue`** → recursive call with current state (skip remaining body).
+
+```rust
+// Rx:
+let mut i = 0;
+while i < n {
+    if i == target { break; }
+    if skip(i) { i = i + 1; continue; }
+    process(i);
+    i = i + 1;
+}
+```
+
+```dew
+// Dew:
+def i = 0;
+def i = fix loop {
+  fn(&i: Int, n: Int, target: Int) -> Int {
+    if i < n {
+      if i == target { i }                                  // break
+      else if skip(i) { &i = i + 1; loop(&i, n, target) }  // continue
+      else {
+        process(i);
+        &i = i + 1;
+        loop(&i, n, target)
+      }
+    } else { i }                                            // normal loop end
+  }
+}(&i, n, target)
+```
+
+> `break` and `continue` are local to the enclosing loop. They do not cross function boundaries. Rx has no labeled `break`/`continue`, so there is no ambiguity about which loop is the target.
+
+#### 3.4.4 `return` Translation
+
+`return` in Rx is non-local — it exits the entire function, not just the enclosing block. The translation strategy depends on where the `return` appears.
+
+**Case 1: `return` outside any loop** → restructure into `if`/`else` (see [§3.4.1](#341-ifelse-restructuring)). Each `return expr` replaces the remaining code with `expr` in the `then` branch and pushes the rest into `else`.
+
+**Case 2: `return` inside a `loop` that is the function's final expression** → `return expr` is equivalent to `break expr`. The loop function returns `expr` directly:
+
+```rust
+// Rx:
+fn countdown(n: i32) -> i32 {
+    let mut i = n;
+    loop {
+        if i == 0 { return 0; }
+        i = i - 1;
+    }
+    // unreachable: loop always returns via break/return
+}
+```
+
+```dew
+// Dew:
+def countdown = fn(n: Int) -> Int {
+  def i = n;
+  fix loop {
+    fn(&i: Int) -> Int {
+      if i == 0 { 0 }                // return 0 ≡ break 0
+      else { &i = i - 1; loop(&i) }
+    }
+  }(&i)
+}
+```
+
+When the `loop` is the function's tail expression and every path through the loop body ends with `break expr` or `return expr`, the loop function's return type is the type of those expressions. No `Option` encoding is needed.
+
+**Case 3: `return` inside a loop with code after the loop** → **Option encoding**. The loop function returns `Option(T)` where `Some(v)` means early return with value `v`, and `None` means normal loop completion. The caller matches on the result:
+
+```rust
+// Rx:
+fn find(arr: [i32; N], n: i32) -> i32 {
+    let mut i = 0;
+    while i < n {
+        if arr[i] < 0 { return i; }
+        i = i + 1;
+    }
+    -1  // not found
+}
+```
+
+```dew
+// Dew:
+def find = fn(arr: Array(Int, N), n: Int) -> Int {
+  def i = 0;
+  def loop_result = fix loop {
+    fn(&i: Int, n: Int) -> Option(Int) {
+      if i < n {
+        if arr[i] < 0 { Some(i) }          // return i
+        else {
+          &i = i + 1;
+          loop(&i, n)
+        }
+      } else { None }                       // loop ended normally
+    }
+  }(&i, n);
+  match loop_result {
+    Some(v) => v,
+    None => -1,
+  }
+}
+```
+
+> The Option encoding is chosen over alternatives (CPS, exception monad, sum-type multiplexing) because: (1) Dew has `Option(T)` in the standard library; (2) the translated code is human-readable; (3) Rx has no labeled `break`/`continue`, so at most two exit modes exist per loop (normal completion vs early return); (4) the encoding composes naturally through nesting (see §3.4.5).
+
+**When to use Option encoding — decision table:**
+
+| `return` location | Code after loop? | Translation |
+|---|---|---|
+| Outside any loop | N/A | Restructure into `if`/`else` (Case 1) |
+| Inside `loop`, loop is function tail | No (loop is tail) | `return` ≡ `break` (Case 2) |
+| Inside `loop`, code after loop | Yes | `Option(T)` encoding (Case 3) |
+| Inside `while`, code after loop | Yes (always — `while` produces `()`) | `Option(T)` encoding (Case 3) |
+
+> A `while` loop always has "code after the loop" because `while` evaluates to `()` — the function's actual return value comes from the expression after the `while`. Therefore, any `return` inside a `while` loop always uses Case 3.
+
+#### 3.4.5 Nested Loops with `return`
+
+When `return` appears inside a nested loop, the Option encoding composes: each loop level wraps its result in `Option`, and the enclosing level propagates `Some` upward.
+
+```rust
+// Rx:
+fn search(grid: [[i32; C]; R], rows: i32, cols: i32, target: i32) -> i32 {
+    let mut i = 0;
+    while i < rows {
+        let mut j = 0;
+        while j < cols {
+            if grid[i][j] == target { return i + j; }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    -1
+}
+```
+
+```dew
+// Dew:
+def search = fn(grid: Array(Array(Int, C), R), rows: Int, cols: Int, target: Int) -> Int {
+  def i = 0;
+  def outer_result = fix outer {
+    fn(&i: Int, rows: Int, cols: Int, target: Int) -> Option(Int) {
+      if i < rows {
+        def j = 0;
+        def inner_result = fix inner {
+          fn(&j: Int, cols: Int, target: Int, row: Array(Int, C)) -> Option(Int) {
+            if j < cols {
+              if row[j] == target { Some(i + j) }    // return — propagate upward
+              else { &j = j + 1; inner(&j, cols, target, row) }
+            } else { None }                           // inner loop ended normally
+          }
+        }(&j, cols, target, grid[i]);
+        match inner_result {
+          Some(v) => Some(v),                         // propagate early return
+          None => { &i = i + 1; outer(&i, rows, cols, target) }
+        }
+      } else { None }                                // outer loop ended normally
+    }
+  }(&i, rows, cols, target);
+  match outer_result {
+    Some(v) => v,
+    None => -1,
+  }
+}
+```
+
+> The propagation rule is uniform: if an inner loop returns `Some(v)`, the enclosing loop immediately returns `Some(v)` without further iteration. If the inner loop returns `None` (normal completion), the outer loop continues. This mirrors how `return` works in imperative languages — it unwinds all enclosing loops.
 
 ### 3.5 Reference → Ownership + Return
 
@@ -209,62 +470,92 @@ The `&mut Point` parameter becomes `&p: Point` (ownership + rebind). The functio
 increment(&mut p);
 ```
 
-**Dew:**
 ```dew
 &p = increment(&p);
 ```
 
-### 3.6 if/else
+> This is Dew's [`&` borrow sugar](#35-reference--ownership--return) — `&p: Point` in the parameter list declares a borrow parameter; `&p = increment(&p)` at the call site passes ownership and rebinds the result. The desugar pass converts these to pure tuple returns and `def` rebindings. See [dew-lang.md §5.5](dew-lang.md#55-borrow-parameter--sugar) for the full desugaring rules.
 
-**Rx:**
+### 3.6 Match Translation
+
+Rx `match` and Dew `match` have similar surface syntax but differ in pattern semantics:
+
+| Feature | Rx | Dew |
+|---------|-----|------|
+| Wildcard | `_` | `_` |
+| Variable binding | `x` | `x` |
+| Literal | `42`, `true` | `42`, `True` |
+| Struct destructuring | `Point { x, y }` | `Point { x, y }` |
+| Enum variant | `Some(v)` | `Some(v)` |
+| `ref` binding | `ref x` | Not supported — ownership is always transferred |
+| `mut` binding | `mut x` | Not supported — rebinding via `&` instead |
+| `@` binding | `x @ Pat` | Not supported — use nested `match` |
+| Range pattern | `1..=10` | Not supported — use guard expression or multiple arms |
+
+**Simple match — nearly direct:**
+
 ```rust
-if (cond) {
-    then_expr
-} else {
-    else_expr
+// Rx:
+match x {
+    Some(v) => v + 1,
+    None => 0,
 }
 ```
 
-**Dew:**
 ```dew
-if cond { then_expr } else { else_expr }
+// Dew:
+match x {
+  Some(v) => v + 1,
+  None => 0,
+}
 ```
 
-Rx requires parentheses around conditions; Dew does not. Both require `else`.
+**Pattern features absent in Dew must be desugared:**
 
-### 3.7 match
-
-**Rx:**
 ```rust
-match expr {
-    Pattern1 => result1,
-    Pattern2 => result2,
-    _ => default,
+// Rx: ref binding
+match p {
+    Point { x, ref y } => *y,
 }
 ```
 
-**Dew:**
 ```dew
-match expr {
-  Pattern1 => result1,
-  Pattern2 => result2,
-  _ => default,
+// Dew: ref removed — ownership is transferred, no deref needed
+match p {
+  Point { x, y } => y,
 }
 ```
 
-Nearly identical syntax. Pattern semantics differ: Rx has `ref`, `mut`, `@` bindings; Dew has none.
+```rust
+// Rx: range pattern
+match x {
+    0..=9 => 1,
+    10..=99 => 2,
+    _ => 3,
+}
+```
 
-### 3.8 Special Cases
+```dew
+// Dew: range desugared to comparison
+match x {
+  _ => if x <= 9 { 1 } else if x <= 99 { 2 } else { 3 },
+}
+```
+
+> Range pattern desugaring replaces the `match` with an `if`/`else` chain. When all match arms are range patterns, the entire `match` becomes an `if`/`else` expression. When some arms are normal patterns and some are ranges, the translator emits a `match` with guard conditions (using Dew's `if` within each arm).
+
+### 3.7 Special Cases
 
 | Rx Construct | Translation Strategy |
 |-------------|---------------------|
 | `expr as Type` | Type conversion function (or identity for compatible types) |
-| `a..b`, `a..=b` | Range value or desugar to explicit bounds |
+| `a..b`, `a..=b` | Desugar to explicit bounds: `(a, b - 1)` or `(a, b)` as a tuple |
 | `# comment #` | `// comment` (reformat in translator) |
-| `const X: T = e;` | `def X = e;` (immutable by default) |
-| `type Alias = T;` | Not supported in Dew Core; expand at translation |
-| `break expr` | Return from loop function |
-| `continue` | Recursive call with unchanged state |
+| `const X: T = e;` | `def X = e;` (immutable by default in Dew) |
+| `type Alias = T;` | Not supported in Dew Core; expand inline at translation |
+| `break expr` | Return from loop function (see [§3.4.3](#343-break-and-continue)) |
+| `continue` | Recursive call with unchanged state (see [§3.4.3](#343-break-and-continue)) |
+| `return expr` | Depends on context (see [§3.4.4](#344-return-translation)) |
 
 ---
 
@@ -304,7 +595,7 @@ The forward translator (`DewEmitter`) walks the Rx AST and emits Dew source text
 Rx AST (C++ structs) → DewEmitter (Rust) → Dew Source (String)
 ```
 
-Implementation note: The Rx parser was previously reimplemented in Rust (`src/rx_parser.rs`, 718 lines) because the original Rx compiler is C++. The translator (`src/rx2dew_ir.rs`, 250 lines) then emitted Dew source from the parsed Rx AST.
+The DewEmitter performs a single pass over the Rx AST, translating each node to its Dew equivalent. Control flow restructuring ([§3.4](#34-control-flow-translation)) requires a pre-pass to identify `return`/`break`/`continue` locations and determine which encoding strategy (restructure vs Option) applies to each function.
 
 ### 4.3 Safety Analysis
 
@@ -325,13 +616,13 @@ Dew's safety analysis for Rx code operates across three independent layers. The 
 
 | Layer | Mechanism | Detects |
 |-------|-----------|---------|
-| **Type system** (§6.1) | Poison value encoding | Use-after-move, double-free |
-| **Affine checker** (§6.2) | Ownership transfer encoding | Resource leaks, non-linear use |
-| **Provenance encoding** (§6.3) | Address + metadata wrapping | Pointer aliasing, out-of-bounds access, use-after-free across aliases |
+| **Type system** (§5.1) | Poison value encoding | Use-after-move, double-free |
+| **Affine checker** (§5.2) | Ownership transfer encoding | Resource leaks, non-linear use |
+| **Provenance encoding** (§5.3) | Address + metadata wrapping | Pointer aliasing, out-of-bounds access, use-after-free across aliases |
 
 > The Dew IR layer is irrelevant to safety analysis. The evaluation and compilation phases operate on a type-checked program. The Dew IR sees only (pure) computation.
 
-### 6.1 Affiliation to Poison Value Mapping
+### 5.1 Affiliation to Poison Value Mapping
 
 In the Dew type system, variables that represent consumed or uninitialized objects are encoded as **poison values**. These are type-safe `Unit` tokens whose existence and destruction certify that the referenced object is alive.
 
@@ -347,27 +638,27 @@ Dew translation:
 
 **Affiliation check** verifies that no affine variable is used after it has been deallocated or moved.
 
-### 6.2 Owned Pointer Encoding
+### 5.2 Owned Pointer Encoding
 
 For each `*mut T` in Rx, the translator produces an **owned pointer** in Dew:
 
-```rust
-// Rx:
-struct OwnedPtr<T> {
-    ptr: *mut T,
-    _tag: PoisonTag,
+```dew
+// Dew (translator-generated):
+affine struct OwnedPtr(T) {
+  ptr: Int,
+  _tag: PoisonTag,
 }
 ```
 
 Poison tags are represented by `affine struct PoisonTag`, ensuring the checker can verify correct usage. When the Rx variable goes out of scope, the poison tag must be alive — the affine checker will produce a type error if it was consumed earlier.
 
-### 6.3 Provenance Encoding
+### 5.3 Provenance Encoding
 
 **Provenance** is the metadata that tracks where a pointer came from and what memory range it may access. This is needed for detecting pointer aliasing (`p1 + 1` and `p2` pointing to the same address) and out-of-bounds access.
 
 Each Rx pointer `*T` translates to a Dew struct carrying:
 
-```
+```dew
 affine struct ProvenancePtr(T) {
   addr: Int,              // raw address (integer)
   base: Int,              // allocation base address
@@ -375,6 +666,8 @@ affine struct ProvenancePtr(T) {
   _token: PoisonTag,      // affine tag for this pointer instance
 }
 ```
+
+> The type parameter `T` in `ProvenancePtr(T)` is a phantom type parameter — it carries type-level information about the pointed-to type but is not used in the struct's fields. Dew's HM type system accepts unused type parameters; they are resolved at the call site.
 
 **Detection rules** applied by the translator:
 
@@ -400,23 +693,147 @@ These must hold for the round-trip to be correct:
 
 4. **Source location tracking**: Every Dew expression carries the Span of its originating Rx expression, so errors can be reported at the correct Rx source location
 
+5. **Control flow completeness**: Every `return`, `break`, and `continue` in the Rx source is preserved in the Dew translation — no control flow path is silently dropped
+
+> Invariant 5 is the most subtle. A naive translation that simply omits `return` statements would produce Dew code that continues executing past the intended exit point, potentially causing type errors or incorrect behavior. The Option encoding ([§3.4.4](#344-return-translation)) and `if`/`else` restructuring ([§3.4.1](#341-ifelse-restructuring)) together guarantee that all exit paths are preserved.
+
+---
+
+## 7. Reverse Translation (Dew → Rx)
+
+The reverse translator converts analyzed Dew code back to Rx source, preserving safety annotations discovered by the Dew type checker.
+
+### 7.1 Type Mapping
+
+| Dew Type | Rx Type | Notes |
+|----------|---------|-------|
+| `Int` | `i32` | Narrowing: may lose values > 2^31 - 1 |
+| `Bool` | `bool` | Direct mapping |
+| `Char` | `char` | Direct mapping |
+| `Unit` | `()` | Direct mapping |
+| `Array(T, N)` | `[T; N]` | Direct mapping |
+| `struct S { .. }` | `struct S { .. }` | Named fields preserved |
+| `enum E { .. }` | `enum E { .. }` | Direct mapping |
+| `Affine(T)` | `T` | Affine wrapper removed; annotation added as comment |
+
+> Reverse type mapping is lossy: `Int` → `i32` narrows the value range. The translator emits a comment `// narrowed from Int` at each narrowing site. Programs that depend on the full `i64` range will produce incorrect results — this is a known limitation.
+
+### 7.2 Function Translation
+
+```dew
+// Dew:
+def add = fn(x: Int, y: Int) -> Int { x + y }
+```
+
+```rust
+// Rx:
+fn add(x: i32, y: i32) -> i32 {
+    x + y
+}
+```
+
+Dew's expression body becomes Rx's block body with implicit return.
+
+### 7.3 Ownership → Mutation
+
+Dew's `&` borrow sugar reverses to Rx's mutable references:
+
+```dew
+// Dew:
+def increment = fn(&p: Point) -> Point {
+  &p { x = p.x + 1 }
+}
+```
+
+```rust
+// Rx:
+fn increment(p: &mut Point) -> Point {
+    p.x = p.x + 1;
+    *p
+}
+```
+
+The `&p: Point` borrow parameter becomes `p: &mut Point`. The `&p { x = ... }` rebinding becomes `p.x = ...` mutation.
+
+### 7.4 Recursion → Loop
+
+Recursive functions that match the loop pattern (tail-recursive with accumulator parameters) reverse to `while` loops:
+
+```dew
+// Dew:
+def i = fix loop {
+  fn(&i: Int, n: Int) -> Int {
+    if i < n { &i = i + 1; loop(&i, n) } else { i }
+  }
+}(&i, n)
+```
+
+```rust
+// Rx:
+let mut i = i;
+while i < n {
+    i = i + 1;
+}
+```
+
+> Not all recursive functions reverse to loops. Only tail-recursive functions with accumulator parameters that follow the pattern generated by the forward translator are candidates. General recursion in Dew has no Rx equivalent — the reverse translator emits a comment `// recursive, not translated to loop` and leaves the function as-is.
+
+### 7.5 Match → if/else
+
+Dew `match` on `Bool` (which is what `if`/`else` desugars to) reverses to Rx `if`/`else`. Dew `match` on enums reverses to Rx `match`:
+
+```dew
+// Dew:
+match x {
+  Some(v) => v + 1,
+  None => 0,
+}
+```
+
+```rust
+// Rx:
+match x {
+    Some(v) => v + 1,
+    None => 0,
+}
+```
+
+### 7.6 Limitations
+
+| Dew Feature | Rx Equivalent | Status |
+|-------------|--------------|--------|
+| Closures | — | No Rx equivalent; emit as inline expansion or comment |
+| Lazy evaluation | — | No Rx equivalent; force all thunks eagerly |
+| Higher-order functions | — | Limited: emit specialized monomorphic versions |
+| `Option(T)` (from forward translation) | Direct value + flag | Unwrap the Option: if from forward `return` encoding, restructure back to `return` |
+| Generic functions | — | No Rx generics; monomorphize at each call site |
+| `Affine(T)` wrapper | Raw type + safety comment | Remove wrapper, add `// affine-checked` comment |
+
+> The reverse translation is inherently lossier than the forward translation. Dew is more expressive than Rx (closures, lazy evaluation, higher-order functions), so Dew programs that use these features have no direct Rx equivalent. The reverse translator focuses on the common case: code that was originally Rx, translated forward, analyzed, and now needs to go back with annotations.
+
 ---
 
 ## 8. Limitations and Future Work
 
 | Limitation | Status | Plan |
 |-----------|--------|------|
-| No Float in Dew | Current | `f64` truncates to `Int`; add Float later |
+| No Float in Dew | Current | `f64` truncates to `Int`; add `Float` type to Dew |
 | No generics in Rx or Dew | Current | Both languages will add generics (Dew Phase 6) |
 | Rx traits ≠ Dew TypeClass | Future | Map during Phase 6 |
-| Slice `[T]` has unknown length | Current | Add length parameter or use List |
-| `break` with value in nested loops | Complex | Requires label-based or CPS translation |
+| Slice `[T]` has unknown length | Current | Add length parameter or use `List(T)` |
+| Nested `break`/`continue` to outer loop | Not in Rx | Rx has no labeled breaks; no translation needed |
+| `return` in deeply nested loops | Current | Option encoding composes (§3.4.5) but generated code is verbose |
 | Rx comments `#...#` | Parser | Handle in Rx lexer reimplementation |
+| Reverse translation lossy (`Int` → `i32`) | Current | Emit narrowing comments; consider `i64` in Rx |
+| Dew closures → Rx | No equivalent | Inline expansion or comment out |
 
 ---
 
 ## 9. Reference
 
 - Rx Grammar: `RustShard-Compiler/docs/semantic_rules.md`
+- Rx AST: `RustShard-Compiler/include/frontend/ast.hpp`
+- Rx Type System: `RustShard-Compiler/include/common/stype.hpp`
 - Dew Language: `docs/design/dew-lang.md`
 - Dew IR: `docs/design/dew-ir.md`
+- Dew → IR Pipeline: `docs/design/dew-lang-impl.md`

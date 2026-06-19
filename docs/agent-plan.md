@@ -1,8 +1,22 @@
 # Agent Plan
 
-> Last updated: 2026-06-18
+> Last updated: 2026-06-19
 
 ## Completed
+
+### 2026-06-19 — Rx↔Dew Interop Specification Rewrite
+
+- [x] Rewrote `docs/design/rx-dew-interop.md` (422 → 839 lines): full control flow translation rules, corrected type mapping, reverse translation section
+- [x] §3.1: corrected type mapping — all Rx integer types (`i8`–`u64`) map to `Int`; removed stale `f64`→`Int` claim, added integer widening safety note
+- [x] §3.4: new control flow translation section with 5 subsections — if/else restructuring, loop→recursion, break/continue, return (3 cases + Option encoding), nested loops
+- [x] §3.6: revised match translation — replaced "nearly identical" claim with accurate pattern semantics comparison table (ref/mut/@/range differences)
+- [x] §5: fixed internal numbering (was §6.x, now §5.1–§5.3); added phantom type parameter note for ProvenancePtr
+- [x] §7: new reverse translation section (Dew→Rx) — type mapping, function/ownership/recursion/match reversal, limitations
+- [x] §6: added Invariant 5 (control flow completeness)
+- [x] §8: updated limitations table with new items (nested return verbosity, reverse translation lossiness, closures)
+- [x] §9: expanded reference list (added Rx AST and type system headers)
+- [x] Updated `dew-lang.md` §6.3 example: replaced `%loop` (parser-rejected) with `fix loop` syntax; updated cross-reference link text
+- [x] TOC: two-level per AGENTS.md §11
 
 ### 2026-06-18 — Loops Cleanup + Test Tier Finalization
 

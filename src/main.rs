@@ -38,7 +38,7 @@ fn run(args: &[String]) -> Result<i32, String> {
             run_eval(expr)
         }
         "lsp" => {
-            eprintln!("LSP not yet implemented");
+            dew::lsp::run().map_err(|e| format!("LSP error: {}", e))?;
             Ok(0)
         }
         path => {

@@ -1,0 +1,21 @@
+{
+  "scopeName": "source.dew",
+  "patterns": [
+    { "include": "#comments" }, { "include": "#keywords" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "match": "//.*", "name": "comment.line.double-slash" },
+        { "begin": "/\\*", "end": "\\*/", "name": "comment.block" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "match": "\\b(def|fn|rec|struct|enum|match|if|else|fix|import|affine|pub)\\b", "name": "keyword.control" },
+        { "match": "\\b(Int|Bool|Char|Unit|IO|True|False|Pi|self|true|false)\\b", "name": "keyword.type" },
+        { "match": "\\b[0-9]+\\b", "name": "constant.numeric" }
+      ]
+    }
+  }
+}

@@ -15,5 +15,6 @@ pub mod ir;
 pub mod ir_gen;
 pub mod value;
 pub mod backend;
+pub mod lsp;
 pub mod rx_parser;
 pub mod rx2dew_ir;
