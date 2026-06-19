@@ -453,9 +453,10 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             }
         }
         Instr::Stdin(r) => { ctx.set_reg(*r, IrType::Int);
-            writeln!(out, "  %r{}_ptr = alloca i64", r).ok();
-            writeln!(out, "  call i32 (ptr, ...) @scanf(ptr @.fmt_int, ptr %r{}_ptr)", r).ok();
-            writeln!(out, "  %r{} = load i64, ptr %r{}_ptr", r, r).ok();
+            let ptr = ctx.arena_alloc(8, out);
+            writeln!(out, "  store i64 0, ptr {}", ptr).ok();
+            writeln!(out, "  call i32 (ptr, ...) @scanf(ptr @.fmt_int, ptr {})", ptr).ok();
+            writeln!(out, "  %r{} = load i64, ptr {}", r, ptr).ok();
         }
         Instr::Phi(r, pairs) => {
             let p: Vec<String> = pairs.iter().map(|(v, l)| format!("%r{}, %{}", v, l)).collect();
@@ -698,36 +699,49 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             ctx.set_reg(*r, ty.clone());
             let elem_ty = match ty { IrType::Array(t, _) => ir_type_to_llvm(t), _ => "i64".into() };
             let n = elems.len();
-            writeln!(out, "  %r{}_arr = alloca [{} x {}]", r, n, elem_ty).ok();
+            let size = match &elem_ty[..] { "i1" => n, "i32" => n * 4, _ => n * 8 };
+            let arena_ptr = ctx.arena_alloc(size, out);
             for (i, e) in elems.iter().enumerate() {
-                writeln!(out, "  %r{}_ptr{} = getelementptr [{} x {}], ptr %r{}_arr, i32 0, i32 {}", r, i, n, elem_ty, r, i).ok();
-                writeln!(out, "  store {} %r{}, ptr %r{}_ptr{}", elem_ty, e, r, i).ok();
+                writeln!(out, "  %r{}_ep{} = getelementptr i8, ptr {}, i32 {}", r, i, arena_ptr, i * (size / n)).ok();
+                writeln!(out, "  store {} %r{}, ptr %r{}_ep{}", elem_ty, e, r, i).ok();
             }
-            writeln!(out, "  %r{} = ptrtoint ptr %r{}_arr to i64", r, r).ok();
+            writeln!(out, "  %r{} = ptrtoint ptr {} to i64", r, arena_ptr).ok();
         }
         Instr::ArrayFill(r, ty, val, n) => {
             ctx.set_reg(*r, ty.clone());
             let elem_ty = match ty { IrType::Array(t, _) => ir_type_to_llvm(t), _ => "i64".into() };
-            writeln!(out, "  %r{}_arr = alloca [{} x {}]", r, n, elem_ty).ok();
+            let size = match &elem_ty[..] { "i1" => *n as usize, "i32" => *n as usize * 4, _ => *n as usize * 8 };
+            let esize = if elem_ty == "i1" { 1 } else if elem_ty == "i32" { 4 } else { 8 };
+            let arena_ptr = ctx.arena_alloc(size, out);
             for i in 0..*n {
-                writeln!(out, "  %r{}_ptr{} = getelementptr [{} x {}], ptr %r{}_arr, i32 0, i32 {}", r, i, n, elem_ty, r, i).ok();
-                writeln!(out, "  store {} %r{}, ptr %r{}_ptr{}", elem_ty, val, r, i).ok();
+                writeln!(out, "  %r{}_ep{} = getelementptr i8, ptr {}, i32 {}", r, i, arena_ptr, i * esize).ok();
+                writeln!(out, "  store {} %r{}, ptr %r{}_ep{}", elem_ty, val, r, i).ok();
             }
-            writeln!(out, "  %r{} = ptrtoint ptr %r{}_arr to i64", r, r).ok();
+            writeln!(out, "  %r{} = ptrtoint ptr {} to i64", r, arena_ptr).ok();
         }
         Instr::ArrayAccess(r, arr, idx) => {
             let elem_ty = match ctx.reg_ty(arr) { IrType::Array(t, _) => ir_type_to_llvm(t), _ => "i64".into() };
+            let esize = if elem_ty == "i1" { "1" } else if elem_ty == "i32" { "4" } else { "8" };
             ctx.set_reg(*r, match ctx.reg_ty(arr) { IrType::Array(t, _) => (**t).clone(), _ => IrType::Int });
             writeln!(out, "  %r{}_p = inttoptr i64 %r{} to ptr", r, arr).ok();
-            writeln!(out, "  %r{}_ep = getelementptr {}, ptr %r{}_p, i64 %r{}", r, elem_ty, r, idx).ok();
-            writeln!(out, "  %r{} = load {}, ptr %r{}_ep", r, elem_ty, r).ok();
+            writeln!(out, "  %r{}_off = mul i64 %r{}, {}", r, idx, esize).ok();
+            writeln!(out, "  %r{}_ep = getelementptr i8, ptr %r{}_p, i64 %r{}_off", r, r, r).ok();
+            writeln!(out, "  %r{}_raw = load {}, ptr %r{}_ep", r, elem_ty, r).ok();
+            // If loaded type doesn't match register type, convert
+            match ctx.reg_ty(r) {
+                IrType::Bool => { writeln!(out, "  %r{} = trunc i64 %r{}_raw to i1", r, r).ok(); }
+                _ => { writeln!(out, "  %r{} = add i64 %r{}_raw, 0", r, r).ok(); }
+            }
         }
         Instr::ArrayUpdate(r, arr, idx, val) => {
             let elem_ty = match ctx.reg_ty(arr) { IrType::Array(t, _) => ir_type_to_llvm(t), _ => "i64".into() };
+            let esize = if elem_ty == "i1" { "1" } else if elem_ty == "i32" { "4" } else { "8" };
             ctx.set_reg(*r, ctx.reg_ty(arr).clone());
             writeln!(out, "  %r{}_p = inttoptr i64 %r{} to ptr", r, arr).ok();
-            writeln!(out, "  %r{}_ep = getelementptr {}, ptr %r{}_p, i64 %r{}", r, elem_ty, r, idx).ok();
-            writeln!(out, "  store {} %r{}, ptr %r{}_ep", elem_ty, val, r).ok();
+            writeln!(out, "  %r{}_off = mul i64 %r{}, {}", r, idx, esize).ok();
+            writeln!(out, "  %r{}_ep = getelementptr i8, ptr %r{}_p, i64 %r{}_off", r, r, r).ok();
+            let fv_i64 = as_i64(r * 1000, *val, out, ctx);
+            writeln!(out, "  store i64 {}, ptr %r{}_ep", fv_i64, r).ok();
             writeln!(out, "  %r{} = add i64 %r{}, 0", r, arr).ok();
         }
         Instr::TupleLit(r, ty, elems) => {
