@@ -105,10 +105,11 @@ fn ir_type_to_llvm(ty: &IrType) -> String {
         IrType::Bool => "i1".into(),
         IrType::Char => "i64".into(),
         IrType::Unit => "void".into(),
+        IrType::Struct(name) if name == "%tuple" => "i64".into(), // tuple placeholder — use i64
         IrType::Struct(name) => format!("%struct.{}", name),
         IrType::Enum(name) => format!("%enum.{}", name),
         IrType::Fun(_, ret) => ir_type_to_llvm(ret),
-        IrType::Tuple(_) => "i64".into(),
+        IrType::Tuple(elements) => format!("{{ {} }}", (0..elements.len()).map(|_| "i64").collect::<Vec<_>>().join(", ")),
         IrType::Array(t, n) => format!("[{} x {}]", n, ir_type_to_llvm(t)),
         IrType::ThunkRef(_) => "ptr".into(),
     }
@@ -116,8 +117,10 @@ fn ir_type_to_llvm(ty: &IrType) -> String {
 
 fn llvm_type_for(ty: &IrType, enum_names: &std::collections::HashSet<String>) -> String {
     match ty {
+        IrType::Struct(name) if name == "%tuple" => "i64".into(), // tuple placeholder
         IrType::Struct(name) if enum_names.contains(name) => format!("%enum.{}", name),
         IrType::Struct(name) => format!("%struct.{}", name),
+        IrType::Tuple(elements) => format!("{{ {} }}", (0..elements.len()).map(|_| "i64").collect::<Vec<_>>().join(", ")),
         _ => ir_type_to_llvm(ty),
     }
 }
@@ -159,7 +162,7 @@ fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Resul
             }
             continue;
         }
-        let fields: Vec<String> = s.fields.iter().map(|(_, t)| ir_type_to_llvm(t)).collect();
+        let fields: Vec<String> = s.fields.iter().map(|_| "i64".into()).collect();
         writeln!(out, "%struct.{} = type {{ {} }}", s.name, fields.join(", ")).ok();
         emitted_types.insert(s.name.clone());
     }
@@ -408,6 +411,22 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             ctx.set_reg(*r, IrType::Struct(name.clone()));
             if fields.is_empty() {
                 writeln!(out, "  %r{} = add i64 0, 0", r).ok();
+            } else if name == "%tuple" {
+                // Tuple construction: arena-allocate and store like a struct
+                let struct_ty = format!("{{ {} }}", (0..fields.len()).map(|_| "i64").collect::<Vec<_>>().join(", "));
+                let f: Vec<String> = fields.iter().map(|f| format!("i64 %r{}", f)).collect();
+                writeln!(out, "  %r{}_0 = insertvalue {} undef, {}, 0", r, struct_ty, f.first().unwrap_or(&"i64 0".into())).ok();
+                let mut prev = format!("%r{}_0", r);
+                for (i, fv) in fields.iter().skip(1).enumerate() {
+                    let idx = i + 1;
+                    let next = format!("%r{}_{}", r, idx);
+                    writeln!(out, "  {} = insertvalue {} {}, i64 %r{}, {}", next, struct_ty, prev, fv, idx).ok();
+                    prev = next;
+                }
+                let arena_ptr = ctx.arena_alloc(fields.len() * 8, out);
+                writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr).ok();
+                writeln!(out, "  store {} {}, ptr %r{}_cast", struct_ty, prev, r).ok();
+                writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
             } else {
                 let st_ty = format!("%struct.{}", name);
                 let f: Vec<String> = fields.iter().map(|f| format!("i64 %r{}", f)).collect();
@@ -504,6 +523,15 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
         Instr::Field(r, base, idx, ..) => {
             ctx.set_reg(*r, IrType::Int);
             match ctx.reg_ty(base) {
+                IrType::Tuple(_) => {
+                    // Function-returned tuples are arena-allocated — load and extract from struct
+                    let n = match ctx.reg_ty(base) { IrType::Tuple(ts) => ts.len(), _ => 1 };
+                    let tup_ty = format!("{{ {} }}", (0..n).map(|_| "i64").collect::<Vec<_>>().join(", "));
+                    writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, base).ok();
+                    writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, tup_ty, r).ok();
+                    writeln!(out, "  %r{} = extractvalue {} %r{}_p, {}", r, tup_ty, r, idx).ok();
+                    return Ok(());
+                }
                 IrType::Struct(name) | IrType::Enum(name) => {
                     if ctx.is_recursive_enum(name) {
                         let base_ty = ctx.reg_llvm_ty(base);
@@ -531,10 +559,33 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                 _ => { writeln!(out, "  %r{} = add i64 %r{}, 0", r, base).ok(); }
             }
         }
-        Instr::StructUpdate(r, base, fidx, val, ..) => {
-            let base_ty = ctx.reg_llvm_ty(base);
+        Instr::StructUpdate(r, base, fidx, val, s_ty) => {
             ctx.set_reg(*r, ctx.reg_ty(base).clone());
-            writeln!(out, "  %r{} = insertvalue {} %r{}, i64 %r{}, {}", r, base_ty, base, val, fidx).ok();
+            if matches!(s_ty, IrType::Struct(name) if name == "%tuple") {
+                // Tuple updates via StructUpdate: treat as arena-allocated tuple
+                let n = match ctx.reg_ty(base) { IrType::Tuple(ts) => ts.len(), _ => 2 };
+                let struct_ty = format!("{{ {} }}", (0..n).map(|_| "i64").collect::<Vec<_>>().join(", "));
+                writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, base).ok();
+                writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, struct_ty, r).ok();
+                writeln!(out, "  %r{}_upd = insertvalue {} %r{}_p, i64 %r{}, {}", r, struct_ty, r, val, fidx).ok();
+                let arena_ptr = ctx.arena_alloc(n * 8, out);
+                writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr).ok();
+                writeln!(out, "  store {} %r{}_upd, ptr %r{}_cast", struct_ty, r, r).ok();
+                writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
+            } else {
+                let base_ty = ctx.reg_llvm_ty(base);
+                // Arena-allocated struct: inttoptr + load + insertvalue + store back
+                writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, base).ok();
+                writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, base_ty, r).ok();
+                writeln!(out, "  %r{}_upd = insertvalue {} %r{}_p, i64 %r{}, {}", r, base_ty, r, val, fidx).ok();
+                let n = match ctx.reg_ty(base) { IrType::Struct(name) => {
+                    types.structs.iter().find(|s| s.name == *name).map(|s| s.fields.len()).unwrap_or(1)
+                }, _ => 1 };
+                let arena_ptr = ctx.arena_alloc(n * 8, out);
+                writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr).ok();
+                writeln!(out, "  store {} %r{}_upd, ptr %r{}_cast", base_ty, r, r).ok();
+                writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
+            }
         }
         Instr::ArrayLit(r, _ty, elems) => {
             let n = elems.len();
@@ -564,15 +615,41 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             writeln!(out, "  store i64 %r{}, ptr %r{}_ep", val, r).ok();
             writeln!(out, "  %r{} = add i64 %r{}, 0", r, arr).ok();
         }
-        Instr::TupleLit(r, _ty, elems) => {
-            writeln!(out, "  %r{} = add i64 0, 0", r).ok();
-            for (i, e) in elems.iter().enumerate() {
-                writeln!(out, "  %r{} = insertvalue {{ {} }} %r{}, i64 %r{}, {}", r,
-                    (0..elems.len()).map(|_| "i64").collect::<Vec<_>>().join(", "), r, e, i).ok();
+        Instr::TupleLit(r, ty, elems) => {
+            ctx.set_reg(*r, ty.clone());
+            if elems.is_empty() {
+                writeln!(out, "  %r{} = add i64 0, 0", r).ok();
+                return Ok(());
             }
+            let struct_ty = format!("{{ {} }}", (0..elems.len()).map(|_| "i64").collect::<Vec<_>>().join(", "));
+            // Build the struct value inline
+            let f: Vec<String> = elems.iter().map(|e| format!("i64 %r{}", e)).collect();
+            writeln!(out, "  %r{}_0 = insertvalue {} undef, {}, 0", r, struct_ty, f.first().unwrap_or(&"i64 0".into())).ok();
+            let mut prev = format!("%r{}_0", r);
+            for (i, ev) in elems.iter().skip(1).enumerate() {
+                let idx = i + 1;
+                let next = format!("%r{}_{}", r, idx);
+                writeln!(out, "  {} = insertvalue {} {}, i64 %r{}, {}", next, struct_ty, prev, ev, idx).ok();
+                prev = next;
+            }
+            // Arena-allocate and store, like structs
+            let arena_ptr = ctx.arena_alloc(elems.len() * 8, out);
+            writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr).ok();
+            writeln!(out, "  store {} {}, ptr %r{}_cast", struct_ty, prev, r).ok();
+            writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
         }
         Instr::TupleUpdate(r, tup, idx, val) => {
-            writeln!(out, "  %r{} = insertvalue i64 %r{}, i64 %r{}, {}", r, tup, val, idx).ok();
+            ctx.set_reg(*r, ctx.reg_ty(tup).clone());
+            // Arena-allocated tuple: load, update, store back
+            let n = match ctx.reg_ty(tup) { IrType::Tuple(ts) => ts.len(), _ => 1 };
+            let struct_ty = format!("{{ {} }}", (0..n).map(|_| "i64").collect::<Vec<_>>().join(", "));
+            writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, tup).ok();
+            writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, struct_ty, r).ok();
+            writeln!(out, "  %r{}_upd = insertvalue {} %r{}_p, i64 %r{}, {}", r, struct_ty, r, val, idx).ok();
+            let arena_ptr = ctx.arena_alloc(n * 8, out);
+            writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr).ok();
+            writeln!(out, "  store {} %r{}_upd, ptr %r{}_cast", struct_ty, r, r).ok();
+            writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
         }
         Instr::Fetch(r, base, path) => {
             writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, base).ok();
