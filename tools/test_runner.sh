@@ -4,10 +4,11 @@ set -e
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DEW="$DIR/target/debug/dew"
+MODE="${1:-eval}"
 PASS=0
 FAIL=0
 
-echo "=== Dew Compiler Test Runner ==="
+echo "=== Dew Compiler Test Runner ($MODE) ==="
 echo ""
 
 echo "--- pass/ ---"
@@ -15,7 +16,11 @@ for file in $(find "$DIR/examples/pass" -name '*.dew' 2>/dev/null | sort); do
     rel="${file#$DIR/examples/}"
     expected=$(head -1 "$file" | sed 's/.*expect: //')
     echo -n "  $rel ... "
-    output=$("$DEW" "$file" 2>/dev/null | tail -1 || echo "ERROR")
+    if [ "$MODE" = "llvm" ]; then
+        output=$("$DEW" "$file" --backend=llvm 2>/dev/null | tail -1 || echo "ERROR")
+    else
+        output=$("$DEW" "$file" 2>/dev/null | tail -1 || echo "ERROR")
+    fi
     if [ "$output" = "$expected" ]; then
         echo "OK ($output)"
         PASS=$((PASS + 1))
@@ -31,7 +36,11 @@ for file in $(find "$DIR/examples/fail" -name '*.dew' 2>/dev/null | sort); do
     rel="${file#$DIR/examples/}"
     expected_code=$(head -1 "$file" | sed 's/.*expect error: //')
     echo -n "  $rel ... "
-    output=$("$DEW" "$file" 2>&1 || true)
+    if [ "$MODE" = "llvm" ]; then
+        output=$("$DEW" "$file" --emit=llvm 2>&1 | head -5 || true)
+    else
+        output=$("$DEW" "$file" 2>&1 || true)
+    fi
     if echo "$output" | grep -Fq "$expected_code"; then
         echo "OK"
         PASS=$((PASS + 1))

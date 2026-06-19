@@ -471,7 +471,7 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
         Instr::Phi(r, pairs) => {
             let p: Vec<String> = pairs.iter().map(|(v, l)| format!("%r{}, %{}", v, l)).collect();
             ctx.set_reg(*r, ctx.reg_ty(&pairs[0].0).clone());
-            let phity = ctx.reg_llvm_ty(r);
+            let phity = llvm_boundary_type(ctx.reg_ty(r));
             writeln!(out, "  %r{} = phi {} [{}]", r, phity, p.join("], [")).ok();
         }
         Instr::StructCons(r, name, fields) => {

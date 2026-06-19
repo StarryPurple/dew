@@ -595,7 +595,7 @@ match req {
 |------|-------------|
 | `Int` | Signed 64-bit integer |
 | `Bool` | `True` or `False` |
-| `Char` | Unicode character |
+| `Char` | ASCII character (Unicode deferred) |
 | `Unit` | Unit type; value is `Unit`, NOT `()` |
 
 **No `Float` in initial version.** String literals are `Array(Char, N)` — no `String` type name.
