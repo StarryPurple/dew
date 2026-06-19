@@ -370,6 +370,8 @@ impl Parser {
             }
             // Handle mut keyword before parameter name
             if matches!(self.current, Token::KwMut) { self.advance(); }
+            // Handle & reference pattern before parameter name
+            if matches!(self.current, Token::Amp) { self.advance(); }
             let pname = self.expect_ident()?;
             self.expect(&Token::Colon)?;
             let ptype = self.parse_type()?;
