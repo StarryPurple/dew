@@ -8,6 +8,10 @@ description = "Dew programming language compiler — Lazy + Affine + Closure"
 name = "dew"
 path = "src/main.rs"
 
+[[bin]]
+name = "rx2dew"
+path = "src/bin/rx2dew.rs"
+
 [dependencies]
 # CLI argument parsing
 clap = { version = "4", features = ["derive"] }
