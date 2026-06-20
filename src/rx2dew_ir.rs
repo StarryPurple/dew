@@ -174,11 +174,17 @@ impl DewEmitter {
         for stmt in body {
             if let Stmt::Let { name, mutable: _, ty, init } = stmt {
                 let dew_ty = if ty.is_empty() { "Int".into() } else { self.map_type(ty) };
+                let dew_ty_str = dew_ty.clone();
                 self.var_types.borrow_mut().insert(name.clone(), dew_ty);
                 if let Some(expr) = init {
-                    out.push_str(&format!("{}def {} = {};\n", pad, name, self.emit_expr(expr)));
+                    // let x = getInt() → def x: Int; &x -> stdin;
+                    if is_getint_call(expr) {
+                        out.push_str(&format!("{}def {}: {};\n{}&{} -> stdin;\n", pad, name, dew_ty_str, pad, name));
+                    } else {
+                        out.push_str(&format!("{}def {} = {};\n", pad, name, self.emit_expr(expr)));
+                    }
                 } else {
-                    out.push_str(&format!("{}def {} = 0;\n", pad, name));
+                    out.push_str(&format!("{}def {} = {};\n", pad, name, dew_ty_str));
                 }
             }
         }
@@ -261,8 +267,7 @@ impl DewEmitter {
                     if let Expr::Call { func, .. } = expr {
                         if let Expr::Ident(name) = func.as_ref() {
                             if name == "printlnInt" {
-                                let sep = if is_last { "" } else { ";" };
-                                out.push_str(&format!("{}{}{}\n", pad, self.emit_expr(expr), sep));
+                                out.push_str(&format!("{}{};\n", pad, self.emit_expr(expr)));
                                 out.push_str(&format!("{}'\\n' -> stdout;\n", pad));
                                 continue;
                             }
@@ -534,4 +539,10 @@ fn has_io_in_stmts(stmts: &[Stmt]) -> bool {
         Stmt::Expr(e) => has_io_in_expr(e),
         _ => false,
     })
+}
+
+/// Check if an expression is a direct call to getInt().
+fn is_getint_call(expr: &Expr) -> bool {
+    matches!(expr, Expr::Ident(s) if s == "getInt")
+        || matches!(expr, Expr::Call { func, .. } if matches!(func.as_ref(), Expr::Ident(s) if s == "getInt"))
 }

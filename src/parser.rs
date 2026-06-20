@@ -658,13 +658,13 @@ impl<'a> Parser<'a> {
             }
             self.expect(TokenKind::RParen)?;
             return_ty = if self.eat(TokenKind::Arrow) {
-                self.parse_type().ok()
+                self.parse_return_type().map(|(_, ty)| ty).ok().flatten()
             } else {
                 None
             };
         } else {
             return_ty = if self.eat(TokenKind::Arrow) {
-                self.parse_type().ok()
+                self.parse_return_type().map(|(_, ty)| ty).ok().flatten()
             } else {
                 None
             };
@@ -998,6 +998,9 @@ impl<'a> Parser<'a> {
                     Err(self.current_span())
                 }
             }
+        } else if self.check(TokenKind::Unit) {
+            let span = self.advance();
+            Ok(Type::Named(NamedType { span, name: Ident::new(String::from("Unit"), span), args: None }))
         } else if self.peek_kind().is_ident() {
             let name = self.expect_ident()?;
             let args = self.parse_type_args()?;
@@ -1020,9 +1023,6 @@ impl<'a> Parser<'a> {
 
     fn parse_return_type(&mut self) -> Result<(bool, Option<Type>), Span> {
         let is_io = self.eat_str("IO");
-        if is_io {
-            self.expect_ident()?; // consume "IO"
-        }
         let ty = self.parse_type().ok();
         Ok((is_io, ty))
     }
