@@ -289,9 +289,27 @@ impl<'a> IrGenerator<'a> {
                             arg_reg
                         }
                         "stdin" => {
-                            let result_r = self.fresh_reg();
-                            block.instrs.push(Instr::Stdin(result_r));
-                            result_r
+                            // For &n -> stdin, read into the variable's register
+                            let arg_reg = if let Some(arg) = c.args.first() {
+                                match arg {
+                                    ExprArg::Value(e) => self.compile_expr(e, block),
+                                    ExprArg::Borrow(b) => {
+                                        // Find the root variable's register
+                                        let name = &b.lvalue.root.name;
+                                        if let Some(&reg) = self.var_map.get(name) {
+                                            reg
+                                        } else {
+                                            let r = self.fresh_reg();
+                                            block.instrs.push(Instr::Lit(r, IrLitValue::Int(0)));
+                                            r
+                                        }
+                                    }
+                                }
+                            } else {
+                                self.fresh_reg()
+                            };
+                            block.instrs.push(Instr::Stdin(arg_reg));
+                            arg_reg
                         }
                         _ => 0,
                     }

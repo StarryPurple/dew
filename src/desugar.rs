@@ -141,6 +141,20 @@ fn desugar_expr(expr: &Expr) -> Expr {
             expr: Box::new(desugar_expr(&u.expr)),
         }),
         Expr::Call(c) => {
+            // For stdin/stdout, skip the complex borrow-wrapping path.
+            // These builtins write to the borrow register directly.
+            if let Expr::Var(v) = &*c.func {
+                if matches!(v.name.as_str(), "stdin" | "stdout") {
+                    return Expr::Call(CallExpr {
+                        span: c.span,
+                        func: Box::new(desugar_expr(&c.func)),
+                        args: c.args.iter().map(|a| match a {
+                            ExprArg::Value(e) => ExprArg::Value(Box::new(desugar_expr(e))),
+                            ExprArg::Borrow(b) => ExprArg::Borrow(b.clone()),
+                        }).collect(),
+                    });
+                }
+            }
             let borrow_names: Vec<Ident> = c.args.iter()
                 .filter_map(|a| match a {
                     ExprArg::Borrow(b) => Some(b.lvalue.root.clone()),
