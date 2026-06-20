@@ -230,6 +230,7 @@ impl DewEmitter {
                         let ret_anno = if ret_var_ty.is_empty() { String::new() } else { format!(" -> {}", ret_var_ty) };
                         out.push_str(&format!("{}fix __while_loop {{\n", pad));
                         out.push_str(&format!("{}  fn({}){} {{\n", pad, params.join(", "), ret_anno));
+                        out.push_str(&format!("{}    if {} {{\n", pad, cond_str));
                         self.emit_body(body, 0, out, indent + 3);
                         while out.ends_with('\n') { out.pop(); }
                         if !out.ends_with(';') { out.push_str(";"); }

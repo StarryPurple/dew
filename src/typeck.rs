@@ -307,7 +307,7 @@ impl<'a> TypeChecker<'a> {
             }
         }
         if annotated_effect.is_none() && f.return_ty.is_some() && inferred_effect == Effect::IO {
-            self.diag.error("E006",
+            self.diag.warn("W005",
                 "pure function annotation violated: body calls IO but return type does not declare IO",
                 Some(f.span));
         }
