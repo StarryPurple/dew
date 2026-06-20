@@ -218,24 +218,22 @@ impl DewEmitter {
                     let (ret_var, ret_var_ty) = vars.last().map(|(n, t)| (n.clone(), t.clone())).unwrap_or_default();
 
                     if vars.is_empty() {
-                        out.push_str(&format!("{}fix wl {{ fn() -> Unit {{\n", pad));
+                        out.push_str(&format!("{}fix __while_loop {{ fn() -> Unit {{\n", pad));
                         out.push_str(&format!("{}  if {} {{\n", pad, cond_str));
                         self.emit_body(body, 0, out, indent + 2);
                         while out.ends_with('\n') { out.pop(); }
                         if !out.ends_with(';') { out.push_str(";"); }
-                        out.push_str(&format!("\n{}    wl()\n", pad));
+                        out.push_str(&format!("\n{}    __while_loop()\n", pad));
                         out.push_str(&format!("{}  }} else {{ Unit }}\n", pad));
                         out.push_str(&format!("{}  }} }}();\n", pad));
                     } else {
                         let ret_anno = if ret_var_ty.is_empty() { String::new() } else { format!(" -> {}", ret_var_ty) };
-                        out.push_str(&format!("{}fix wl {{\n", pad));
+                        out.push_str(&format!("{}fix __while_loop {{\n", pad));
                         out.push_str(&format!("{}  fn({}){} {{\n", pad, params.join(", "), ret_anno));
-                        out.push_str(&format!("{}    if {} {{\n", pad, cond_str));
                         self.emit_body(body, 0, out, indent + 3);
-                        // wl() follows, so ensure previous statement is terminated
                         while out.ends_with('\n') { out.pop(); }
                         if !out.ends_with(';') { out.push_str(";"); }
-                        out.push_str(&format!("\n{}      wl({})\n", pad, call_args.join(", ")));
+                        out.push_str(&format!("\n{}      __while_loop({})\n", pad, call_args.join(", ")));
                         out.push_str(&format!("{}    }} else {{ {} }}\n", pad, ret_var));
                         out.push_str(&format!("{}  }}\n", pad));
                         out.push_str(&format!("{}}}({});\n", pad, call_args.join(", ")));

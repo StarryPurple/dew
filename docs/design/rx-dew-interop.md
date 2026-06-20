@@ -277,6 +277,8 @@ fix loop {
 ```
 
 > The loop function name (`loop` in these examples) is a local binding created by `fix`. It does not conflict with user-defined names because `fix` introduces a new scope. The translator generates fresh names if needed to avoid shadowing user bindings.
+>
+> **Note on naming — why `__while_loop`.** Dew's `loop` is a keyword (`loop { body }` for infinite loops), so the recursive call `loop(state)` would be parsed as an infinite loop, not as a function call. The translator therefore uses `fix __while_loop { ... }(...)` — the leading underscores avoid any conflict with both Dew keywords and typical user-defined names.
 
 #### 3.4.3 `break` and `continue`
 

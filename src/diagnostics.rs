@@ -122,8 +122,17 @@ impl DiagnosticCollector {
                 eprint!(" at line {}, col {}", span.line + 1, span.col + 1);
                 // Show the source line
                 if let Some(line) = source.lines().nth(span.line) {
+                    // Compute character column from byte offset on this line
+                    let line_start = source.lines().take(span.line).collect::<Vec<_>>().join("\n").len()
+                        + if span.line > 0 { 1 } else { 0 }; // +1 for newline
+                    let col_in_line = span.col.saturating_sub(line_start);
+                    let char_col = if col_in_line <= line.len() {
+                        line[..col_in_line].chars().count()
+                    } else {
+                        line.len()
+                    };
                     eprint!("\n  {}", line);
-                    eprint!("\n  {}^", " ".repeat(span.col));
+                    eprint!("\n  {}^", " ".repeat(char_col.min(120)));
                 }
             }
             if let Some(help) = &diag.help {
