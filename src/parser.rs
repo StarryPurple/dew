@@ -657,16 +657,34 @@ impl<'a> Parser<'a> {
                 }
             }
             self.expect(TokenKind::RParen)?;
-            return_ty = if self.eat(TokenKind::Arrow) {
-                self.parse_return_type().map(|(_, ty)| ty).ok().flatten()
+            let (is_io, inner_ty) = if self.eat(TokenKind::Arrow) {
+                self.parse_return_type()?
             } else {
-                None
+                (false, None)
+            };
+            return_ty = if is_io {
+                Some(Type::Named(NamedType {
+                    span: Span::DUMMY,
+                    name: Ident::new(String::from("IO"), Span::DUMMY),
+                    args: Some(vec![TypeArg::Type(inner_ty.unwrap_or(Type::Wildcard(Span::DUMMY)))]),
+                }))
+            } else {
+                inner_ty
             };
         } else {
-            return_ty = if self.eat(TokenKind::Arrow) {
-                self.parse_return_type().map(|(_, ty)| ty).ok().flatten()
+            let (is_io, inner_ty) = if self.eat(TokenKind::Arrow) {
+                self.parse_return_type()?
             } else {
-                None
+                (false, None)
+            };
+            return_ty = if is_io {
+                Some(Type::Named(NamedType {
+                    span: Span::DUMMY,
+                    name: Ident::new(String::from("IO"), Span::DUMMY),
+                    args: Some(vec![TypeArg::Type(inner_ty.unwrap_or(Type::Wildcard(Span::DUMMY)))]),
+                }))
+            } else {
+                inner_ty
             };
         }
 
