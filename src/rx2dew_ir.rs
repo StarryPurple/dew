@@ -2,6 +2,7 @@
 // Uses the Rx parser to parse .rx files, then emits Dew source text.
 
 use crate::rx_parser::*;
+use std::collections::HashMap;
 
 pub fn translate_rx_to_dew(src: &str) -> Result<String, String> {
     let mut parser = Parser::new(src);
@@ -14,13 +15,17 @@ pub fn translate_rx_to_dew(src: &str) -> Result<String, String> {
 
 struct DewEmitter {
     impls: Vec<(String, Vec<FnDecl>)>, // (struct_name, methods)
+    // method_name → struct_name for method call translation
+    method_to_struct: HashMap<String, String>,
 }
 
 impl DewEmitter {
-    fn new() -> Self { Self { impls: vec![] } }
+    fn new() -> Self {
+        Self { impls: vec![], method_to_struct: HashMap::new() }
+    }
 
     fn emit_program(&mut self, prog: &Program, out: &mut String) {
-        // First pass: collect structs and impls
+        // First pass: collect structs and impls, build method name map
         for decl in &prog.decls {
             match decl {
                 Decl::Struct { name, fields } => {
@@ -32,6 +37,9 @@ impl DewEmitter {
                 }
                 Decl::Impl { struct_name, methods } => {
                     self.impls.push((struct_name.clone(), methods.clone()));
+                    for m in methods {
+                        self.method_to_struct.insert(m.name.clone(), struct_name.clone());
+                    }
                 }
                 _ => {}
             }
@@ -44,10 +52,14 @@ impl DewEmitter {
             }
         }
 
-        // Emit regular functions
+        // Emit regular functions and const declarations
         for decl in &prog.decls {
-            if let Decl::Fn(fn_decl) = decl {
-                self.emit_fn(fn_decl, out);
+            match decl {
+                Decl::Fn(fn_decl) => self.emit_fn(fn_decl, out),
+                Decl::Const { name, value } => {
+                    out.push_str(&format!("def {} = {};\n\n", name, value));
+                }
+                _ => {}
             }
         }
     }
@@ -59,7 +71,7 @@ impl DewEmitter {
         }
         let rtype = self.map_type(&m.ret_type);
         let ret_anno = if rtype == "Unit" { String::new() } else { format!(" -> {}", rtype) };
-        out.push_str(&format!("def {}_{} = fn({}){} {{\n",
+        out.push_str(&format!("def {}__{} = fn({}){} {{\n",
             sname, m.name,
             params.join(", "),
             ret_anno));
@@ -227,9 +239,9 @@ impl DewEmitter {
             Expr::Str(s) => format!("\"{}\"", s),
             Expr::Ident(name) => {
                 match name.as_str() {
-                    "getInt" => "Stdin(0)".into(),
+                    "getInt" => "stdin(0)".into(),
                     "exit" => "0".into(),
-                    _ => name.replace("::", "_"),
+                    _ => name.replace("::", "__"),
                 }
             }
             Expr::Binary(left, op, right) => {
@@ -259,12 +271,24 @@ impl DewEmitter {
                         return format!("{} -> stdout", arg);
                     }
                 }
-                // Handle method calls: obj.method(args) → method(obj, args)
+                // Handle method calls: obj.method(args) → Struct__method(self, args)
                 if func_str.contains('.') {
                     let parts: Vec<&str> = func_str.split('.').collect();
                     if parts.len() == 2 {
-                        return format!("{}({}{})", parts[1], parts[0],
-                            if args_str.is_empty() { "".into() } else { format!(", {}", args_str.join(", ")) });
+                        let method = parts[1];
+                        let self_expr = parts[0];
+                        // Look up struct name from method name
+                        let fn_name = if let Some(sname) = self.method_to_struct.get(method) {
+                            format!("{}__{}", sname, method)
+                        } else {
+                            method.to_string()
+                        };
+                        let all_args = if args_str.is_empty() {
+                            self_expr.to_string()
+                        } else {
+                            format!("{}, {}", self_expr, args_str.join(", "))
+                        };
+                        return format!("{}({})", fn_name, all_args);
                     }
                 }
                 format!("{}({})", func_str, args_str.join(", "))
