@@ -130,6 +130,19 @@ After completing a feature implementation or bug fix, **briefly suggest 2–4 co
 
 **Do NOT**: add these to todo lists, create work plans, or imply they are the user's obligation. They are a menu, not a task assignment.
 
+### 15. End-of-Session Summary of Incomplete Work
+
+At the end of a session, if any features, issues, or gaps remain unfinished/unverified/unfixed, **report them explicitly to the user**. For each remaining issue:
+
+1. **File and line** – Link to the relevant source location.
+2. **Code snippet** – Show the exact code that manifests the problem (from the repo, not invented).
+3. **Root cause** – What makes this issue still open.
+4. **Prerequisites** – What must be resolved before this can be fixed.
+
+This rule exists because otherwise open items accumulate silently. The summary forces a clean handoff between sessions. If everything is complete, state that explicitly.
+
+> "No unresolved items — all known features are implemented, tested, and documented." is a valid end-of-session statement.
+
 ---
 
 ## Project-Specific Conventions
