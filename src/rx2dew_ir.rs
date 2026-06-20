@@ -180,7 +180,9 @@ impl DewEmitter {
                         out.push_str(&format!("{}fix wl {{ fn() -> Unit {{\n", pad));
                         out.push_str(&format!("{}  if {} {{\n", pad, cond_str));
                         self.emit_body(body, 0, out, indent + 2);
-                        out.push_str(&format!("{}    wl()\n", pad));
+                        while out.ends_with('\n') { out.pop(); }
+                        if !out.ends_with(';') { out.push_str(";"); }
+                        out.push_str(&format!("\n{}    wl()\n", pad));
                         out.push_str(&format!("{}  }} else {{ Unit }}\n", pad));
                         out.push_str(&format!("{}  }} }}();\n", pad));
                     } else {
@@ -188,7 +190,10 @@ impl DewEmitter {
                         out.push_str(&format!("{}  fn({}) -> Int {{\n", pad, params.join(", ")));
                         out.push_str(&format!("{}    if {} {{\n", pad, cond_str));
                         self.emit_body(body, 0, out, indent + 3);
-                        out.push_str(&format!("{}      wl({})\n", pad, call_args.join(", ")));
+                        // wl() follows, so ensure previous statement is terminated
+                        while out.ends_with('\n') { out.pop(); }
+                        if !out.ends_with(';') { out.push_str(";"); }
+                        out.push_str(&format!("\n{}      wl({})\n", pad, call_args.join(", ")));
                         out.push_str(&format!("{}    }} else {{ {} }}\n", pad, ret_var));
                         out.push_str(&format!("{}  }}\n", pad));
                         out.push_str(&format!("{}}}({});\n", pad, call_args.join(", ")));
@@ -234,8 +239,8 @@ impl DewEmitter {
                             }
                         }
                     }
-                    if !is_last { out.push_str(";"); }
-                    out.push_str(&format!("{}{}\n", pad, self.emit_expr(expr)));
+                    let sep = if is_last { "" } else { ";" };
+                    out.push_str(&format!("{}{}{}\n", pad, self.emit_expr(expr), sep));
                 }
             }
         }
