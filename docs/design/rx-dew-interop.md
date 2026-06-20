@@ -279,6 +279,8 @@ fix loop {
 > The loop function name (`loop` in these examples) is a local binding created by `fix`. It does not conflict with user-defined names because `fix` introduces a new scope. The translator generates fresh names if needed to avoid shadowing user bindings.
 >
 > **Note on naming — why `__while_loop`.** Dew's `loop` is a keyword (`loop { body }` for infinite loops), so the recursive call `loop(state)` would be parsed as an infinite loop, not as a function call. The translator therefore uses `fix __while_loop { ... }(...)` — the leading underscores avoid any conflict with both Dew keywords and typical user-defined names.
+>
+> **IO effect on recursive calls.** When a `fix` function body contains `stdout`/`stdin` (e.g., `printlnInt` inside a while loop), the function has IO effects. The translator annotates the inner `fn` with its return type (e.g., `-> Int`), but Dew's type checker requires IO functions to declare `-> IO Int`. However, when `-> IO Int` is used, the recursive call `__while_loop(args)` returns `IO(Int)` (the full annotated type), while the function body expects `Int` (the inner type after stripping `IO`). The type checker's `infer_fn` strips `IO` from the annotation to get `inner_ret_ty = Int`, but the recursive call's return type is still `IO(Int)`, causing unification failure. The current workaround downgrades this from error (`[E006]`) to warning (`[W005]`). A proper fix requires the type checker to strip `IO` from recursive call return types within an IO-annotated function.
 
 #### 3.4.3 `break` and `continue`
 
@@ -927,6 +929,8 @@ match x {
 | Rx comments `#...#` | Parser | Handle in Rx lexer reimplementation |
 | Reverse translation lossy (`Int` → `i32`) | Current | Emit narrowing comments; consider `i64` in Rx |
 | Dew closures → Rx | No equivalent | Inline expansion or comment out |
+| `fix` recursive call IO type mismatch | Current | See §3.4.2 note on IO effects. Workaround: `[E006]`→`[W005]` downgrade. Requires type checker to strip `IO` from recursive call return types inside `IO(T)`-annotated functions. |
+| `fix __while_loop` borrow param return type | Current | `[E003]` when param `&i: Int` and return `Array(T, N)` share an unresolved type variable. Requires fixing `infer_fn`'s borrow param / return type unification order. |
 
 ---
 
