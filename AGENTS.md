@@ -273,7 +273,7 @@ Both compute `40 + 2` — `force_small` uses `!x` to force immediately; `lazy_sm
 
 ### 16. Discussion Mode — No Modification Without Explicit Authorization
 
-When the user says "讨论", "询问细节", "有个疑问", or otherwise signals a **question/discussion** (as opposed to a "fix this" or "implement that" task):
+When the user says "讨论", "询问细节", "有个疑问", "调查", "搜索", or otherwise signals a **question/discussion** (as opposed to a "fix this" or "implement that" task):
 
 1. **Do not modify any existing file** in the repository.
 2. Creating **temporary files** for testing/validation is permitted.
