@@ -204,6 +204,16 @@ impl DewEmitter {
                 }
                 Stmt::Empty => {}
                 Stmt::Expr(expr) => {
+                    // printlnInt(x) → x -> stdout; 10 -> stdout (add newline)
+                    if let Expr::Call { func, .. } = expr {
+                        if let Expr::Ident(name) = func.as_ref() {
+                            if name == "printlnInt" {
+                                out.push_str(&format!("{}{};\n", pad, self.emit_expr(expr)));
+                                out.push_str(&format!("{}'\\n' -> stdout;\n", pad));
+                                continue;
+                            }
+                        }
+                    }
                     out.push_str(&format!("{}{};\n", pad, self.emit_expr(expr)));
                 }
             }
@@ -266,8 +276,10 @@ impl DewEmitter {
                 format!("{}[{}]", self.emit_expr(obj), self.emit_expr(idx))
             }
             Expr::StructLit { name, fields } => {
-                let args: Vec<String> = fields.iter().map(|(_, v)| self.emit_expr(v)).collect();
-                format!("{}({})", name, args.join(", "))
+                let args: Vec<String> = fields.iter()
+                    .map(|(f, v)| format!("{}: {}", f, self.emit_expr(v)))
+                    .collect();
+                format!("{} {{ {} }}", name, args.join(", "))
             }
             Expr::ArrayLit { elements, repeat: None } => {
                 let elems: Vec<String> = elements.iter().map(|e| self.emit_expr(e)).collect();
