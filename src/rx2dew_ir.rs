@@ -177,7 +177,6 @@ impl DewEmitter {
                 self.var_types.borrow_mut().insert(name.clone(), dew_ty);
                 if let Some(expr) = init {
                     out.push_str(&format!("{}def {} = {};\n", pad, name, self.emit_expr(expr)));
-                    out.push_str(&format!("{}def {} = {};\n", pad, name, self.emit_expr(expr)));
                 } else {
                     out.push_str(&format!("{}def {} = 0;\n", pad, name));
                 }
