@@ -282,6 +282,10 @@ impl DewEmitter {
             Expr::Bool(b) => if *b { "true".into() } else { "false".into() },
             Expr::Str(s) => format!("\"{}\"", s),
             Expr::Ident(name) => {
+                // Resolve const references to their values
+                if let Some(val) = self.const_values.get(name.as_str()) {
+                    return val.clone();
+                }
                 match name.as_str() {
                     "getInt" => "stdin(0)".into(),
                     "exit" => "0".into(),
@@ -289,6 +293,10 @@ impl DewEmitter {
                 }
             }
             Expr::Binary(left, op, right) => {
+                // Try to evaluate constant expressions at translation time
+                if let Some(val) = self.eval_const_expr(expr) {
+                    return val.to_string();
+                }
                 let op_str = match op {
                     BinOp::Add => "+", BinOp::Sub => "-", BinOp::Mul => "*", BinOp::Div => "/", BinOp::Rem => "%",
                     BinOp::Eq => "==", BinOp::Ne => "!=", BinOp::Lt => "<", BinOp::Gt => ">",
@@ -355,11 +363,9 @@ impl DewEmitter {
             }
             Expr::ArrayLit { elements, repeat: Some(count) } => {
                 let elem = if elements.is_empty() { "0".into() } else { self.emit_expr(&elements[0]) };
-                let cnt = self.emit_expr(count);
-                // Dew requires literal integer for array fill count; use 0 for variables
-                let cnt = match count.as_ref() {
-                    Expr::Int(_) => cnt,
-                    _ => "0".to_string(),
+                let cnt = match self.eval_const_expr(count) {
+                    Some(n) => n.to_string(),
+                    None => "0".to_string(),
                 };
                 format!("[{}; {}]", elem, cnt)
             }
@@ -460,9 +466,27 @@ impl DewEmitter {
         }
         Ok(acc)
     }
-}
 
-/// Scan Rx statements for IO operations (printlnInt, printInt, getInt, stdout, stdin).
+    /// Evaluate a const expression (const refs + simple arithmetic).
+    fn eval_const_expr(&self, expr: &Expr) -> Option<i64> {
+        match expr {
+            Expr::Int(n) => Some(*n),
+            Expr::Ident(name) => {
+                self.const_values.get(name.as_str())?.parse::<i64>().ok()
+            }
+            Expr::Binary(l, BinOp::Add, r) => {
+                Some(self.eval_const_expr(l)? + self.eval_const_expr(r)?)
+            }
+            Expr::Binary(l, BinOp::Sub, r) => {
+                Some(self.eval_const_expr(l)? - self.eval_const_expr(r)?)
+            }
+            Expr::Binary(l, BinOp::Mul, r) => {
+                Some(self.eval_const_expr(l)? * self.eval_const_expr(r)?)
+            }
+            _ => None,
+        }
+    }
+}
 fn has_io_in_stmts(stmts: &[Stmt]) -> bool {
     fn has_io_in_expr(expr: &Expr) -> bool {
         match expr {

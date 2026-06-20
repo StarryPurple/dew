@@ -489,7 +489,6 @@ impl<'a> Parser<'a> {
     }
 
     fn is_struct_construction(&self) -> bool {
-        let save = self.pos;
         let p = self.pos;
         if p + 1 < self.tokens.len() {
             if self.tokens[p + 1].kind == TokenKind::Ident("".into()) { return false; }
