@@ -13,6 +13,7 @@ This directory contains the **canonical design specifications** for the Dew prog
 | [dew-ir.md](dew-ir.md) | Dew IR | Thunk Graph IR specification: primitives, instructions, text format, evaluation model |
 | [dew-ir-impl.md](dew-ir-impl.md) | Dew IR → LLVM IR | Implementation: how Dew IR translates to LLVM IR and tree-walking evaluator |
 | [rx-dew-interop.md](rx-dew-interop.md) | Rx ↔ Dew Interop | Translation rules for Rx (Rust-like) ↔ Dew round-trip, safety analysis architecture |
+| [rx-lang.md](rx-lang.md) | Rx Language AST | AST specification for the Rx parser — all node types, token kinds, and translation-relevant details |
 | [todo.md](todo.md) | Roadmap | Implementation roadmap: completed features, gaps, planned phases, dependency graph |
 | [dew-lang-ebnf.md](dew-lang-ebnf.md) | Dew Grammar (doc) | Full EBNF grammar for the Dew surface syntax with explanatory notes |
 | [dew-lang.ebnf](dew-lang.ebnf) | Dew Grammar (EBNF) | Machine-readable EBNF grammar for the Dew surface syntax |

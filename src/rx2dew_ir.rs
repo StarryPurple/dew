@@ -2,6 +2,7 @@
 // Uses the Rx parser to parse .rx files, then emits Dew source text.
 
 use crate::rx_parser::*;
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 pub fn translate_rx_to_dew(src: &str) -> Result<String, String> {
@@ -17,11 +18,15 @@ struct DewEmitter {
     impls: Vec<(String, Vec<FnDecl>)>, // (struct_name, methods)
     method_to_struct: HashMap<String, String>,
     const_values: HashMap<String, String>, // const_name → resolved value
+    var_types: RefCell<HashMap<String, String>>, // variable_name → Dew type string
 }
 
 impl DewEmitter {
     fn new() -> Self {
-        Self { impls: vec![], method_to_struct: HashMap::new(), const_values: HashMap::new() }
+        Self {
+            impls: vec![], method_to_struct: HashMap::new(),
+            const_values: HashMap::new(), var_types: RefCell::new(HashMap::new()),
+        }
     }
 
     fn emit_program(&mut self, prog: &Program, out: &mut String) {
@@ -68,6 +73,12 @@ impl DewEmitter {
     }
 
     fn emit_impl_method(&self, sname: &str, m: &FnDecl, out: &mut String) {
+        self.var_types.borrow_mut().clear();
+        // self param
+        self.var_types.borrow_mut().insert("self".into(), sname.into());
+        for (n, t) in &m.params {
+            self.var_types.borrow_mut().insert(n.clone(), self.map_type(t));
+        }
         let mut params = vec![format!("self: {}", sname)];
         for (pname, ptype) in &m.params {
             params.push(format!("{}: {}", pname, self.map_type(ptype)));
@@ -85,6 +96,11 @@ impl DewEmitter {
     }
 
     fn emit_fn(&self, fn_decl: &FnDecl, out: &mut String) {
+        // Set up variable types for the function scope
+        self.var_types.borrow_mut().clear();
+        for (n, t) in &fn_decl.params {
+            self.var_types.borrow_mut().insert(n.clone(), self.map_type(t));
+        }
         let params: Vec<String> = fn_decl.params.iter()
             .map(|(n, t)| format!("{}: {}", n, self.map_type(t)))
             .collect();
@@ -104,7 +120,7 @@ impl DewEmitter {
         body.iter().filter(|s| matches!(s, Stmt::Let { mutable: true, .. })).count()
     }
 
-    fn collect_loop_vars(stmts: &[Stmt]) -> Vec<String> {
+    fn collect_loop_vars(&self, stmts: &[Stmt]) -> Vec<(String, String)> {
         fn extract_root(expr: &Expr) -> Option<String> {
             match expr {
                 Expr::Ident(name) => Some(name.clone()),
@@ -119,17 +135,19 @@ impl DewEmitter {
             match stmt {
                 Stmt::Assign { lhs, .. } => {
                     if let Some(v) = extract_root(lhs) {
-                        vars.push(v);
+                        let ty = self.var_types.borrow().get(&v)
+                            .cloned().unwrap_or_else(|| "Int".into());
+                        vars.push((v, ty));
                     }
                 }
                 Stmt::If { then_body, else_body, .. } => {
-                    vars.extend(Self::collect_loop_vars(then_body));
+                    vars.extend(self.collect_loop_vars(then_body));
                     if let Some(eb) = else_body {
-                        vars.extend(Self::collect_loop_vars(eb));
+                        vars.extend(self.collect_loop_vars(eb));
                     }
                 }
                 Stmt::While { body, .. } => {
-                    vars.extend(Self::collect_loop_vars(body));
+                    vars.extend(self.collect_loop_vars(body));
                 }
                 _ => {}
             }
@@ -145,8 +163,11 @@ impl DewEmitter {
         let last_expr_idx = body.iter().rposition(|s| !matches!(s, Stmt::Let { .. }));
         // Phase 1: all def bindings (Dew requires def before any expressions in a block)
         for stmt in body {
-            if let Stmt::Let { name, mutable: _, ty: _, init } = stmt {
+            if let Stmt::Let { name, mutable: _, ty, init } = stmt {
+                let dew_ty = if ty.is_empty() { "Int".into() } else { self.map_type(ty) };
+                self.var_types.borrow_mut().insert(name.clone(), dew_ty);
                 if let Some(expr) = init {
+                    out.push_str(&format!("{}def {} = {};\n", pad, name, self.emit_expr(expr)));
                     out.push_str(&format!("{}def {} = {};\n", pad, name, self.emit_expr(expr)));
                 } else {
                     out.push_str(&format!("{}def {} = 0;\n", pad, name));
@@ -171,10 +192,10 @@ impl DewEmitter {
                 }
                 Stmt::While { cond, body } => {
                     let cond_str = format!("({})", self.emit_expr(cond));
-                    let vars = Self::collect_loop_vars(body);
-                    let params: Vec<String> = vars.iter().map(|v| format!("&{}: Int", v)).collect();
-                    let call_args: Vec<String> = vars.iter().map(|v| format!("&{}", v)).collect();
-                    let ret_var = vars.last().cloned().unwrap_or_default();
+                    let vars = self.collect_loop_vars(body);
+                    let params: Vec<String> = vars.iter().map(|(n, t)| format!("&{}: {}", n, t)).collect();
+                    let call_args: Vec<String> = vars.iter().map(|(n, _)| format!("&{}", n)).collect();
+                    let ret_var = vars.last().map(|(n, _)| n.clone()).unwrap_or_default();
 
                     if vars.is_empty() {
                         out.push_str(&format!("{}fix wl {{ fn() -> Unit {{\n", pad));

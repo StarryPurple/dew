@@ -269,6 +269,18 @@ pass/lazy/
 
 Both compute `40 + 2` — `force_small` uses `!x` to force immediately; `lazy_small` lets the thunk suspend. Output is `42` for both. Their IR differs: one has `thunk @x` with `force{} @x` in `@main`; the other compiles `x` inline.
 
+### 16. Discussion Mode — No Modification Without Explicit Authorization
+
+When the user says "讨论", "询问细节", "有个疑问", or otherwise signals a **question/discussion** (as opposed to a "fix this" or "implement that" task):
+
+1. **Do not modify any existing file** in the repository.
+2. Creating **temporary files** for testing/validation is permitted.
+3. Running **read-only tests** (`cargo build`, `cargo test`, `bash tools/test_runner.sh`, executing the compiler on existing examples) is permitted.
+4. If a concrete fix becomes obvious and the user has NOT said "修" or "implement" or "fix", **describe the fix verbally** instead of applying it.
+5. When the user transitions from discussion to implementation (e.g., says "修一下" or "implement it"), normal modification rules resume.
+
+This prevents accidental changes during the exploration/discovery phase.
+
 ---
 
 ## Quick Reference: Which Doc for Which Task?
