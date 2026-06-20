@@ -141,6 +141,8 @@ impl DewEmitter {
 
     fn emit_body(&self, body: &[Stmt], _prev_let_muts: usize, out: &mut String, indent: usize) {
         let pad = "  ".repeat(indent);
+        // Find last non-def element index for final-expression detection
+        let last_expr_idx = body.iter().rposition(|s| !matches!(s, Stmt::Let { .. }));
         // Phase 1: all def bindings (Dew requires def before any expressions in a block)
         for stmt in body {
             if let Stmt::Let { name, mutable: _, ty: _, init } = stmt {
@@ -152,7 +154,8 @@ impl DewEmitter {
             }
         }
         // Phase 2: all expression statements
-        for stmt in body {
+        for (idx, stmt) in body.iter().enumerate() {
+            let is_last = Some(idx) == last_expr_idx;
             match stmt {
                 Stmt::Let { .. } | Stmt::Empty => {}
                 Stmt::Assign { lhs, op, rhs } => {
@@ -174,38 +177,39 @@ impl DewEmitter {
                     let ret_var = vars.last().cloned().unwrap_or_default();
 
                     if vars.is_empty() {
-                        out.push_str(&format!("{}fix loop {{ fn() -> Unit {{\n", pad));
+                        out.push_str(&format!("{}fix wl {{ fn() -> Unit {{\n", pad));
                         out.push_str(&format!("{}  if {} {{\n", pad, cond_str));
                         self.emit_body(body, 0, out, indent + 2);
-                        out.push_str(&format!("{}    loop()\n", pad));
+                        out.push_str(&format!("{}    wl()\n", pad));
                         out.push_str(&format!("{}  }} else {{ Unit }}\n", pad));
                         out.push_str(&format!("{}  }} }}();\n", pad));
                     } else {
-                        out.push_str(&format!("{}fix loop {{\n", pad));
+                        out.push_str(&format!("{}fix wl {{\n", pad));
                         out.push_str(&format!("{}  fn({}) -> Int {{\n", pad, params.join(", ")));
                         out.push_str(&format!("{}    if {} {{\n", pad, cond_str));
                         self.emit_body(body, 0, out, indent + 3);
-                        out.push_str(&format!("{}      loop({})\n", pad, call_args.join(", ")));
+                        out.push_str(&format!("{}      wl({})\n", pad, call_args.join(", ")));
                         out.push_str(&format!("{}    }} else {{ {} }}\n", pad, ret_var));
                         out.push_str(&format!("{}  }}\n", pad));
-                        out.push_str(&format!("{}}}({});\n", pad, call_args.join(", ")));
+                        out.push_str(&format!("{}}})({});\n", pad, call_args.join(", ")));
                     }
                 }
                 Stmt::If { cond, then_body, else_body } => {
                     let cond_str = format!("({})", self.emit_expr(cond));
                     out.push_str(&format!("{}if {} {{\n", pad, cond_str));
                     self.emit_body(then_body, 0, out, indent + 1);
-                    out.push_str(&format!("{}}} ", pad));
+                    out.push_str(&format!("{}}}", pad));
                     match else_body {
                         Some(else_b) => {
-                            out.push_str(&format!("else {{\n"));
+                            out.push_str(&format!(" else {{\n"));
                             self.emit_body(else_b, 0, out, indent + 1);
-                            out.push_str(&format!("{}}};", pad));
+                            out.push_str(&format!("{}}}", pad));
                         }
                         None => {
-                            out.push_str(&format!("else {{ Unit }};"));
+                            out.push_str(&format!(" else {{ Unit }}"));
                         }
                     }
+                    if !is_last { out.push_str(";"); }
                     out.push_str("\n");
                 }
                 Stmt::Return(Some(expr)) => {
@@ -223,13 +227,15 @@ impl DewEmitter {
                     if let Expr::Call { func, .. } = expr {
                         if let Expr::Ident(name) = func.as_ref() {
                             if name == "printlnInt" {
-                                out.push_str(&format!("{}{};\n", pad, self.emit_expr(expr)));
+                                let sep = if is_last { "" } else { ";" };
+                                out.push_str(&format!("{}{}{}\n", pad, self.emit_expr(expr), sep));
                                 out.push_str(&format!("{}'\\n' -> stdout;\n", pad));
                                 continue;
                             }
                         }
                     }
-                    out.push_str(&format!("{}{};\n", pad, self.emit_expr(expr)));
+                    if !is_last { out.push_str(";"); }
+                    out.push_str(&format!("{}{}\n", pad, self.emit_expr(expr)));
                 }
             }
         }
