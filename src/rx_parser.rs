@@ -400,7 +400,13 @@ impl Parser {
                 match &self.current {
                     Token::Ident(s) => { ty.push_str(s); self.advance(); }
                     Token::IntLit(n) => { ty.push_str(&n.to_string()); self.advance(); }
-                    Token::Plus | Token::Minus | Token::Star => { ty.push_str(&format!("{:?}", self.current)); self.advance(); }
+                    Token::Plus | Token::Minus | Token::Star | Token::Slash => {
+                        let op = match self.current {
+                            Token::Plus => "+", Token::Minus => "-", Token::Star => "*", Token::Slash => "/",
+                            _ => unreachable!(),
+                        };
+                        ty.push_str(op); self.advance();
+                    }
                     _ => { ty.push_str(&format!("{:?}", self.current)); self.advance(); }
                 }
             }
@@ -410,7 +416,13 @@ impl Parser {
                     match &self.current {
                         Token::Ident(s) => { ty.push_str(&format!(" {}", s)); self.advance(); }
                         Token::IntLit(n) => { ty.push_str(&format!(" {}", n)); self.advance(); }
-                        Token::Plus | Token::Minus | Token::Star | Token::Slash => { ty.push_str(&format!(" {:?}", self.current)); self.advance(); }
+                        Token::Plus | Token::Minus | Token::Star | Token::Slash => {
+                            let op = match self.current {
+                                Token::Plus => "+", Token::Minus => "-", Token::Star => "*", Token::Slash => "/",
+                                _ => unreachable!(),
+                            };
+                            ty.push_str(&format!(" {}", op)); self.advance();
+                        }
                         _ => { ty.push_str(&format!(" {:?}", self.current)); self.advance(); }
                     }
                 }

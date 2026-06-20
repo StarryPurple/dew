@@ -15,17 +15,17 @@ pub fn translate_rx_to_dew(src: &str) -> Result<String, String> {
 
 struct DewEmitter {
     impls: Vec<(String, Vec<FnDecl>)>, // (struct_name, methods)
-    // method_name → struct_name for method call translation
     method_to_struct: HashMap<String, String>,
+    const_values: HashMap<String, String>, // const_name → resolved value
 }
 
 impl DewEmitter {
     fn new() -> Self {
-        Self { impls: vec![], method_to_struct: HashMap::new() }
+        Self { impls: vec![], method_to_struct: HashMap::new(), const_values: HashMap::new() }
     }
 
     fn emit_program(&mut self, prog: &Program, out: &mut String) {
-        // First pass: collect structs and impls, build method name map
+        // First pass: collect structs, impls, and const values
         for decl in &prog.decls {
             match decl {
                 Decl::Struct { name, fields } => {
@@ -40,6 +40,9 @@ impl DewEmitter {
                     for m in methods {
                         self.method_to_struct.insert(m.name.clone(), struct_name.clone());
                     }
+                }
+                Decl::Const { name, value } => {
+                    self.const_values.insert(name.clone(), value.clone());
                 }
                 _ => {}
             }
@@ -345,7 +348,99 @@ impl DewEmitter {
             .replace("bool", "Bool").replace("()", "Unit");
         // Simplify reference types
         let t = t.replace("&mut ", "").replace("&", "");
-        // Simplify array types
-        if t.contains('[') { "Int".into() } else { t }
+        // Resolve const references in array sizes: [SegT; MAXSEG] → [SegT; 2000]
+        if t.contains('[') && t.contains(';') {
+            let mut result = String::new();
+            let mut in_bracket = 0;
+            let mut after_semi = false;
+            let mut ident_buf = String::new();
+            for c in t.chars() {
+                match c {
+                    '[' => { in_bracket += 1; after_semi = false; result.push(c); }
+                    ']' => {
+                        if !ident_buf.is_empty() {
+                            if let Some(val) = self.const_values.get(&ident_buf) {
+                                result.push_str(val);
+                            } else {
+                                result.push_str(&ident_buf);
+                            }
+                            ident_buf.clear();
+                        }
+                        in_bracket -= 1; after_semi = false; result.push(c);
+                    }
+                    ';' if in_bracket > 0 => { after_semi = true; result.push(c); }
+                    c if after_semi && c.is_whitespace() => {}
+                    c if after_semi && c.is_alphanumeric() => { ident_buf.push(c); }
+                    c if after_semi && (c == '+' || c == '-' || c == '*') => {
+                        // Flush pending ident, push operator
+                        if !ident_buf.is_empty() {
+                            if let Some(val) = self.const_values.get(&ident_buf) {
+                                result.push_str(val);
+                            } else {
+                                result.push_str(&ident_buf);
+                            }
+                            ident_buf.clear();
+                        }
+                        result.push(c);
+                    }
+                    c if after_semi => {
+                        if !ident_buf.is_empty() {
+                            if let Some(val) = self.const_values.get(&ident_buf) {
+                                result.push_str(val);
+                            } else {
+                                result.push_str(&ident_buf);
+                            }
+                            ident_buf.clear();
+                        }
+                        after_semi = false;
+                        result.push(c);
+                    }
+                    _ => { result.push(c); }
+                }
+            }
+            // Flush trailing ident
+            if !ident_buf.is_empty() {
+                if let Some(val) = self.const_values.get(&ident_buf) {
+                    result.push_str(val);
+                }
+            }
+            // Evaluate simple arithmetic in array size: [X; 200+1] → [X; 201]
+            if let Some(semi_pos) = result.rfind(';') {
+                let after = &result[semi_pos+1..];
+                if after.ends_with(']') {
+                    let expr = &after[..after.len()-1];
+                    if let Ok(val) = self.eval_simple_expr(expr) {
+                        return format!("{};{}]", &result[..semi_pos], val);
+                    }
+                }
+            }
+            return result;
+        }
+        t
+    }
+
+    /// Evaluate simple integer expressions left-to-right: 200+1, 10*5, etc.
+    fn eval_simple_expr(&self, s: &str) -> Result<i64, ()> {
+        let s = s.trim();
+        if let Ok(n) = s.parse::<i64>() { return Ok(n); }
+        let mut acc: i64 = 0;
+        let mut op = '+';
+        let mut i = 0;
+        let chars: Vec<char> = s.chars().collect();
+        while i < chars.len() {
+            if chars[i].is_whitespace() { i += 1; continue; }
+            if chars[i] == '+' || chars[i] == '-' || chars[i] == '*' { op = chars[i]; i += 1; continue; }
+            let start = i;
+            while i < chars.len() && chars[i].is_ascii_digit() { i += 1; }
+            if start == i { return Err(()); }
+            let n: i64 = s[start..i].parse().map_err(|_| ())?;
+            match op {
+                '+' => acc += n,
+                '-' => acc -= n,
+                '*' => acc *= n,
+                _ => return Err(()),
+            }
+        }
+        Ok(acc)
     }
 }
