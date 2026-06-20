@@ -939,24 +939,6 @@ impl<'a> Parser<'a> {
     // ==================================================================
 
     fn parse_type(&mut self) -> Result<Type, Span> {
-        if self.check(TokenKind::LBracket) {
-            let start = self.advance().start;
-            let element = self.parse_type()?;
-            self.expect(TokenKind::Semicolon)?;
-            let size = if let TokenKind::IntLit(n) = self.peek_kind() {
-                self.advance();
-                n as usize
-            } else {
-                self.diag.error("E002", "expected integer size in array fill", Some(self.current_span()));
-                return Err(self.current_span());
-            };
-            let end = self.expect(TokenKind::RBracket)?.span.end;
-            return Ok(Type::Array(ArrayType {
-                span: Span { start, end, line: 0, col: start },
-                element: Box::new(element),
-                size,
-            }));
-        }
         if self.check(TokenKind::Underscore) {
             let span = self.advance();
             return Ok(Type::Wildcard(span));

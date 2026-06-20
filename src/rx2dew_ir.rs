@@ -191,7 +191,7 @@ impl DewEmitter {
                         out.push_str(&format!("{}      wl({})\n", pad, call_args.join(", ")));
                         out.push_str(&format!("{}    }} else {{ {} }}\n", pad, ret_var));
                         out.push_str(&format!("{}  }}\n", pad));
-                        out.push_str(&format!("{}}})({});\n", pad, call_args.join(", ")));
+                        out.push_str(&format!("{}}}({});\n", pad, call_args.join(", ")));
                     }
                 }
                 Stmt::If { cond, then_body, else_body } => {
@@ -354,75 +354,51 @@ impl DewEmitter {
             .replace("bool", "Bool").replace("()", "Unit");
         // Simplify reference types
         let t = t.replace("&mut ", "").replace("&", "");
-        // Resolve const references in array sizes: [SegT; MAXSEG] → [SegT; 2000]
-        if t.contains('[') && t.contains(';') {
-            let mut result = String::new();
-            let mut in_bracket = 0;
-            let mut after_semi = false;
-            let mut ident_buf = String::new();
-            for c in t.chars() {
-                match c {
-                    '[' => { in_bracket += 1; after_semi = false; result.push(c); }
-                    ']' => {
-                        if !ident_buf.is_empty() {
-                            if let Some(val) = self.const_values.get(&ident_buf) {
-                                result.push_str(val);
-                            } else {
-                                result.push_str(&ident_buf);
-                            }
-                            ident_buf.clear();
-                        }
-                        in_bracket -= 1; after_semi = false; result.push(c);
-                    }
-                    ';' if in_bracket > 0 => { after_semi = true; result.push(c); }
-                    c if after_semi && c.is_whitespace() => {}
-                    c if after_semi && c.is_alphanumeric() => { ident_buf.push(c); }
-                    c if after_semi && (c == '+' || c == '-' || c == '*') => {
-                        // Flush pending ident, push operator
-                        if !ident_buf.is_empty() {
-                            if let Some(val) = self.const_values.get(&ident_buf) {
-                                result.push_str(val);
-                            } else {
-                                result.push_str(&ident_buf);
-                            }
-                            ident_buf.clear();
-                        }
-                        result.push(c);
-                    }
-                    c if after_semi => {
-                        if !ident_buf.is_empty() {
-                            if let Some(val) = self.const_values.get(&ident_buf) {
-                                result.push_str(val);
-                            } else {
-                                result.push_str(&ident_buf);
-                            }
-                            ident_buf.clear();
-                        }
-                        after_semi = false;
-                        result.push(c);
-                    }
-                    _ => { result.push(c); }
-                }
-            }
-            // Flush trailing ident
-            if !ident_buf.is_empty() {
-                if let Some(val) = self.const_values.get(&ident_buf) {
-                    result.push_str(val);
-                }
-            }
-            // Evaluate simple arithmetic in array size: [X; 200+1] → [X; 201]
-            if let Some(semi_pos) = result.rfind(';') {
-                let after = &result[semi_pos+1..];
-                if after.ends_with(']') {
-                    let expr = &after[..after.len()-1];
-                    if let Ok(val) = self.eval_simple_expr(expr) {
-                        return format!("{};{}]", &result[..semi_pos], val);
-                    }
-                }
-            }
-            return result;
+        // Resolve const references in array types: [SegT; MAXSEG] → Array(SegT, 2000)
+        if t.starts_with('[') && t.contains(';') {
+            let semi_pos = t.find(';').unwrap();
+            let elem = t[1..semi_pos].trim();
+            let size_str = t[semi_pos+1..].trim_end_matches(']').trim();
+            // Resolve const names and evaluate expressions in size
+            let resolved = self.resolve_and_eval(size_str);
+            return format!("Array({}, {})", elem, resolved);
         }
         t
+    }
+
+    /// Resolve const names in an expression and evaluate it
+    fn resolve_and_eval(&self, s: &str) -> String {
+        // First try to evaluate as a simple integer expression
+        // by resolving const references
+        let mut result = String::new();
+        let mut buf = String::new();
+        for c in s.chars() {
+            if c.is_alphanumeric() || c == '_' {
+                buf.push(c);
+            } else {
+                if !buf.is_empty() {
+                    if let Some(val) = self.const_values.get(&buf) {
+                        result.push_str(val);
+                    } else {
+                        result.push_str(&buf);
+                    }
+                    buf.clear();
+                }
+                result.push(c);
+            }
+        }
+        if !buf.is_empty() {
+            if let Some(val) = self.const_values.get(&buf) {
+                result.push_str(val);
+            } else {
+                result.push_str(&buf);
+            }
+        }
+        // Try to evaluate the expression
+        if let Ok(val) = self.eval_simple_expr(&result) {
+            return val.to_string();
+        }
+        result
     }
 
     /// Evaluate simple integer expressions left-to-right: 200+1, 10*5, etc.

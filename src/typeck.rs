@@ -596,6 +596,23 @@ impl<'a> TypeChecker<'a> {
                     _ => Ty::Named(n.name.name.clone(), vec![]),
                 }
             }
+            Type::Named(n) if n.name.name == "Array" => {
+                // Array(T, N) → Ty::Array(elem, size)
+                if let Some(args) = &n.args {
+                    if args.len() == 2 {
+                        let elem = match &args[0] {
+                            TypeArg::Type(t) => self.ast_type_to_ty(t),
+                            _ => self.tvg.fresh_ty(),
+                        };
+                        let size = match &args[1] {
+                            TypeArg::Const(n) => *n,
+                            _ => 0,
+                        };
+                        return Ty::Array(Box::new(elem), size);
+                    }
+                }
+                Ty::Array(Box::new(self.tvg.fresh_ty()), 0)
+            }
             Type::Named(n) => {
                 let args: Vec<Ty> = n.args.as_ref().map(|a| a.iter().map(|arg| match arg {
                     TypeArg::Type(t) => self.ast_type_to_ty(t),
