@@ -139,6 +139,8 @@ At the end of a session, if any features, issues, or gaps remain unfinished/unve
 3. **Root cause** – What makes this issue still open.
 4. **Prerequisites** – What must be resolved before this can be fixed.
 
+Also briefly summarize what **was resolved** in the current session (3–5 bullet points), so the user has context on recent progress without having to scroll back.
+
 This rule exists because otherwise open items accumulate silently. The summary forces a clean handoff between sessions. If everything is complete, state that explicitly.
 
 > "No unresolved items — all known features are implemented, tested, and documented." is a valid end-of-session statement.

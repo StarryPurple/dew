@@ -74,7 +74,6 @@ impl DewEmitter {
 
     fn emit_impl_method(&self, sname: &str, m: &FnDecl, out: &mut String) {
         self.var_types.borrow_mut().clear();
-        // self param
         self.var_types.borrow_mut().insert("self".into(), sname.into());
         for (n, t) in &m.params {
             self.var_types.borrow_mut().insert(n.clone(), self.map_type(t));
@@ -84,7 +83,12 @@ impl DewEmitter {
             params.push(format!("{}: {}", pname, self.map_type(ptype)));
         }
         let rtype = self.map_type(&m.ret_type);
-        let ret_anno = if rtype == "Unit" { String::new() } else { format!(" -> {}", rtype) };
+        let has_io = has_io_in_stmts(&m.body);
+        let ret_anno = if rtype == "Unit" {
+            if has_io { " -> IO Unit".into() } else { String::new() }
+        } else {
+            if has_io { format!(" -> IO {}", rtype) } else { format!(" -> {}", rtype) }
+        };
         out.push_str(&format!("def {}__{} = fn({}){} {{\n",
             sname, m.name,
             params.join(", "),
@@ -104,8 +108,13 @@ impl DewEmitter {
         let params: Vec<String> = fn_decl.params.iter()
             .map(|(n, t)| format!("{}: {}", n, self.map_type(t)))
             .collect();
-        let rtype = self.map_type(&fn_decl.ret_type);
-        let ret_anno = if rtype == "Unit" { String::new() } else { format!(" -> {}", rtype) };
+        let mut rtype = self.map_type(&fn_decl.ret_type);
+        let has_io = has_io_in_stmts(&fn_decl.body);
+        let ret_anno = if rtype == "Unit" {
+            if has_io { " -> IO Unit".into() } else { String::new() }
+        } else {
+            if has_io { format!(" -> IO {}", rtype) } else { format!(" -> {}", rtype) }
+        };
         out.push_str(&format!("def {} = fn({}){} {{\n",
             fn_decl.name,
             params.join(", "),
@@ -451,4 +460,55 @@ impl DewEmitter {
         }
         Ok(acc)
     }
+}
+
+/// Scan Rx statements for IO operations (printlnInt, printInt, getInt, stdout, stdin).
+fn has_io_in_stmts(stmts: &[Stmt]) -> bool {
+    fn has_io_in_expr(expr: &Expr) -> bool {
+        match expr {
+            Expr::Ident(name) => {
+                matches!(name.as_str(), "stdout" | "stdin" | "getInt" | "printlnInt" | "printInt" | "exit")
+            }
+            Expr::Call { func, args } => {
+                if let Expr::Ident(name) = func.as_ref() {
+                    if matches!(name.as_str(), "printlnInt" | "printInt" | "getInt") {
+                        return true;
+                    }
+                }
+                has_io_in_expr(func) || args.iter().any(|a| has_io_in_expr(a))
+            }
+            Expr::Binary(l, _, r) => has_io_in_expr(l) || has_io_in_expr(r),
+            Expr::Unary(_, e) => has_io_in_expr(e),
+            Expr::Field(e, _) => has_io_in_expr(e),
+            Expr::Index(e, i) => has_io_in_expr(e) || has_io_in_expr(i),
+            Expr::StructLit { fields, .. } => fields.iter().any(|(_, v)| has_io_in_expr(v)),
+            Expr::ArrayLit { elements, repeat, .. } => {
+                elements.iter().any(|e| has_io_in_expr(e))
+                    || repeat.as_ref().map_or(false, |r| has_io_in_expr(r))
+            }
+            Expr::Cast(e, _) => has_io_in_expr(e),
+            Expr::Ref(e) => has_io_in_expr(e),
+            Expr::Deref(e) => has_io_in_expr(e),
+            Expr::If { cond, then_body, else_body } => {
+                has_io_in_expr(cond)
+                    || has_io_in_stmts(then_body)
+                    || has_io_in_stmts(else_body)
+            }
+            Expr::Block(stmts) => has_io_in_stmts(stmts),
+            _ => false,
+        }
+    }
+    stmts.iter().any(|s| match s {
+        Stmt::Let { init, .. } => init.as_ref().map_or(false, |e| has_io_in_expr(e)),
+        Stmt::Assign { lhs, rhs, .. } => has_io_in_expr(lhs) || has_io_in_expr(rhs),
+        Stmt::While { cond, body } => has_io_in_expr(cond) || has_io_in_stmts(body),
+        Stmt::If { cond, then_body, else_body } => {
+            has_io_in_expr(cond)
+                || has_io_in_stmts(then_body)
+                || else_body.as_ref().map_or(false, |b| has_io_in_stmts(b))
+        }
+        Stmt::Return(Some(e)) => has_io_in_expr(e),
+        Stmt::Expr(e) => has_io_in_expr(e),
+        _ => false,
+    })
 }
