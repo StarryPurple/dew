@@ -2195,6 +2195,7 @@ The standard library provides types and functions that are not built into the la
 | `Affine(T)` | `affine struct Affine(T) { data: T }` | Affine wrapper — the canonical way to give affine semantics to any value |
 | `List(T)` | `enum List(T) { Cons(T, List(T)), Nil }` | Singly-linked list |
 | `Option(T)` | `enum Option(T) { Some(T), None }` | Optional value |
+| `ControlFlow(T)` | `enum ControlFlow(T) { Return(T), Normal(T), Break, Continue }` | Control flow propagation for return/break/continue in Rx→Dew translation |
 
 `Pair(A, B)` is not defined — use tuples `(A, B)` instead. Tuples are built-in and serve the same purpose without a stdlib type.
 
