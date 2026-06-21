@@ -438,10 +438,25 @@ impl DewEmitter {
                         } else {
                             method.to_string()
                         };
-                        let all_args = if args_str.is_empty() {
-                            self_expr.to_string()
+                        // Check if the target method has borrow self (&self).
+                        // If so, pass self_expr as &self_expr so mutations persist.
+                        // Only add & when self_expr is a simple variable, field access,
+                        // or index — NOT when it contains a function call (has '('),
+                        // since &(expr()) is not valid Dew syntax.
+                        let has_borrow_self = self.impls.iter().any(|(_, methods)| {
+                            methods.iter().any(|m| m.name == method && m.has_self)
+                        });
+                        let can_borrow = !self_expr.contains('(')
+                            && !self_expr.contains(')');
+                        let self_arg = if has_borrow_self && can_borrow {
+                            format!("&{}", self_expr)
                         } else {
-                            format!("{}, {}", self_expr, args_str.join(", "))
+                            self_expr.to_string()
+                        };
+                        let all_args = if args_str.is_empty() {
+                            self_arg
+                        } else {
+                            format!("{}, {}", self_arg, args_str.join(", "))
                         };
                         return format!("{}({})", fn_name, all_args);
                     }
