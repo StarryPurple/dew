@@ -117,12 +117,14 @@ impl<'a> NameResolver<'a> {
                     }
                 }
                 for stmt in &b.stmts {
+                    // Resolve expression first so non-rec defs use the outer scope
+                    // (def i = i + 1 should read the OLD i, not the new binding).
+                    self.resolve_expr(&stmt.expr, &mut block_scope);
                     if let Some(def) = &stmt.def {
                         if !def.rec {
                             block_scope.insert(def.name.name.clone(), def.span);
                         }
                     }
-                    self.resolve_expr(&stmt.expr, &mut block_scope);
                 }
                 if let Some(final_expr) = &b.final_expr {
                     self.resolve_expr(final_expr, &mut block_scope);
@@ -200,6 +202,7 @@ impl<'a> NameResolver<'a> {
             // Leaf nodes — no names to resolve (loops desugared before nameres)
             Expr::IntLit(_) | Expr::BoolLit(_) | Expr::CharLit(_) | Expr::UnitLit(_)
             | Expr::While(_) | Expr::Loop(_) | Expr::ForIn(_) => {}
+            Expr::Cast(c) => self.resolve_expr(&c.expr, scope),
         }
     }
 

@@ -8,7 +8,7 @@ use crate::ast::Span;
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     // Keywords
-    Def, Fn, Struct, Enum, Match, If, Else, Fix, Rec,
+    As, Def, Fn, Struct, Enum, Match, If, Else, Fix, Rec,
     Import, Unit, Affine, TypeMatch, TypeOf, Not,
     While, Loop, For, // reserved for future loop constructs (handled by Rx→Dew translator)
 
@@ -27,6 +27,14 @@ pub enum TokenKind {
 
     // Borrow / address-of
     Amp,
+    /// Bitwise OR
+    Pipe,
+    /// Bitwise XOR
+    Caret,
+    /// Bitwise shift left
+    Shl,
+    /// Bitwise shift right
+    Shr,
 
     // Delimiters
     Eq, Semicolon, Colon, Comma, Underscore,
@@ -105,11 +113,13 @@ impl Lexer {
             '<' => {
                 self.advance();
                 if self.peek() == Some('=') { self.advance(); TokenKind::Le }
+                else if self.peek() == Some('<') { self.advance(); TokenKind::Shl }
                 else { TokenKind::Lt }
             }
             '>' => {
                 self.advance();
                 if self.peek() == Some('=') { self.advance(); TokenKind::Ge }
+                else if self.peek() == Some('>') { self.advance(); TokenKind::Shr }
                 else { TokenKind::Gt }
             }
             '=' => {
@@ -130,8 +140,9 @@ impl Lexer {
             '|' => {
                 self.advance();
                 if self.peek() == Some('|') { self.advance(); TokenKind::OrOr }
-                else { TokenKind::Eof } // single | is invalid
+                else { TokenKind::Pipe }
             }
+            '^' => { self.advance(); TokenKind::Caret }
             '.' => { self.advance(); TokenKind::Dot }
             '\'' => self.lex_char(),
             '"' => self.lex_string(),
@@ -230,7 +241,7 @@ impl Lexer {
             self.pos += 1;
         }
         match name.as_str() {
-            "def" => TokenKind::Def, "fn" => TokenKind::Fn,
+            "as" => TokenKind::As, "def" => TokenKind::Def, "fn" => TokenKind::Fn,
             "struct" => TokenKind::Struct, "enum" => TokenKind::Enum,
             "match" => TokenKind::Match, "if" => TokenKind::If,
             "else" => TokenKind::Else, "fix" => TokenKind::Fix,

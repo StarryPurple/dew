@@ -200,6 +200,7 @@ impl StrictnessContext {
                 self.classify_expr(&fi.body, Strictness::Lazy);
                 Strictness::Lazy
             }
+            crate::ast::Expr::Cast(c) => self.classify_expr(&c.expr, context),
         }
     }
 }

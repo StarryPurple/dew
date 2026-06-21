@@ -129,6 +129,11 @@ fn desugar_expr(expr: &Expr) -> Expr {
         Expr::While(w) => desugar_expr(&desugar_while(w)),
         Expr::Loop(l) => desugar_expr(&desugar_loop(l)),
         Expr::ForIn(_) => { Expr::UnitLit(Span::DUMMY) }, // deferred
+        Expr::Cast(c) => Expr::Cast(Box::new(CastExpr {
+            span: c.span,
+            expr: Box::new(desugar_expr(&c.expr)),
+            target_ty: c.target_ty.clone(),
+        })),
 
         // Recursive cases
         Expr::Binary(b) => Expr::Binary(BinaryExpr {
@@ -406,21 +411,37 @@ fn desugar_fn(f: &FnExpr) -> Expr {
                     Expr::UnitLit(Span::DUMMY)
                 }
             });
-        // If orig_final is a bare expr from borrow desugar (not Unit/Var),
-        // insert a def rebinding before the final tuple.
+        // If the block already has statements (e.g., borrow mutations),
+        // the result def binding must use a unique name to avoid
+        // shadowing the borrow param's existing def binding.
+        // When stmts is empty (simple borrow expr as final_expr),
+        // the def binding MUST use the param name so Var(p) in the
+        // tuple references the updated value.
         let result = if !matches!(&orig_final, Expr::UnitLit(_) | Expr::Var(_)) {
-            let p_name = f.params[borrow_params[0].0].name.clone();
+            // With 2+ borrow params, the result def binding name must
+            // differ from the first borrow param to avoid collision:
+            // the Tuple must reference the borrow param's original type
+            // (e.g. Int) while the result has a different type (e.g. Array).
+            // With 1 borrow param, the def binding shadows the param
+            // intentionally so Var(p) references the updated value.
+            let result_name = if borrow_params.len() > 1 {
+                Ident::new(
+                    format!("{}__res", f.params[borrow_params[0].0].name.name),
+                    f.params[borrow_params[0].0].name.span)
+            } else {
+                f.params[borrow_params[0].0].name.clone()
+            };
             b.stmts.push(BlockStmt {
                 span: body_span,
                 expr: orig_final,
                 def: Some(DefDecl {
                     span: body_span, rec: false,
-                    name: p_name.clone(),
+                    name: result_name.clone(),
                     ty: None,
                     value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
                 }),
             });
-            Expr::Var(p_name)
+            Expr::Var(result_name)
         } else {
             orig_final
         };
@@ -564,7 +585,8 @@ fn desugar_loop(l: &LoopExpr) -> Expr {
 /// `f(&x)` → becomes `def (x, result) = f(x)`
 /// We return the expression wrapped so the enclosing context handles the destructure.
 fn desugar_borrow_arg(b: &BorrowExpr) -> ExprArg {
-    let Some(ref rhs) = b.rhs else { return ExprArg::Value(Box::new(Expr::UnitLit(Span::DUMMY))) };
+    // If rhs is None (&x in a call arg, no assignment), just pass the variable
+    let Some(ref rhs) = b.rhs else { return ExprArg::Value(Box::new(Expr::Var(b.lvalue.root.clone()))) };
     let _value = match &**rhs {
         BorrowRhs::Assign(e) => desugar_expr(e),
         BorrowRhs::Update(updates) => {
@@ -674,6 +696,21 @@ fn desugar_block(b: &BlockExpr) -> Expr {
                     value: rhs,
                 }),
             });
+            // Push dummy Var references for lvalue path variables.
+            // These keep outer-scope variables (like v in node_pool[v])
+            // alive for closure capture tracking (collect_free_vars),
+            // since the borrow desugar only preserves the RHS.
+            for accessor in &borrow.lvalue.path {
+                if let LValueAccessor::Index(idx_expr) = accessor {
+                    if let Expr::Var(ident) = idx_expr {
+                        stmts.push(BlockStmt {
+                            span: s.span,
+                            expr: Expr::Var(ident.clone()),
+                            def: None,
+                        });
+                    }
+                }
+            }
             continue;
         }
 

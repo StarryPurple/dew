@@ -1,27 +1,23 @@
-# OpenCode / OMO internals
-.omo/
 
-# Submodule-like external repositories
-RustShard-Compiler/
-
+# Agent session history
 # Build artifacts
-target/
-
+# IDE
+# OS junk
 # Old project remnants (pre-refactor)
+# OpenCode / OMO internals
+# Submodule-like external repositories
 # src/ — re-enabled for new Rust compiler
-vscode-dew/
+*.swo
+*.swp
+*~
+.DS_Store
+.cursor/
+.gitignore-todo.md
+.omo/
+RustShard-Compiler/
+agents/
 docs/en/
 docs/zh/
 session-*.md
-
-# Agent session history
-agents/
-
-# IDE
-.cursor/
-
-# OS junk
-.DS_Store
-*.swp
-*.swo
-*~
+target/
+vscode-dew/

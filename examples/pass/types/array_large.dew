@@ -1,9 +1,9 @@
 // expect: 55
 // Tier: Large
-// Feature: Array in recursive fix, function with Array(T,N) params
-def sum_arr = fn(arr: Array(Int, 5), i: Int, acc: Int) -> Int {
+// Feature: Array in recursive fix, function with [T;N] params
+def sum_arr = fn(arr: [Int; 5], i: Int, acc: Int) -> Int {
   if i == 5 { acc }
   else { sum_arr(arr, i + 1, acc + arr[i]) }
 };
-def squares: Array(Int, 5) = [1, 4, 9, 16, 25];
+def squares: [Int; 5] = [1, 4, 9, 16, 25];
 def main = fn { sum_arr(squares, 0, 0) -> stdout; };

@@ -203,6 +203,20 @@ impl<'a> TypeChecker<'a> {
                 self.diag.error("E003", "loop should be desugared before type checking", None);
                 Ty::Unit
             }
+            Expr::Cast(c) => {
+                let inner_ty = self.infer_expr(&c.expr);
+                let target_ty = self.ast_type_to_ty(&c.target_ty);
+                // Target type must be a primitive type (Int, Bool, Char); Unit forbidden.
+                if !matches!(&target_ty, Ty::Int | Ty::Bool | Ty::Char) {
+                    self.diag.error("E003",
+                        format!("cast target type must be Int, Bool, or Char, got {}", target_ty),
+                        Some(c.span));
+                }
+                // Allow casts from any type to a primitive target type.
+                // Rx uses as i32/as usize as no-op casts on values already Int.
+                // The IR gen simply passes through the value — types are erased.
+                target_ty
+            }
         }
     }
 
@@ -228,7 +242,8 @@ impl<'a> TypeChecker<'a> {
         let right = self.infer_expr(&b.right);
 
         match b.op {
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
+            | BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor | BinaryOp::Shl | BinaryOp::Shr => {
                 unify_with_type(&left, &Ty::Int, b.span, self.diag, "arithmetic");
                 unify_with_type(&right, &Ty::Int, b.span, self.diag, "arithmetic");
                 Ty::Int

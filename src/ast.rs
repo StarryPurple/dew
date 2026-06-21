@@ -213,6 +213,8 @@ pub enum Expr {
     Loop(LoopExpr),
     /// For-in: `for x : expr { body }` — deferred (needs self-ref closures)
     ForIn(ForInExpr),
+    /// Cast: `expr as Type` (primitive types only, Unit forbidden)
+    Cast(Box<CastExpr>),
 }
 
 // --- Literals ---
@@ -233,6 +235,7 @@ pub enum BinaryOp {
     Add, Sub, Mul, Div, Rem,   // arithmetic
     Lt, Gt, Le, Ge, Eq, Ne,    // comparison
     And, Or,                    // logic
+    BitAnd, BitOr, BitXor, Shl, Shr, // bitwise
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -482,6 +485,13 @@ pub struct ForInExpr {
     pub body: Box<Expr>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CastExpr {
+    pub span: Span,
+    pub expr: Box<Expr>,
+    pub target_ty: Type,
+}
+
 // ---------------------------------------------------------------------------
 // Patterns (for match arms and def destructuring)
 // ---------------------------------------------------------------------------
@@ -552,7 +562,7 @@ pub enum Type {
     Fun(FunType),
     /// Tuple type: `(Int, Bool)`
     Tuple(TupleType),
-    /// Array type: `Array(Int, 3)`
+    /// Array type: `[Int; 3]`
     Array(ArrayType),
     /// `_` — infer this type variable
     Wildcard(Span),

@@ -19,6 +19,15 @@ struct DewEmitter {
     method_to_struct: HashMap<String, String>,
     const_values: HashMap<String, String>, // const_name → resolved value
     var_types: RefCell<HashMap<String, String>>, // variable_name → Dew type string
+    while_ctx: RefCell<Option<WhileCtx>>, // current while loop context for break/continue
+    nested_fns: RefCell<Vec<FnDecl>>,     // fn declarations nested inside function bodies
+}
+
+/// Context for translating break/continue inside a while loop.
+struct WhileCtx {
+    loop_fn: String,    // e.g., "__while_loop"
+    accumulator: String, // variable to return on break (last mutable var)
+    call_args: Vec<String>, // borrow args for recursive call
 }
 
 impl DewEmitter {
@@ -26,6 +35,8 @@ impl DewEmitter {
         Self {
             impls: vec![], method_to_struct: HashMap::new(),
             const_values: HashMap::new(), var_types: RefCell::new(HashMap::new()),
+            while_ctx: RefCell::new(None),
+            nested_fns: RefCell::new(vec![]),
         }
     }
 
@@ -35,8 +46,8 @@ impl DewEmitter {
             match decl {
                 Decl::Struct { name, fields } => {
                     out.push_str(&format!("struct {} {{\n", name));
-                    for (fname, _) in fields {
-                        out.push_str(&format!("  {}: Int,\n", fname));
+                    for (fname, ftype) in fields {
+                        out.push_str(&format!("  {}: {},\n", fname, self.map_type(ftype)));
                     }
                     out.push_str("}\n\n");
                 }
@@ -74,11 +85,17 @@ impl DewEmitter {
 
     fn emit_impl_method(&self, sname: &str, m: &FnDecl, out: &mut String) {
         self.var_types.borrow_mut().clear();
-        self.var_types.borrow_mut().insert("self".into(), sname.into());
+        if m.has_self {
+            self.var_types.borrow_mut().insert("self".into(), sname.into());
+        }
         for (n, t) in &m.params {
             self.var_types.borrow_mut().insert(n.clone(), self.map_type(t));
         }
-        let mut params = vec![format!("self: {}", sname)];
+        let mut params = if m.has_self {
+            vec![format!("self: {}", sname)]
+        } else {
+            vec![]
+        };
         for (pname, ptype) in &m.params {
             params.push(format!("{}: {}", pname, self.map_type(ptype)));
         }
@@ -97,6 +114,14 @@ impl DewEmitter {
         let prev = self.count_let_mut(&m.body);
         self.emit_body(&m.body, prev, out, 1);
         out.push_str("}\n\n");
+
+        loop {
+            let fns = self.nested_fns.borrow_mut().drain(..).collect::<Vec<_>>();
+            if fns.is_empty() { break; }
+            for fd in fns {
+                self.emit_fn(&fd, out);
+            }
+        }
     }
 
     fn emit_fn(&self, fn_decl: &FnDecl, out: &mut String) {
@@ -123,6 +148,15 @@ impl DewEmitter {
         let prev = self.count_let_mut(&fn_decl.body);
         self.emit_body(&fn_decl.body, prev, out, 1);
         out.push_str("}\n\n");
+
+        // Emit any nested fn declarations collected during emit_body
+        loop {
+            let fns = self.nested_fns.borrow_mut().drain(..).collect::<Vec<_>>();
+            if fns.is_empty() { break; }
+            for fd in fns {
+                self.emit_fn(&fd, out);
+            }
+        }
     }
 
     fn count_let_mut(&self, body: &[Stmt]) -> usize {
@@ -130,6 +164,23 @@ impl DewEmitter {
     }
 
     fn collect_loop_vars(&self, stmts: &[Stmt]) -> Vec<(String, String)> {
+        // First pass: collect variables defined inside this scope (from Stmt::Let)
+        fn collect_locals(stmts: &[Stmt]) -> std::collections::HashSet<String> {
+            let mut locals = std::collections::HashSet::new();
+            for stmt in stmts {
+                match stmt {
+                    Stmt::Let { name, .. } => { locals.insert(name.clone()); }
+                    Stmt::If { then_body, else_body, .. } => {
+                        locals.extend(collect_locals(then_body));
+                        if let Some(eb) = else_body { locals.extend(collect_locals(eb)); }
+                    }
+                    Stmt::While { body, .. } => { locals.extend(collect_locals(body)); }
+                    _ => {}
+                }
+            }
+            locals
+        }
+        let locals = collect_locals(stmts);
         fn extract_root(expr: &Expr) -> Option<String> {
             match expr {
                 Expr::Ident(name) => Some(name.clone()),
@@ -139,24 +190,30 @@ impl DewEmitter {
                 _ => None,
             }
         }
+        // Filter recursively collected vars against outer locals
+        let filter_locals = |v: &[(String, String)]| -> Vec<(String, String)> {
+            v.iter().filter(|(n, _)| !locals.contains(n)).cloned().collect()
+        };
         let mut vars = Vec::new();
         for stmt in stmts {
             match stmt {
                 Stmt::Assign { lhs, .. } => {
                     if let Some(v) = extract_root(lhs) {
-                        let ty = self.var_types.borrow().get(&v)
-                            .cloned().unwrap_or_else(|| "Int".into());
-                        vars.push((v, ty));
+                        if !locals.contains(&v) {
+                            let ty = self.var_types.borrow().get(&v)
+                                .cloned().unwrap_or_else(|| "Int".into());
+                            vars.push((v, ty));
+                        }
                     }
                 }
                 Stmt::If { then_body, else_body, .. } => {
-                    vars.extend(self.collect_loop_vars(then_body));
+                    vars.extend(filter_locals(&self.collect_loop_vars(then_body)));
                     if let Some(eb) = else_body {
-                        vars.extend(self.collect_loop_vars(eb));
+                        vars.extend(filter_locals(&self.collect_loop_vars(eb)));
                     }
                 }
                 Stmt::While { body, .. } => {
-                    vars.extend(self.collect_loop_vars(body));
+                    vars.extend(filter_locals(&self.collect_loop_vars(body)));
                 }
                 _ => {}
             }
@@ -168,37 +225,27 @@ impl DewEmitter {
 
     fn emit_body(&self, body: &[Stmt], _prev_let_muts: usize, out: &mut String, indent: usize) {
         let pad = "  ".repeat(indent);
-        // Find last non-def element index for final-expression detection
-        let last_expr_idx = body.iter().rposition(|s| !matches!(s, Stmt::Let { .. }));
-        // Phase 1: all def bindings (Dew requires def before any expressions in a block)
-        let mut getint_vars: Vec<String> = Vec::new(); // vars declared for getInt, need &x->stdin in Phase 2
-        for stmt in body {
-            if let Stmt::Let { name, mutable: _, ty, init } = stmt {
-                let dew_ty = if ty.is_empty() { "Int".into() } else { self.map_type(ty) };
-                let dew_ty_str = dew_ty.clone();
-                self.var_types.borrow_mut().insert(name.clone(), dew_ty);
-                if let Some(expr) = init {
-                    // let x = getInt() → def x: Int; (&x -> stdin in Phase 2)
-                    if is_getint_call(expr) {
-                        out.push_str(&format!("{}def {}: {};\n", pad, name, dew_ty_str));
-                        getint_vars.push(name.clone());
-                    } else {
-                        out.push_str(&format!("{}def {} = {};\n", pad, name, self.emit_expr(expr)));
-                    }
-                } else {
-                    out.push_str(&format!("{}def {} = {};\n", pad, name, dew_ty_str));
-                }
-            }
-        }
-        // Phase 2: all expression statements
-        // Emit &x -> stdin for any getInt() variables first
-        for name in &getint_vars {
-            out.push_str(&format!("{}&{} -> stdin;\n", pad, name));
-        }
+        let last_idx = body.len().saturating_sub(1);
+        let mut seen_return = false;
         for (idx, stmt) in body.iter().enumerate() {
-            let is_last = Some(idx) == last_expr_idx;
+            if seen_return { break; }
+            let is_last = idx == last_idx;
             match stmt {
-                Stmt::Let { .. } | Stmt::Empty => {}
+                Stmt::Let { name, mutable: _, ty, init } => {
+                    let dew_ty = if ty.is_empty() { "Int".into() } else { self.map_type(ty) };
+                    let dew_ty_str = dew_ty.clone();
+                    self.var_types.borrow_mut().insert(name.clone(), dew_ty);
+                    if let Some(expr) = init {
+                        if is_getint_call(expr) {
+                            out.push_str(&format!("{}def {}: {};\n", pad, name, dew_ty_str));
+                            out.push_str(&format!("{}&{} -> stdin;\n", pad, name));
+                        } else {
+                            out.push_str(&format!("{}def {} = {};\n", pad, name, self.emit_expr(expr)));
+                        }
+                    } else {
+                        out.push_str(&format!("{}def {}: {};\n", pad, name, dew_ty_str));
+                    }
+                }
                 Stmt::Assign { lhs, op, rhs } => {
                     let rhs_str = match op {
                         AssignOp::Plain => self.emit_expr(rhs),
@@ -208,7 +255,13 @@ impl DewEmitter {
                         AssignOp::Slash => format!("{} / {}", self.emit_expr(lhs), self.emit_expr(rhs)),
                         AssignOp::Percent => format!("{} % {}", self.emit_expr(lhs), self.emit_expr(rhs)),
                     };
-                    out.push_str(&format!("{}&{} = {};\n", pad, self.emit_expr(lhs), rhs_str));
+                    // Simple identifier: def x = rhs (works inline now that parser supports it).
+                    // Compound lvalue (arr[k], x.f): still needs & for borrow syntax.
+                    if let Expr::Ident(name) = lhs {
+                        out.push_str(&format!("{}def {} = {};\n", pad, name, rhs_str));
+                    } else {
+                        out.push_str(&format!("{}&{} = {};\n", pad, self.emit_expr(lhs), rhs_str));
+                    }
                 }
                 Stmt::While { cond, body } => {
                     let cond_str = format!("({})", self.emit_expr(cond));
@@ -217,10 +270,17 @@ impl DewEmitter {
                     let call_args: Vec<String> = vars.iter().map(|(n, _)| format!("&{}", n)).collect();
                     let (ret_var, ret_var_ty) = vars.last().map(|(n, t)| (n.clone(), t.clone())).unwrap_or_default();
 
+                    let saved_ctx = self.while_ctx.borrow_mut().replace(WhileCtx {
+                        loop_fn: "__while_loop".into(),
+                        accumulator: ret_var.clone(),
+                        call_args: call_args.clone(),
+                    });
+
                     if vars.is_empty() {
                         out.push_str(&format!("{}fix __while_loop {{ fn() -> Unit {{\n", pad));
                         out.push_str(&format!("{}  if {} {{\n", pad, cond_str));
                         self.emit_body(body, 0, out, indent + 2);
+                        // Ensure the last body statement has a semicolon before __while_loop
                         while out.ends_with('\n') { out.pop(); }
                         if !out.ends_with(';') { out.push_str(";"); }
                         out.push_str(&format!("\n{}    __while_loop()\n", pad));
@@ -232,6 +292,7 @@ impl DewEmitter {
                         out.push_str(&format!("{}  fn({}){} {{\n", pad, params.join(", "), ret_anno));
                         out.push_str(&format!("{}    if {} {{\n", pad, cond_str));
                         self.emit_body(body, 0, out, indent + 3);
+                        // Ensure the last body statement has a semicolon before __while_loop
                         while out.ends_with('\n') { out.pop(); }
                         if !out.ends_with(';') { out.push_str(";"); }
                         out.push_str(&format!("\n{}      __while_loop({})\n", pad, call_args.join(", ")));
@@ -239,6 +300,7 @@ impl DewEmitter {
                         out.push_str(&format!("{}  }}\n", pad));
                         out.push_str(&format!("{}}}({});\n", pad, call_args.join(", ")));
                     }
+                    *self.while_ctx.borrow_mut() = saved_ctx;
                 }
                 Stmt::If { cond, then_body, else_body } => {
                     let cond_str = format!("({})", self.emit_expr(cond));
@@ -260,15 +322,32 @@ impl DewEmitter {
                 }
                 Stmt::Return(Some(expr)) => {
                     out.push_str(&format!("{}{}\n", pad, self.emit_expr(expr)));
+                    seen_return = true;
                 }
                 Stmt::Return(None) => {
                     out.push_str(&format!("{}Unit\n", pad));
+                    seen_return = true;
                 }
                 Stmt::Continue => {
-                    out.push_str(&format!("{}// continue\n", pad));
+                    let ctx = self.while_ctx.borrow();
+                    if let Some(ctx) = ctx.as_ref() {
+                        out.push_str(&format!("{}__while_loop({});\n", pad, ctx.call_args.join(", ")));
+                    }
                 }
                 Stmt::Empty => {}
+                Stmt::FnDecl(fd) => {
+                    self.nested_fns.borrow_mut().push(fd.clone());
+                }
                 Stmt::Expr(expr) => {
+                    if let Expr::Ident(name) = expr {
+                        if name == "break" {
+                            let ctx = self.while_ctx.borrow();
+                            if let Some(ctx) = ctx.as_ref() {
+                                out.push_str(&format!("{}{};\n", pad, ctx.accumulator));
+                            }
+                            continue;
+                        }
+                    }
                     // printlnInt(x) → x -> stdout; 10 -> stdout (add newline)
                     if let Expr::Call { func, .. } = expr {
                         if let Expr::Ident(name) = func.as_ref() {
@@ -298,7 +377,7 @@ impl DewEmitter {
                 }
                 match name.as_str() {
                     "getInt" => "stdin(0)".into(),
-                    "exit" => "0".into(),
+                    "exit" => "Unit".into(),
                     _ => name.replace("::", "__"),
                 }
             }
@@ -339,8 +418,22 @@ impl DewEmitter {
                     if parts.len() == 2 {
                         let method = parts[1];
                         let self_expr = parts[0];
-                        // Look up struct name from method name
-                        let fn_name = if let Some(sname) = self.method_to_struct.get(method) {
+                        // Resolve method: prefer var_types of self_expr (disambiguates
+                        // duplicate method names like AVLTree.search vs HashTable.search),
+                        // then fall back to method_to_struct.
+                        let fn_name = if let Some(obj_type) = self.var_types.borrow().get(self_expr) {
+                            let candidate = format!("{}__{}", obj_type, method);
+                            // Only use candidate if the struct actually has this method
+                            if self.impls.iter().any(|(sname, methods)| {
+                                sname == obj_type && methods.iter().any(|m| m.name == method)
+                            }) {
+                                candidate
+                            } else if let Some(sname) = self.method_to_struct.get(method) {
+                                format!("{}__{}", sname, method)
+                            } else {
+                                method.to_string()
+                            }
+                        } else if let Some(sname) = self.method_to_struct.get(method) {
                             format!("{}__{}", sname, method)
                         } else {
                             method.to_string()
@@ -379,7 +472,8 @@ impl DewEmitter {
                 };
                 format!("[{}; {}]", elem, cnt)
             }
-            Expr::Cast(expr, _) => self.emit_expr(expr),
+            Expr::Group(inner) => format!("({})", self.emit_expr(inner)),
+            Expr::Cast(expr, ty) => format!("({} as {})", self.emit_expr(expr), self.map_type(ty)),
             Expr::Ref(expr) => self.emit_expr(expr),
             Expr::Deref(expr) => self.emit_expr(expr),
             Expr::If { cond, then_body, else_body } => {
@@ -402,6 +496,8 @@ impl DewEmitter {
 
     fn map_type(&self, t: &str) -> String {
         let t = t.replace("i32", "Int").replace("usize", "Int")
+            .replace("isize", "Int").replace("i64", "Int").replace("i8", "Int")
+            .replace("u32", "Int").replace("u64", "Int").replace("u8", "Int")
             .replace("bool", "Bool").replace("()", "Unit");
         // Simplify reference types
         let t = t.replace("&mut ", "").replace("&", "");
@@ -412,7 +508,7 @@ impl DewEmitter {
             let size_str = t[semi_pos+1..].trim_end_matches(']').trim();
             // Resolve const names and evaluate expressions in size
             let resolved = self.resolve_and_eval(size_str);
-            return format!("Array({}, {})", elem, resolved);
+            return format!("[{}; {}]", elem, resolved);
         }
         t
     }
@@ -529,6 +625,7 @@ fn has_io_in_stmts(stmts: &[Stmt]) -> bool {
                     || has_io_in_stmts(else_body)
             }
             Expr::Block(stmts) => has_io_in_stmts(stmts),
+            Expr::Group(inner) => has_io_in_expr(inner),
             _ => false,
         }
     }
@@ -541,6 +638,7 @@ fn has_io_in_stmts(stmts: &[Stmt]) -> bool {
                 || has_io_in_stmts(then_body)
                 || else_body.as_ref().map_or(false, |b| has_io_in_stmts(b))
         }
+        Stmt::FnDecl(fd) => has_io_in_stmts(&fd.body),
         Stmt::Return(Some(e)) => has_io_in_expr(e),
         Stmt::Expr(e) => has_io_in_expr(e),
         _ => false,

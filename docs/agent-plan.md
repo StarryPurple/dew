@@ -1,8 +1,26 @@
 # Agent Plan
 
-> Last updated: 2026-06-19
+> Last updated: 2026-06-21
 
 ## Completed
+
+### 2026-06-21 — Rx→Dew Interop: Cast, Struct Types, Return Dead Code
+
+- [x] Added `expr as Type` cast expression to Dew language (parser, typeck, desugar, IR gen)
+- [x] Cast target type must be `Int`, `Bool`, or `Char` — `Unit` forbidden on both sides
+- [x] Rx translator now emits `(expr as dew_type)` instead of dropping casts — fixes 3 cases (2, 3, 21)
+- [x] Fixed struct field types in Rx translator: use `map_type(ftype)` instead of hardcoded `Int`
+- [x] Added missing Rx type mappings (`u32`, `u64`, `u8`, `i64`, `i8`, `isize`) to `map_type`
+- [x] Fixed `emit_body` return handling: skip subsequent statements as dead code after `return`
+- [x] `collect_free_vars_impl` in IR gen: added `Expr::Cast` recursion for closure capture analysis
+- [x] Name resolver: added `Expr::Cast` recursion (was incorrectly treated as leaf node)
+- [x] Documented `as` cast in `dew-lang.md` §7.2 (Operators), §7.3 (Precedence), §14 (Keywords)
+
+## In Progress
+
+- [ ] **Case 9/10/14**: struct-type array element assignment (`&self.edges[idx] = Edge__new(...)`)
+- [ ] **Case 37**: IO annotation on while-loop functions
+- [ ] **Case 41**: self-referential `def final_status = final_status + k`
 
 ### 2026-06-19 — Rx↔Dew Interop Specification Rewrite
 
@@ -60,6 +78,13 @@
 
 ## Test Status
 
-**126 e2e passed, 0 failed | 61 unit passed** (2026-06-18)
+**143 e2e passed, 0 failed** (2026-06-21)
 
-Tier distribution: 54 Small / 46 Medium / 5 Large
+**Rx→Dew pipeline: 45/50 LLVM IR generated** (up from 24)
+
+Remaining type errors (5 cases):
+- Cases 9, 10, 14: struct-type array element assignment (`Edge`/`Node` to `Int`)
+- Case 37: IO annotation violation
+- Case 41: self-referential `def final_status = final_status + k`
+
+Interpreter correct: 0/50 (runtime issues remain)

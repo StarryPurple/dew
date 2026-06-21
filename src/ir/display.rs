@@ -103,6 +103,11 @@ fn display_instr(instr: &Instr, _return_ty: &IrType) -> String {
         Instr::Mul(r, a, b) => format!("%{} = mul %{} %{}", r, a, b),
         Instr::Div(r, a, b) => format!("%{} = div %{} %{}", r, a, b),
         Instr::Rem(r, a, b) => format!("%{} = rem %{} %{}", r, a, b),
+        Instr::BitAnd(r, a, b) => format!("%{} = and %{} %{}", r, a, b),
+        Instr::BitOr(r, a, b) => format!("%{} = or %{} %{}", r, a, b),
+        Instr::BitXor(r, a, b) => format!("%{} = xor %{} %{}", r, a, b),
+        Instr::Shl(r, a, b) => format!("%{} = shl %{} %{}", r, a, b),
+        Instr::Shr(r, a, b) => format!("%{} = shr %{} %{}", r, a, b),
         Instr::Lt(r, a, b) => format!("%{} = lt %{} %{}", r, a, b),
         Instr::Gt(r, a, b) => format!("%{} = gt %{} %{}", r, a, b),
         Instr::Le(r, a, b) => format!("%{} = le %{} %{}", r, a, b),
@@ -159,6 +164,13 @@ fn display_instr(instr: &Instr, _return_ty: &IrType) -> String {
             format!("%{} = tuple_update{{}} %{} .{} = %{}", r, tup, idx, val)
         }
         Instr::Move(r, from) => format!("%{} = move %{}", r, from),
+        Instr::Update(r, target) => {
+            let t = match target {
+                ForceTarget::Static(n) => format!("@{}", n),
+                ForceTarget::Dynamic(reg) => format!("%{}", reg),
+            };
+            format!("%{} = update {}", r, t)
+        }
     }
 }
 

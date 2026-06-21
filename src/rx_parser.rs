@@ -233,6 +233,7 @@ pub struct FnDecl {
     pub params: Vec<(String, String)>,
     pub ret_type: String,
     pub body: Vec<Stmt>,
+    pub has_self: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -243,6 +244,7 @@ pub enum Stmt {
     If { cond: Expr, then_body: Vec<Stmt>, else_body: Option<Vec<Stmt>> },
     Return(Option<Expr>),
     Continue,
+    FnDecl(FnDecl),
     Expr(Expr),
     Empty,
 }
@@ -263,6 +265,8 @@ pub enum Expr {
     Cast(Box<Expr>, String),
     Ref(Box<Expr>),
     Deref(Box<Expr>),
+    /// Group expression: preserves parentheses from source
+    Group(Box<Expr>),
     /// if expression: if cond { then } else { else }
     If { cond: Box<Expr>, then_body: Vec<Stmt>, else_body: Vec<Stmt> },
     /// Block expression: { stmts; final_expr }
@@ -356,12 +360,7 @@ impl Parser {
         self.expect(&Token::Eq)?;
         let value = self.parse_expr()?;
         self.expect(&Token::Semi)?;
-        // Convert expr to string for simple const values
-        let val_str = match &value {
-            Expr::Int(n) => n.to_string(),
-            Expr::Ident(s) => s.clone(),
-            _ => format!("{:?}", value),
-        };
+        let val_str = expr_to_dew_string(&value);
         Ok(Decl::Const { name, value: val_str })
     }
 
@@ -455,6 +454,7 @@ impl Parser {
         let name = self.expect_ident()?;
         self.expect(&Token::LParen)?;
         let mut params = Vec::new();
+        let mut has_self = false;
         while !matches!(self.current, Token::RParen) {
             // Handle mut keyword before parameter name
             if matches!(self.current, Token::KwMut) { self.advance(); }
@@ -462,6 +462,7 @@ impl Parser {
             if matches!(self.current, Token::KwRefSelf) {
                 self.advance();
                 if matches!(self.current, Token::Comma) { self.advance(); }
+                has_self = true;
                 continue;
             }
             // Handle & reference pattern before parameter name (&self, &mut self, &T, &self)
@@ -472,6 +473,7 @@ impl Parser {
                 if matches!(self.current, Token::KwSelf) {
                     self.advance();
                     if matches!(self.current, Token::Comma) { self.advance(); }
+                    has_self = true;
                     continue;
                 }
             }
@@ -479,6 +481,7 @@ impl Parser {
             if matches!(self.current, Token::KwSelf) {
                 self.advance();
                 if matches!(self.current, Token::Comma) { self.advance(); }
+                has_self = true;
                 continue;
             }
             let pname = self.expect_ident()?;
@@ -493,7 +496,7 @@ impl Parser {
             self.parse_type()?
         } else { "()".into() };
         let body = self.parse_block()?;
-        Ok(FnDecl { name, params, ret_type, body })
+        Ok(FnDecl { name, params, ret_type, body, has_self })
     }
 
     fn parse_block(&mut self) -> Result<Vec<Stmt>, String> {
@@ -514,7 +517,7 @@ impl Parser {
             Token::KwWhile => self.parse_while(),
             Token::KwIf => self.parse_if(),
             Token::KwStruct => self.parse_struct().map(|d| if let Decl::Struct { name, fields } = d { Stmt::Let { name: format!("_struct_{}", name), mutable: false, ty: "Struct".into(), init: None } } else { unreachable!() }),
-            Token::KwFn => self.parse_fn_decl().map(|f| Stmt::Expr(Expr::Ident(format!("_fn_{}", f.name)))),
+            Token::KwFn => self.parse_fn_decl().map(Stmt::FnDecl),
             Token::KwReturn => {
                 self.advance();
                 if !matches!(self.current, Token::Semi) {
@@ -850,7 +853,7 @@ impl Parser {
             Token::KwExit => { self.advance(); self.expect(&Token::LParen)?; self.parse_expr()?; self.expect(&Token::RParen)?; Ok(Expr::Ident("exit".into())) }
             Token::KwSelf => { self.advance(); Ok(Expr::Ident("self".into())) }
             Token::KwIf => self.parse_if_expr(),
-            Token::LParen => { self.advance(); let expr = self.parse_expr()?; self.expect(&Token::RParen)?; Ok(expr) }
+            Token::LParen => { self.advance(); let expr = self.parse_expr()?; self.expect(&Token::RParen)?; Ok(Expr::Group(Box::new(expr))) }
             Token::LBrace => self.parse_block().map(Expr::Block),
             Token::LBracket => {
                 self.advance();
@@ -874,6 +877,102 @@ impl Parser {
             _ => Err(format!("expected expression, got {:?}", self.current)),
         }
     }
+}
+
+/// Format an Rx expression as a valid Dew expression string.
+/// Used for const value serialization (replaces `format!("{:?}", ...)`).
+pub fn expr_to_dew_string(expr: &Expr) -> String {
+    match expr {
+        Expr::Int(n) => n.to_string(),
+        Expr::Bool(b) => (if *b { "true" } else { "false" }).into(),
+        Expr::Ident(s) => s.clone(),
+        Expr::Str(s) => format!("\"{}\"", s),
+        Expr::Group(inner) => format!("({})", expr_to_dew_string(inner)),
+        Expr::Unary(op, e) => {
+            let inner = expr_to_dew_string(e);
+            match op {
+                UnOp::Neg => format!("-{}", inner),
+                UnOp::Not => format!("(not {})", inner),
+            }
+        }
+        Expr::Binary(l, op, r) => {
+            let op_str = match op {
+                BinOp::Add => "+", BinOp::Sub => "-", BinOp::Mul => "*",
+                BinOp::Div => "/", BinOp::Rem => "%",
+                BinOp::Eq => "==", BinOp::Ne => "!=",
+                BinOp::Lt => "<", BinOp::Gt => ">",
+                BinOp::Le => "<=", BinOp::Ge => ">=",
+                BinOp::And => "&&", BinOp::Or => "||",
+                BinOp::BitAnd => "&", BinOp::BitOr => "|",
+                BinOp::BitXor => "^", BinOp::Shl => "<<", BinOp::Shr => ">>",
+            };
+            format!("{} {} {}", expr_to_dew_string(l), op_str, expr_to_dew_string(r))
+        }
+        Expr::Call { func, args } => {
+            let args_str: Vec<String> = args.iter().map(expr_to_dew_string).collect();
+            format!("{}({})", expr_to_dew_string(func), args_str.join(", "))
+        }
+        Expr::Field(obj, f) => format!("{}.{}", expr_to_dew_string(obj), f),
+        Expr::Index(obj, idx) => format!("{}[{}]", expr_to_dew_string(obj), expr_to_dew_string(idx)),
+        Expr::StructLit { name, fields } => {
+            let args: Vec<String> = fields.iter()
+                .map(|(f, v)| format!("{}: {}", f, expr_to_dew_string(v)))
+                .collect();
+            format!("{} {{ {} }}", name, args.join(", "))
+        }
+        Expr::ArrayLit { elements, repeat: None } => {
+            let elems: Vec<String> = elements.iter().map(expr_to_dew_string).collect();
+            format!("[{}]", elems.join(", "))
+        }
+        Expr::ArrayLit { elements, repeat: Some(count) } => {
+            let elem = if elements.is_empty() { "0".into() } else { expr_to_dew_string(&elements[0]) };
+            format!("[{}; {}]", elem, expr_to_dew_string(count))
+        }
+        Expr::Cast(e, ty) => {
+            let dew_ty = ty.replace("i32", "Int").replace("usize", "Int")
+                .replace("isize", "Int").replace("i64", "Int").replace("u32", "Int")
+                .replace("i8", "Int").replace("u8", "Int")
+                .replace("bool", "Bool");
+            format!("({} as {})", expr_to_dew_string(e), dew_ty)
+        },
+        Expr::Ref(e) => expr_to_dew_string(e),
+        Expr::Deref(e) => expr_to_dew_string(e),
+        Expr::If { cond, then_body, else_body } => {
+            let cond_s = expr_to_dew_string(cond);
+            let then_s = stmts_to_dew_string(then_body);
+            let else_s = stmts_to_dew_string(else_body);
+            format!("if ({}) {{ {} }} else {{ {} }}", cond_s, then_s, else_s)
+        }
+        Expr::Block(stmts) => {
+            format!("{{ {} }}", stmts_to_dew_string(stmts))
+        }
+    }
+}
+
+fn stmts_to_dew_string(stmts: &[Stmt]) -> String {
+    let mut buf = String::new();
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { name, init, .. } => {
+                if let Some(e) = init {
+                    buf.push_str(&format!("def {} = {}; ", name, expr_to_dew_string(e)));
+                } else {
+                    buf.push_str(&format!("def {}; ", name));
+                }
+            }
+            Stmt::Expr(e) => {
+                buf.push_str(&expr_to_dew_string(e));
+                buf.push_str("; ");
+            }
+            Stmt::Return(Some(e)) => {
+                buf.push_str(&expr_to_dew_string(e));
+                buf.push_str("; ");
+            }
+            Stmt::Return(None) => buf.push_str("Unit; "),
+            _ => {}
+        }
+    }
+    buf.trim_end_matches("; ").to_string()
 }
 
 #[cfg(test)]

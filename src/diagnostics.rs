@@ -119,15 +119,30 @@ impl DiagnosticCollector {
             };
             eprint!("[{}] {}: {}", diag.code, label, diag.message);
             if let Some(span) = &diag.span {
-                eprint!(" at line {}, col {}", span.line + 1, span.col + 1);
+                if span.line > 0 && source.lines().count() > span.line {
+                    eprint!(" at line {}, col {}", span.line + 1, span.col.saturating_sub(
+                        source.lines().take(span.line).collect::<Vec<_>>().join("\n").len()
+                        + if span.line > 0 { 1 } else { 0 }
+                    ) + 1);
+                } else if span.col > 0 && span.col <= source.len() {
+                    eprint!(" at byte {}", span.col);
+                }
                 // Show the source line
-                if let Some(line) = source.lines().nth(span.line) {
-                    // Compute character column from byte offset on this line
-                    let line_start = source.lines().take(span.line).collect::<Vec<_>>().join("\n").len()
-                        + if span.line > 0 { 1 } else { 0 }; // +1 for newline
+                let (actual_line, actual_col_in_line) = if span.line > 0 && source.lines().count() > span.line {
+                    let line_start = source.lines().take(span.line).collect::<Vec<_>>().join("\n").len() + 1;
                     let col_in_line = span.col.saturating_sub(line_start);
-                    let char_col = if col_in_line <= line.len() {
-                        line[..col_in_line].chars().count()
+                    (span.line, col_in_line)
+                } else if span.col > 0 && span.col <= source.len() {
+                    // Compute actual line from byte offset
+                    let line_num = source[..span.col].matches('\n').count();
+                    let line_start = source[..span.col].rfind('\n').map(|p| p + 1).unwrap_or(0);
+                    (line_num, span.col - line_start)
+                } else {
+                    (0, 0)
+                };
+                if let Some(line) = source.lines().nth(actual_line) {
+                    let char_col = if actual_col_in_line <= line.len() {
+                        line[..actual_col_in_line].chars().count()
                     } else {
                         line.len()
                     };

@@ -19,8 +19,10 @@ pub struct IrGenerator<'a> {
     next_reg: usize,
     next_label: usize,
     next_closure: usize,
+    next_thunk: usize,
     var_map: std::collections::HashMap<String, usize>,
     thunk_names: std::collections::HashSet<String>,
+    thunk_name_map: std::collections::HashMap<String, String>,
     extra_blocks: Vec<BasicBlock>,
     reg_struct: std::collections::HashMap<usize, String>,
     tuple_elem_types: std::collections::HashMap<usize, Vec<IrType>>,
@@ -34,8 +36,10 @@ impl<'a> IrGenerator<'a> {
             next_reg: 0,
             next_label: 0,
             next_closure: 0,
+            next_thunk: 0,
             var_map: std::collections::HashMap::new(),
             thunk_names: std::collections::HashSet::new(),
+            thunk_name_map: std::collections::HashMap::new(),
             extra_blocks: Vec::new(),
             reg_struct: std::collections::HashMap::new(),
             tuple_elem_types: std::collections::HashMap::new(),
@@ -185,8 +189,13 @@ impl<'a> IrGenerator<'a> {
             Expr::UnitLit(_) => 0,
             Expr::Var(ident) => {
                 if self.thunk_names.contains(&ident.name) {
+                    // Use unique thunk name to avoid collisions across
+                    // multiple fix expressions with the same loop variable.
+                    let thunk_target = self.thunk_name_map.get(&ident.name)
+                        .cloned()
+                        .unwrap_or_else(|| ident.name.clone());
                     let r = self.fresh_reg();
-                    block.instrs.push(Instr::Force(r, ForceTarget::Static(ident.name.clone())));
+                    block.instrs.push(Instr::Force(r, ForceTarget::Static(thunk_target)));
                     r
                 } else if let Some(&reg) = self.var_map.get(&ident.name) {
                     reg
@@ -225,8 +234,29 @@ impl<'a> IrGenerator<'a> {
                     BinaryOp::Ne => Instr::Ne(result_r, left_r, right_r),
                     BinaryOp::And => Instr::And(result_r, left_r, right_r),
                     BinaryOp::Or => Instr::Or(result_r, left_r, right_r),
+                    BinaryOp::BitAnd => Instr::BitAnd(result_r, left_r, right_r),
+                    BinaryOp::BitOr => Instr::BitOr(result_r, left_r, right_r),
+                    BinaryOp::BitXor => Instr::BitXor(result_r, left_r, right_r),
+                    BinaryOp::Shl => Instr::Shl(result_r, left_r, right_r),
+                    BinaryOp::Shr => Instr::Shr(result_r, left_r, right_r),
                 };
                 block.instrs.push(instr);
+                result_r
+            }
+
+            Expr::Unary(u) => {
+                let operand = self.compile_expr(&u.expr, block);
+                let result_r = self.fresh_reg();
+                match u.op {
+                    UnaryOp::Neg => {
+                        let zero_r = self.fresh_reg();
+                        block.instrs.push(Instr::Lit(zero_r, IrLitValue::Int(0)));
+                        block.instrs.push(Instr::Sub(result_r, zero_r, operand));
+                    }
+                    UnaryOp::Not => {
+                        block.instrs.push(Instr::Not(result_r, operand));
+                    }
+                }
                 result_r
             }
 
@@ -315,6 +345,13 @@ impl<'a> IrGenerator<'a> {
                     }
                 } else {
                     let mut arg_regs = Vec::new();
+                    // Compile func expression first for non-trivial targets (IIFE Block, etc.)
+                    let func_is_trivial = matches!(&*c.func, Expr::Fn(_) | Expr::Var(_));
+                    let func_reg = if !func_is_trivial {
+                        Some(self.compile_expr(&c.func, block))
+                    } else {
+                        None
+                    };
                     for arg in &c.args {
                         if let ExprArg::Value(e) = arg {
                             arg_regs.push(self.compile_expr(e, block));
@@ -334,6 +371,15 @@ impl<'a> IrGenerator<'a> {
                                         .unwrap_or(IrType::Int);
                                     (CallTarget::Static(ident.name.clone()), ret)
                                 }
+                            } else if self.thunk_names.contains(&ident.name) {
+                                // Self-referencing closure: force thunk then Dynamic call.
+                                // Use the unique thunk name to avoid collisions.
+                                let thunk_target = self.thunk_name_map.get(&ident.name)
+                                    .cloned()
+                                    .unwrap_or_else(|| ident.name.clone());
+                                let fr = self.fresh_reg();
+                                block.instrs.push(Instr::Force(fr, ForceTarget::Static(thunk_target)));
+                                (CallTarget::Dynamic(fr), IrType::Int)
                             } else {
                                 let ret = self.module.fns.iter()
                                     .find(|f| f.name == ident.name)
@@ -342,7 +388,13 @@ impl<'a> IrGenerator<'a> {
                                 (CallTarget::Static(ident.name.clone()), ret)
                             }
                         }
-                        _ => (CallTarget::Dynamic(0), IrType::Int),
+                        _ => {
+                            if let Some(fr) = func_reg {
+                                (CallTarget::Dynamic(fr), IrType::Int)
+                            } else {
+                                (CallTarget::Dynamic(0), IrType::Int)
+                            }
+                        }
                     };
                     block.instrs.push(Instr::Call(result_r, target, arg_regs, ret_ty.clone()));
                     // Track return type so Field can resolve tuple element types
@@ -364,12 +416,37 @@ impl<'a> IrGenerator<'a> {
                     if let Some(def) = &stmt.def {
                         if def.rec {
                             self.thunk_names.insert(def.name.name.clone());
+                            // Create a placeholder thunk with unique name for
+                            // self-referencing closures. Multiple fix expressions
+                            // may share the same loop_var name (e.g. "__while_loop"),
+                            // so we need unique thunk names to avoid collisions.
+                            let val_ty = def.ty.as_ref()
+                                .map(|t| self.ast_ty_to_ir(t))
+                                .unwrap_or(IrType::Int);
+                            let thunk_name = format!("{}@{}", def.name.name, self.next_thunk);
+                            self.next_thunk += 1;
+                            self.thunk_name_map.insert(def.name.name.clone(), thunk_name.clone());
+                            self.module.thunks.push(Thunk::new(thunk_name.clone(), val_ty));
+                            // Add a dummy block to prevent "thunk has no blocks" in LLVM backend.
+                            // The evaluator Never runs this block (Update stores the closure before
+                            // any Force), but the LLVM backend needs valid blocks to compile.
+                            if let Some(t) = self.module.thunks.iter_mut().find(|t| t.name == thunk_name) {
+                                let mut db = BasicBlock::new("entry".into());
+                                db.terminator = Terminator::Ret(0);
+                                t.blocks.push(db);
+                            }
                         }
                     }
                 }
                 for stmt in &b.stmts {
                     last_reg = self.compile_expr(&stmt.expr, block);
                     if let Some(def) = &stmt.def {
+                        if def.rec {
+                            // Update the placeholder thunk with the actual closure value
+                            if let Some(thunk_name) = self.thunk_name_map.get(&def.name.name) {
+                                block.instrs.push(Instr::Update(last_reg, ForceTarget::Static(thunk_name.clone())));
+                            }
+                        }
                         self.var_map.insert(def.name.name.clone(), last_reg);
                     }
                 }
@@ -530,6 +607,7 @@ impl<'a> IrGenerator<'a> {
                 block.instrs.push(Instr::ArrayAccess(result_r, arr_r, idx_r));
                 result_r
             }
+            Expr::Cast(c) => self.compile_expr(&c.expr, block),
             _ => {
                 self.diag.error("E003",
                     format!("IR gen not implemented for this expression"),
@@ -803,12 +881,18 @@ fn collect_free_vars_impl(expr: &Expr, bound: &std::collections::HashSet<&str>, 
             }
         }
         Expr::Block(b) => {
-            // Collect locally-bound names from defs in this block
+            // Process each statement sequentially: resolve expression FIRST,
+            // then add the def name to inner_bound. This ensures that
+            // `def x = x + 1` captures the OUTER x (not the new binding).
             let mut inner_bound = bound.clone();
             for stmt in &b.stmts {
-                if let Some(def) = &stmt.def { inner_bound.insert(def.name.name.as_str()); }
+                if let Some(def) = &stmt.def {
+                    collect_free_vars_impl(&stmt.expr, &inner_bound, fvs);
+                    inner_bound.insert(def.name.name.as_str());
+                } else {
+                    collect_free_vars_impl(&stmt.expr, &inner_bound, fvs);
+                }
             }
-            for stmt in &b.stmts { collect_free_vars_impl(&stmt.expr, &inner_bound, fvs); }
             if let Some(fe) = &b.final_expr { collect_free_vars_impl(fe, &inner_bound, fvs); }
         }
         Expr::If(i) => { collect_free_vars_impl(&i.condition, bound, fvs); collect_free_vars_impl(&i.then_branch, bound, fvs); collect_free_vars_impl(&i.else_branch, bound, fvs); }
@@ -822,6 +906,8 @@ fn collect_free_vars_impl(expr: &Expr, bound: &std::collections::HashSet<&str>, 
             collect_free_vars_impl(&f.body, &inner_bound, fvs);
         }
         Expr::Field(f) => { collect_free_vars_impl(&f.object, bound, fvs); }
+        Expr::Subscript(s) => { collect_free_vars_impl(&s.array, bound, fvs); collect_free_vars_impl(&s.index, bound, fvs); }
+        Expr::EnumLit(e) => { match &e.payload { EnumPayload::Single(exprs) => { for ex in exprs { collect_free_vars_impl(ex, bound, fvs); } } EnumPayload::Struct(fields) => { for f in fields { if let Some(v) = &f.value { collect_free_vars_impl(v, bound, fvs); } } } } }
         Expr::Force(f) => { collect_free_vars_impl(&f.expr, bound, fvs); }
         Expr::Fix(f) => {
             let mut inner_bound = bound.clone();
@@ -842,6 +928,7 @@ fn collect_free_vars_impl(expr: &Expr, bound: &std::collections::HashSet<&str>, 
                 }
             }
         }
+        Expr::Cast(c) => { collect_free_vars_impl(&c.expr, bound, fvs); }
         _ => {} // literals, unit — no free vars
     }
 }

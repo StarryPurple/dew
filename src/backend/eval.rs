@@ -134,6 +134,11 @@ fn eval_instr(
             if vb == 0 { return Err("division by zero".into()); }
             frame.set(*r, Value::Int(va % vb));
         }
+        Instr::BitAnd(r, a, b) => { let va = frame.get(*a).as_int().unwrap_or(0); let vb = frame.get(*b).as_int().unwrap_or(0); frame.set(*r, Value::Int(va & vb)); }
+        Instr::BitOr(r, a, b) => { let va = frame.get(*a).as_int().unwrap_or(0); let vb = frame.get(*b).as_int().unwrap_or(0); frame.set(*r, Value::Int(va | vb)); }
+        Instr::BitXor(r, a, b) => { let va = frame.get(*a).as_int().unwrap_or(0); let vb = frame.get(*b).as_int().unwrap_or(0); frame.set(*r, Value::Int(va ^ vb)); }
+        Instr::Shl(r, a, b) => { let va = frame.get(*a).as_int().unwrap_or(0); let vb = frame.get(*b).as_int().unwrap_or(0); frame.set(*r, Value::Int(va << vb)); }
+        Instr::Shr(r, a, b) => { let va = frame.get(*a).as_int().unwrap_or(0); let vb = frame.get(*b).as_int().unwrap_or(0); frame.set(*r, Value::Int(va >> vb)); }
         Instr::Lt(r, a, b) => {
             let va = frame.get(*a).compare_key().unwrap_or(0);
             let vb = frame.get(*b).compare_key().unwrap_or(0);
@@ -344,6 +349,19 @@ fn eval_instr(
         }
         Instr::Move(r, from) => {
             frame.set(*r, frame.get(*from).clone());
+        }
+        Instr::Update(r, target) => {
+            let value = frame.get(*r).clone();
+            match target {
+                ForceTarget::Static(name) => {
+                    if let Some(thunk_state) = runtime.thunks.get_mut(name) {
+                        *thunk_state = ThunkState::Evaluated(value);
+                    }
+                }
+                ForceTarget::Dynamic(reg) => {
+                    // Dynamic thunk update not used in current design
+                }
+            }
         }
         _ => return Err("instruction not implemented in eval".into()),
     }

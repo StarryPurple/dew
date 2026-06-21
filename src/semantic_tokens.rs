@@ -317,6 +317,7 @@ impl<'a> TokenExtractor<'a> {
             Expr::While(w) => { self.collect_from_expr(&w.condition); self.collect_from_expr(&w.body); }
             Expr::Loop(l) => { self.collect_from_expr(&l.body); }
             Expr::ForIn(fi) => { self.collect_from_expr(&fi.collection); self.collect_from_expr(&fi.body); }
+            Expr::Cast(c) => { self.collect_from_expr(&c.expr); }
             Expr::BoolLit(_) | Expr::CharLit(_) | Expr::UnitLit(_) => {}
         }
     }

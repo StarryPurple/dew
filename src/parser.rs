@@ -238,26 +238,59 @@ impl<'a> Parser<'a> {
         self.parse_expr_no_postfix_bp(0)
     }
 
+    /// Parse prefix (unary `-`, `!`, `not`) or atom, but NO postfix.
+    /// This is the LHS entry point for `parse_expr_no_postfix_bp`, which
+    /// handles postfix and binary operators in its own loop.
+    /// Uses bp=15 (above all binary ops) so prefix operators don't
+    /// consume subsequent operators meant for the outer loop.
+    fn parse_prefix_no_postfix(&mut self) -> Result<Expr, Span> {
+        match self.peek_kind() {
+            TokenKind::Bang => {
+                let start = self.advance().start;
+                let expr = self.parse_expr_no_postfix_bp(15)?;
+                let span = Span { start, end: expr.span().end, line: 0, col: start };
+                Ok(Expr::Force(ForceExpr { span, expr: Box::new(expr) }))
+            }
+            TokenKind::Minus => {
+                let start = self.advance().start;
+                let expr = self.parse_expr_no_postfix_bp(15)?;
+                let span = Span { start, end: expr.span().end, line: 0, col: start };
+                Ok(Expr::Unary(UnaryExpr { span, op: UnaryOp::Neg, expr: Box::new(expr) }))
+            }
+            TokenKind::Not => {
+                let start = self.advance().start;
+                let expr = self.parse_expr_no_postfix_bp(15)?;
+                let span = Span { start, end: expr.span().end, line: 0, col: start };
+                Ok(Expr::Unary(UnaryExpr { span, op: UnaryOp::Not, expr: Box::new(expr) }))
+            }
+            _ => self.parse_atom(),
+        }
+    }
+
     fn parse_expr_no_postfix_bp(&mut self, min_bp: u8) -> Result<Expr, Span> {
-        let mut lhs = self.parse_atom()?;
+        let mut lhs = self.parse_prefix_no_postfix()?;
         loop {
             let (op, lbp, rbp): (BinaryOp, u8, u8) = match self.peek_kind() {
                 TokenKind::OrOr => (BinaryOp::Or, 1, 2),
                 TokenKind::AndAnd => (BinaryOp::And, 3, 4),
+                TokenKind::Pipe => (BinaryOp::BitOr, 5, 6),
+                TokenKind::Caret => (BinaryOp::BitXor, 5, 6),
+                TokenKind::Amp => (BinaryOp::BitAnd, 5, 6),
                 TokenKind::EqEq | TokenKind::Ne => {
                     let op = if self.peek_kind() == TokenKind::EqEq { BinaryOp::Eq } else { BinaryOp::Ne };
-                    (op, 5, 6)
+                    (op, 7, 8)
                 }
-                TokenKind::Lt | TokenKind::Gt | TokenKind::Le | TokenKind::Ge => {
+                TokenKind::Shl | TokenKind::Shr | TokenKind::Lt | TokenKind::Gt | TokenKind::Le | TokenKind::Ge => {
                     let op = match self.peek_kind() {
                         TokenKind::Lt => BinaryOp::Lt, TokenKind::Gt => BinaryOp::Gt,
+                        TokenKind::Shl => BinaryOp::Shl, TokenKind::Shr => BinaryOp::Shr,
                         TokenKind::Le => BinaryOp::Le, TokenKind::Ge => BinaryOp::Ge,
                         _ => unreachable!(),
                     };
-                    (op, 7, 8)
+                    (op, 9, 10)
                 }
-                TokenKind::Plus => (BinaryOp::Add, 9, 10),
-                TokenKind::Minus => (BinaryOp::Sub, 9, 10),
+                TokenKind::Plus => (BinaryOp::Add, 11, 12),
+                TokenKind::Minus => (BinaryOp::Sub, 11, 12),
                 TokenKind::Star | TokenKind::Slash | TokenKind::Percent => {
                     let op = match self.peek_kind() {
                         TokenKind::Star => BinaryOp::Mul,
@@ -265,7 +298,7 @@ impl<'a> Parser<'a> {
                         TokenKind::Percent => BinaryOp::Rem,
                         _ => unreachable!(),
                     };
-                    (op, 11, 12)
+                    (op, 13, 14)
                 }
                 _ => break,
             };
@@ -287,20 +320,24 @@ impl<'a> Parser<'a> {
                 TokenKind::Arrow => (BinaryOp::Add, 9, 0), // pipeline needs special handling
                 TokenKind::OrOr => (BinaryOp::Or, 1, 2),
                 TokenKind::AndAnd => (BinaryOp::And, 3, 4),
+                TokenKind::Pipe => (BinaryOp::BitOr, 5, 6),
+                TokenKind::Caret => (BinaryOp::BitXor, 5, 6),
+                TokenKind::Amp => (BinaryOp::BitAnd, 5, 6),
                 TokenKind::EqEq | TokenKind::Ne => {
                     let op = if self.peek_kind() == TokenKind::EqEq { BinaryOp::Eq } else { BinaryOp::Ne };
-                    (op, 5, 6)
+                    (op, 7, 8)
                 }
-                TokenKind::Lt | TokenKind::Gt | TokenKind::Le | TokenKind::Ge => {
+                TokenKind::Shl | TokenKind::Shr | TokenKind::Lt | TokenKind::Gt | TokenKind::Le | TokenKind::Ge => {
                     let op = match self.peek_kind() {
                         TokenKind::Lt => BinaryOp::Lt, TokenKind::Gt => BinaryOp::Gt,
+                        TokenKind::Shl => BinaryOp::Shl, TokenKind::Shr => BinaryOp::Shr,
                         TokenKind::Le => BinaryOp::Le, TokenKind::Ge => BinaryOp::Ge,
                         _ => unreachable!(),
                     };
-                    (op, 7, 8)
+                    (op, 9, 10)
                 }
-                TokenKind::Plus => (BinaryOp::Add, 9, 10),
-                TokenKind::Minus => (BinaryOp::Sub, 9, 10),
+                TokenKind::Plus => (BinaryOp::Add, 11, 12),
+                TokenKind::Minus => (BinaryOp::Sub, 11, 12),
                 TokenKind::Star | TokenKind::Slash | TokenKind::Percent => {
                     let op = match self.peek_kind() {
                         TokenKind::Star => BinaryOp::Mul,
@@ -308,7 +345,7 @@ impl<'a> Parser<'a> {
                         TokenKind::Percent => BinaryOp::Rem,
                         _ => unreachable!(),
                     };
-                    (op, 11, 12)
+                    (op, 13, 14)
                 }
                 _ => break,
             };
@@ -343,19 +380,19 @@ impl<'a> Parser<'a> {
         match self.peek_kind() {
             TokenKind::Bang => {
                 let start = self.advance().start;
-                let expr = self.parse_pratt(2)?; // prefix force binds tighter than binary
+                let expr = self.parse_pratt(15)?; // prefix binds tighter than all binary ops
                 let span = Span { start, end: expr.span().end, line: 0, col: start };
                 Ok(Expr::Force(ForceExpr { span, expr: Box::new(expr) }))
             }
             TokenKind::Minus => {
                 let start = self.advance().start;
-                let expr = self.parse_pratt(2)?;
+                let expr = self.parse_pratt(15)?;
                 let span = Span { start, end: expr.span().end, line: 0, col: start };
                 Ok(Expr::Unary(UnaryExpr { span, op: UnaryOp::Neg, expr: Box::new(expr) }))
             }
             TokenKind::Not => {
                 let start = self.advance().start;
-                let expr = self.parse_pratt(2)?;
+                let expr = self.parse_pratt(15)?;
                 let span = Span { start, end: expr.span().end, line: 0, col: start };
                 Ok(Expr::Unary(UnaryExpr { span, op: UnaryOp::Not, expr: Box::new(expr) }))
             }
@@ -482,6 +519,21 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
+                TokenKind::As => {
+                    self.advance();
+                    let ty_start = self.current_span().start;
+                    let type_name = self.expect_ident()?;
+                    let ty_span = Span { start: ty_start, end: type_name.span.end, line: 0, col: ty_start };
+                    let target_ty = Type::Named(NamedType {
+                        span: ty_span,
+                        name: type_name,
+                        args: None,
+                    });
+                    let span = expr.span().merge(ty_span);
+                    expr = Expr::Cast(Box::new(CastExpr {
+                        span, expr: Box::new(expr), target_ty,
+                    }));
+                }
                 _ => break,
             }
         }
@@ -575,8 +627,24 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // Phase 2: statements and final expression
+        // Phase 2: def bindings and expression statements (interleaved)
         while !self.check(TokenKind::RBrace) && !self.is_eof() {
+            // def bindings may appear after expressions (used by Rx→Dew translator
+            // for assignments translated as def x = expr)
+            if self.check(TokenKind::Def) {
+                let stmt_start = self.current_span().start;
+                if let Ok(Decl::Def(def)) = self.parse_def_decl() {
+                    let value = def.value.clone();
+                    stmts.push(BlockStmt {
+                        span: Span { start: stmt_start, end: def.span.end, line: 0, col: start },
+                        expr: value,
+                        def: Some(def),
+                    });
+                } else {
+                    self.advance();
+                }
+                continue;
+            }
             let expr = self.parse_expr();
             if self.eat(TokenKind::Semicolon) {
                 let end = self.tokens[self.pos - 1].span.end;
@@ -885,7 +953,7 @@ impl<'a> Parser<'a> {
             TokenKind::LParen => self.parse_tuple_pattern(),
             TokenKind::Ident(_) => {
                 let ident = self.expect_ident()?;
-                if self.check(TokenKind::LParen) {
+        if self.check(TokenKind::LParen) {
                     // Variant(inner_pattern, ...)
                     self.advance();
                     let mut payload = Vec::new();
@@ -962,6 +1030,26 @@ impl<'a> Parser<'a> {
         }
         if self.check(TokenKind::TypeOf) || self.check(TokenKind::TypeMatch) {
             return self.parse_typeof_type();
+        }
+        if self.check(TokenKind::LBracket) {
+            // Parse [T; N] as array type
+            let start = self.advance().start;
+            let element = self.parse_type()?;
+            self.expect(TokenKind::Semicolon)?;
+            let size = if let TokenKind::IntLit(n) = self.peek_kind() {
+                let n = n as usize;
+                self.advance();
+                n
+            } else {
+                return Err(self.current_span());
+            };
+            let end = self.expect(TokenKind::RBracket)?.span.end;
+            let arr_ty = ArrayType {
+                span: Span { start, end: start, line: 0, col: start },
+                element: Box::new(element),
+                size,
+            };
+            return Ok(Type::Array(arr_ty));
         }
         if self.check(TokenKind::LParen) {
             let start = self.current_span().start;
@@ -1279,6 +1367,7 @@ impl Expr {
             Expr::While(e) => e.span,
             Expr::Loop(e) => e.span,
             Expr::ForIn(e) => e.span,
+            Expr::Cast(e) => e.expr.span().merge(e.target_ty.span()),
         }
     }
 }

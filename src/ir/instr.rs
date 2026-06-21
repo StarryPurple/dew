@@ -17,6 +17,11 @@ pub enum Instr {
     Mul(Reg, Reg, Reg),
     Div(Reg, Reg, Reg),
     Rem(Reg, Reg, Reg),
+    BitAnd(Reg, Reg, Reg),
+    BitOr(Reg, Reg, Reg),
+    BitXor(Reg, Reg, Reg),
+    Shl(Reg, Reg, Reg),
+    Shr(Reg, Reg, Reg),
     Lt(Reg, Reg, Reg),
     Gt(Reg, Reg, Reg),
     Le(Reg, Reg, Reg),
@@ -42,6 +47,7 @@ pub enum Instr {
     ArrayUpdate(Reg, Reg, Reg, Reg),
     TupleUpdate(Reg, Reg, usize, Reg),
     Move(Reg, Reg),
+    Update(Reg, ForceTarget),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

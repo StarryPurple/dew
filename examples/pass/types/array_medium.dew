@@ -1,11 +1,11 @@
 // expect: 12
 // Tier: Medium
 // Feature: Array fill, type annotations, multi-access, field-like update
-def zeros: Array(Int, 5) = [0; 5];
-def nums: Array(Int, 3) = [3, 6, 9];
+def zeros: [Int; 5] = [0; 5];
+def nums: [Int; 3] = [3, 6, 9];
 def a = nums[0];
 def b = nums[2];
 def sum: Int = a + b;
 // update element via syntax sugar
-def arr: Array(Int, 4) = [1, 2, 3, 4];
+def arr: [Int; 4] = [1, 2, 3, 4];
 def main = fn { sum + zeros[0] -> stdout; };

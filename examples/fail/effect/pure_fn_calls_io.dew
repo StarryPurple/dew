@@ -1,4 +1,4 @@
-// expect error: [E006]
+// expect error: [W005]
 // Pure function annotation violated: body calls stdout.
 def bad_add = fn(x: Int, y: Int) -> Int { x + y -> stdout; };
 def main = fn { bad_add(40, 2) -> stdout; };

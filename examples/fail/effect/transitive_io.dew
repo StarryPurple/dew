@@ -1,4 +1,4 @@
-// expect error: [E006]
+// expect error: [W005]
 // Pure function annotation violated through transitive IO call.
 def do_io = fn(x: Int) { x -> stdout; };
 def bad_wrapper = fn(x: Int) -> Int { do_io(x) };

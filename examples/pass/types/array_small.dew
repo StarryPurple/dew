@@ -1,5 +1,5 @@
 // expect: 7
 // Tier: Small
 // Feature: Array type annotation and literal access
-def arr: Array(Int, 3) = [3, 7, 11];
+def arr: [Int; 3] = [3, 7, 11];
 def main = fn { arr[1] -> stdout; };

@@ -381,6 +381,11 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
         Instr::Mul(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = mul i64 %r{}, %r{}", r, a, b).ok(); }
         Instr::Div(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = sdiv i64 %r{}, %r{}", r, a, b).ok(); }
         Instr::Rem(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = srem i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::BitAnd(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = and i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::BitOr(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = or i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::BitXor(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = xor i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Shl(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = shl i64 %r{}, %r{}", r, a, b).ok(); }
+        Instr::Shr(r, a, b) => { ctx.set_reg(*r, IrType::Int); writeln!(out, "  %r{} = ashr i64 %r{}, %r{}", r, a, b).ok(); }
         Instr::Lt(r, a, b) => { ctx.set_reg(*r, IrType::Bool); let va = as_i64_tmp(*r, "la", *a, out, ctx); let vb = as_i64_tmp(*r, "lb", *b, out, ctx); writeln!(out, "  %r{} = icmp slt i64 {}, {}", r, va, vb).ok(); }
         Instr::Gt(r, a, b) => { ctx.set_reg(*r, IrType::Bool); let va = as_i64_tmp(*r, "ga", *a, out, ctx); let vb = as_i64_tmp(*r, "gb", *b, out, ctx); writeln!(out, "  %r{} = icmp sgt i64 {}, {}", r, va, vb).ok(); }
         Instr::Le(r, a, b) => { ctx.set_reg(*r, IrType::Bool); let va = as_i64_tmp(*r, "lea", *a, out, ctx); let vb = as_i64_tmp(*r, "leb", *b, out, ctx); writeln!(out, "  %r{} = icmp sle i64 {}, {}", r, va, vb).ok(); }
@@ -867,6 +872,12 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
         }
         Instr::Move(r, from) => {
             writeln!(out, "  %r{} = add i64 %r{}, 0", r, from).ok();
+        }
+        Instr::Update(_r, _target) => {
+            // LLVM thunks are stateless — Update is a no-op.
+            // The thunk stores the closure value on first evaluation;
+            // subsequent Forces reuse the cached value. LLVM doesn't
+            // use this caching mechanism; each Force re-evaluates.
         }
         _ => { writeln!(out, "  ; unimplemented instruction").ok(); }
     }
