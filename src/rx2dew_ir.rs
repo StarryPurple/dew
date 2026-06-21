@@ -27,6 +27,7 @@ struct DewEmitter {
     in_if_body: RefCell<bool>,                    // true when emitting inside an SSA if-then/else body
     seen_return: RefCell<bool>,                   // true when a Stmt::Return was emitted in current body
     fn_borrow_params: RefCell<HashMap<String, (Vec<bool>, Vec<String>)>>, // fn_name → (is_borrow per param, borrow_param_names)
+    in_cf_fn: RefCell<bool>,                      // true when emitting a CF-returning function
 }
 
 /// Context for translating break/continue inside a while loop.
@@ -49,6 +50,7 @@ impl DewEmitter {
             in_if_body: RefCell::new(false),
             seen_return: RefCell::new(false),
             fn_borrow_params: RefCell::new(HashMap::new()),
+            in_cf_fn: RefCell::new(false),
         }
     }
 
@@ -127,7 +129,10 @@ impl DewEmitter {
             .insert(format!("{}__{}", sname, m.name), (borrow_flags, borrow_names));
         let rtype = self.map_type(&m.ret_type);
         let has_io = has_io_in_stmts(&m.body);
-        let ret_anno = if rtype == "Unit" {
+        let needs_cf = has_return_deep(&m.body);
+        let ret_anno_str = if needs_cf {
+            format!(" -> ControlFlow({})", rtype)
+        } else if rtype == "Unit" {
             if has_io { " -> IO Unit".into() } else { String::new() }
         } else {
             if has_io { format!(" -> IO {}", rtype) } else { format!(" -> {}", rtype) }
@@ -135,10 +140,12 @@ impl DewEmitter {
         out.push_str(&format!("def {}__{} = fn({}){} {{\n",
             sname, m.name,
             params.join(", "),
-            ret_anno));
+            ret_anno_str));
 
         let prev = self.count_let_mut(&m.body);
+        *self.in_cf_fn.borrow_mut() = needs_cf;
         self.emit_body(&m.body, prev, out, 1);
+        *self.in_cf_fn.borrow_mut() = false;
         out.push_str("}\n\n");
 
         loop {
@@ -171,6 +178,10 @@ impl DewEmitter {
             .collect();
         let mut rtype = self.map_type(&fn_decl.ret_type);
         let has_io = has_io_in_stmts(&fn_decl.body);
+        let needs_cf = has_return_deep(&fn_decl.body);
+        if needs_cf {
+            rtype = format!("ControlFlow({})", rtype);
+        }
         let ret_anno = if rtype == "Unit" {
             if has_io { " -> IO Unit".into() } else { String::new() }
         } else {
@@ -182,7 +193,9 @@ impl DewEmitter {
             ret_anno));
 
         let prev = self.count_let_mut(&fn_decl.body);
+        *self.in_cf_fn.borrow_mut() = needs_cf;
         self.emit_body(&fn_decl.body, prev, out, 1);
+        *self.in_cf_fn.borrow_mut() = false;
         out.push_str("}\n\n");
 
         // Emit any nested fn declarations collected during emit_body
@@ -396,7 +409,13 @@ impl DewEmitter {
                                 self.emit_body(else_b, 0, out, indent + 1);
                                 out.push_str(&format!("{}}}", pad));
                             }
-                            None => { out.push_str(&format!(" else {{ Unit }}")); }
+                            None => {
+                                if *self.in_cf_fn.borrow() {
+                                    out.push_str(&format!(" else {{ Normal(Unit) }}"));
+                                } else {
+                                    out.push_str(&format!(" else {{ Unit }}"));
+                                }
+                            }
                         }
                         if !is_last { out.push_str(";"); }
                         out.push_str("\n");
@@ -428,7 +447,13 @@ impl DewEmitter {
                                 self.emit_body(else_b, 0, out, indent + 1);
                                 out.push_str(&format!("{}}}", pad));
                             }
-                            None => { out.push_str(&format!(" else {{ Unit }}")); }
+                            None => {
+                                if *self.in_cf_fn.borrow() {
+                                    out.push_str(&format!(" else {{ Normal(Unit) }}"));
+                                } else {
+                                    out.push_str(&format!(" else {{ Unit }}"));
+                                }
+                            }
                         }
                         if !is_last { out.push_str(";"); }
                         out.push_str("\n");
@@ -513,8 +538,7 @@ impl DewEmitter {
                     }
                 }
                 Stmt::Return(Some(expr)) => {
-                    if *self.in_while_body.borrow() {
-                        // Inside CF while body: Return(expr) propagates via match arm
+                    if *self.in_while_body.borrow() || *self.in_cf_fn.borrow() {
                         out.push_str(&format!("{}Return({})\n", pad, self.emit_expr(expr)));
                     } else {
                         out.push_str(&format!("{}{}\n", pad, self.emit_expr(expr)));
@@ -523,7 +547,11 @@ impl DewEmitter {
                     *self.seen_return.borrow_mut() = true;
                 }
                 Stmt::Return(None) => {
-                    out.push_str(&format!("{}Unit\n", pad));
+                    if *self.in_cf_fn.borrow() {
+                        out.push_str(&format!("{}Return(Unit)\n", pad));
+                    } else {
+                        out.push_str(&format!("{}Unit\n", pad));
+                    }
                     seen_return_local = true;
                     *self.seen_return.borrow_mut() = true;
                 }
@@ -565,7 +593,12 @@ impl DewEmitter {
                         }
                     }
                     let sep = if is_last { "" } else { ";" };
-                    out.push_str(&format!("{}{}{}\n", pad, self.emit_expr(expr), sep));
+                    let expr_str = self.emit_expr(expr);
+                    if *self.in_cf_fn.borrow() && is_last && !*self.seen_return.borrow() {
+                        out.push_str(&format!("{}Normal({})\n", pad, expr_str));
+                    } else {
+                        out.push_str(&format!("{}{}{}\n", pad, expr_str, sep));
+                    }
                 }
             }
         }
@@ -1078,6 +1111,28 @@ impl DewEmitter {
         }
     }
 }
+
+/// Recursively check if a body contains any Stmt::Return (at any nesting depth).
+fn has_return_deep(stmts: &[Stmt]) -> bool {
+    use crate::rx_parser::Stmt;
+    for stmt in stmts {
+        match stmt {
+            Stmt::Return(_) => return true,
+            Stmt::If { then_body, else_body, .. } => {
+                if has_return_deep(then_body) { return true; }
+                if let Some(eb) = else_body {
+                    if has_return_deep(eb) { return true; }
+                }
+            }
+            Stmt::While { body, .. } => {
+                if has_return_deep(body) { return true; }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 fn has_io_in_stmts(stmts: &[Stmt]) -> bool {
     fn has_io_in_expr(expr: &Expr) -> bool {
         match expr {
