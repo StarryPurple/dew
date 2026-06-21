@@ -26,6 +26,7 @@ struct DewEmitter {
     in_while_body: RefCell<bool>,                 // true when emitting inside a while-loop body
     in_if_body: RefCell<bool>,                    // true when emitting inside an SSA if-then/else body
     seen_return: RefCell<bool>,                   // true when a Stmt::Return was emitted in current body
+    fn_borrow_params: RefCell<HashMap<String, (Vec<bool>, Vec<String>)>>, // fn_name → (is_borrow per param, borrow_param_names)
 }
 
 /// Context for translating break/continue inside a while loop.
@@ -47,6 +48,7 @@ impl DewEmitter {
             in_while_body: RefCell::new(false),
             in_if_body: RefCell::new(false),
             seen_return: RefCell::new(false),
+            fn_borrow_params: RefCell::new(HashMap::new()),
         }
     }
 
@@ -111,9 +113,18 @@ impl DewEmitter {
         } else {
             vec![]
         };
+        let is_borrow_type = |t: &str| t.starts_with("&mut ") || t.starts_with("&");
+        let mut borrow_flags = Vec::new();
+        let mut borrow_names = Vec::new();
         for (pname, ptype) in &m.params {
-            params.push(format!("{}: {}", pname, self.map_type(ptype)));
+            let is_borrow = is_borrow_type(ptype);
+            let prefix = if is_borrow { "&" } else { "" };
+            params.push(format!("{}{}: {}", prefix, pname, self.map_type(ptype)));
+            borrow_flags.push(is_borrow);
+            if is_borrow { borrow_names.push(pname.clone()); }
         }
+        self.fn_borrow_params.borrow_mut()
+            .insert(format!("{}__{}", sname, m.name), (borrow_flags, borrow_names));
         let rtype = self.map_type(&m.ret_type);
         let has_io = has_io_in_stmts(&m.body);
         let ret_anno = if rtype == "Unit" {
@@ -142,11 +153,21 @@ impl DewEmitter {
     fn emit_fn(&self, fn_decl: &FnDecl, out: &mut String) {
         // Set up variable types for the function scope
         self.var_types.borrow_mut().clear();
+        let mut borrow_flags = Vec::new();
+        let mut borrow_names = Vec::new();
         for (n, t) in &fn_decl.params {
             self.var_types.borrow_mut().insert(n.clone(), self.map_type(t));
+            let is_borrow = t.starts_with("&mut ") || t.starts_with("&");
+            borrow_flags.push(is_borrow);
+            if is_borrow { borrow_names.push(n.clone()); }
         }
+        self.fn_borrow_params.borrow_mut().insert(fn_decl.name.clone(), (borrow_flags, borrow_names));
+        let is_borrow_type = |t: &str| t.starts_with("&mut ") || t.starts_with("&");
         let params: Vec<String> = fn_decl.params.iter()
-            .map(|(n, t)| format!("{}: {}", n, self.map_type(t)))
+            .map(|(n, t)| {
+                let prefix = if is_borrow_type(t) { "&" } else { "" };
+                format!("{}{}: {}", prefix, n, self.map_type(t))
+            })
             .collect();
         let mut rtype = self.map_type(&fn_decl.ret_type);
         let has_io = has_io_in_stmts(&fn_decl.body);
@@ -879,7 +900,38 @@ impl DewEmitter {
                         return format!("{}({})", fn_name, all_args);
                     }
                 }
-                format!("{}({})", func_str, args_str.join(", "))
+                // Handle normal function calls with borrow parameters
+                let borrow_info = self.fn_borrow_params.borrow().get(&func_str).cloned();
+                let has_borrow = borrow_info.as_ref().map(|(bf, _)| bf.iter().any(|&b| b)).unwrap_or(false);
+                if has_borrow {
+                    let (bf, bn) = borrow_info.unwrap();
+                    let n_borrow = bf.iter().filter(|&&b| b).count();
+                    let mut adjusted_args = Vec::new();
+                    for (i, arg) in args_str.iter().enumerate() {
+                        if i < bf.len() && bf[i] {
+                            adjusted_args.push(format!("&{}", arg));
+                        } else {
+                            adjusted_args.push(arg.clone());
+                        }
+                    }
+                    let tmp_idx = {
+                        let mut c = self.tmp_counter.borrow_mut();
+                        let n = *c;
+                        *c += 1;
+                        n
+                    };
+                    let tmp_name = format!("__brw{}", tmp_idx);
+                    let call_str = format!("{}({})", func_str, adjusted_args.join(", "));
+                    // Build block: def + destructure + result
+                    let mut block = format!("{{ def {} = {};", tmp_name, call_str);
+                    for (i, pn) in bn.iter().enumerate() {
+                        block.push_str(&format!(" def {} = {}.{};", pn, tmp_name, i));
+                    }
+                    block.push_str(&format!(" {}.{} }}", tmp_name, n_borrow));
+                    block
+                } else {
+                    format!("{}({})", func_str, args_str.join(", "))
+                }
             }
             Expr::Field(obj, field) => {
                 format!("{}.{}", self.emit_expr(obj), field)

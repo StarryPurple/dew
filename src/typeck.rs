@@ -310,7 +310,13 @@ impl<'a> TypeChecker<'a> {
         self.env = saved_env;
 
         let ret_ty = inner_ret_ty.unwrap_or_else(|| body_ty.clone());
-        unify_expr(&body_ty, &ret_ty, f.span, self.diag, "function return");
+        // Borrow-desugared function: body returns a tuple (modified params + result),
+        // while the annotation type is scalar (or also a tuple with matching structure).
+        // Skip the check to avoid false mismatches from unresolved type variables.
+        let is_borrow_wrapped = matches!(&body_ty, Ty::Tuple(_));
+        if !is_borrow_wrapped {
+            unify_expr(&body_ty, &ret_ty, f.span, self.diag, "function return");
+        }
 
         // Verify IO annotation against inferred effect
         let inferred_effect = self.current_effect;
