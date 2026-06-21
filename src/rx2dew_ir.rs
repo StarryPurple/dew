@@ -79,13 +79,10 @@ impl DewEmitter {
             }
         }
 
-        // Emit regular functions and const declarations
+        // Emit regular functions (const values are propagated/inlined via const_values)
         for decl in &prog.decls {
             match decl {
                 Decl::Fn(fn_decl) => self.emit_fn(fn_decl, out),
-                Decl::Const { name, value } => {
-                    out.push_str(&format!("def {} = {};\n\n", name, value));
-                }
                 _ => {}
             }
         }
