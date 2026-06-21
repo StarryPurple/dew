@@ -310,7 +310,14 @@ impl<'a> TypeChecker<'a> {
         self.env = saved_env;
 
         let ret_ty = inner_ret_ty.unwrap_or_else(|| body_ty.clone());
-        unify_expr(&body_ty, &ret_ty, f.span, self.diag, "function return");
+        // Detect borrow-desugared function returning ControlFlow(T):
+        // the annotated return type is (param_types..., ControlFlow(T))
+        // but the body type may still be unresolved. Skip unification.
+        let is_borrow_wrapped = matches!(&ret_ty, Ty::Tuple(elems)
+            if matches!(elems.last(), Some(Ty::Named(n, _)) if n == "ControlFlow"));
+        if !is_borrow_wrapped {
+            unify_expr(&body_ty, &ret_ty, f.span, self.diag, "function return");
+        }
 
         // Verify IO annotation against inferred effect
         let inferred_effect = self.current_effect;
