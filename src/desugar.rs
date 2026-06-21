@@ -340,13 +340,23 @@ fn desugar_expr(expr: &Expr) -> Expr {
         Expr::Fix(f) => {
             let body = desugar_expr(&f.body);
             let loop_ident = f.loop_var.clone();
+            // Extract the inner fn expression from the block so compile_def
+            // uses compile_fn (static function) instead of compile_thunk.
+            // This ensures self-referencing calls use Static call targets
+            // and avoids thunk blackholing during recursive execution.
+            let inner_fn = match &body {
+                Expr::Block(b) => b.final_expr.as_ref()
+                    .and_then(|e| if let Expr::Fn(_) = e.as_ref() { Some(e.as_ref().clone()) } else { None })
+                    .unwrap_or(body.clone()),
+                _ => body.clone(),
+            };
             Expr::Block(BlockExpr {
                 span: f.span,
                 stmts: vec![BlockStmt {
-                    span: f.span, expr: body.clone(),
+                    span: f.span, expr: body,
                     def: Some(DefDecl {
                         span: f.span, rec: true, name: loop_ident.clone(),
-                        ty: None, value: body,
+                        ty: None, value: inner_fn,
                     }),
                 }],
                 final_expr: Some(Box::new(Expr::Var(loop_ident))),

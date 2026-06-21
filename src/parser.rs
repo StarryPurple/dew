@@ -788,8 +788,28 @@ impl<'a> Parser<'a> {
         let start = self.advance().start;
         let loop_var = self.expect_ident()?;
         let body = self.parse_expr();
-        let span = Span { start, end: start, line: 0, col: start }.merge(body.span());
-        Ok(Expr::Fix(FixExpr { span, loop_var, body: Box::new(body) }))
+        // parse_expr() greedily consumes IIFE args and pipelines.
+        // {body}(args) -> f becomes Pipeline(Call(Block{body}, args), f).
+        // Extract the Block, args, and pipeline func for reconstruction.
+        let (inner_body, iife_args, outer_pipe) = extract_iife(&body);
+        let span = Span { start, end: start, line: 0, col: start }.merge(inner_body.span());
+        let fix_expr = Expr::Fix(FixExpr { span, loop_var, body: Box::new(inner_body) });
+        let result = match iife_args {
+            Some(args) => Expr::Call(CallExpr {
+                span: fix_expr.span(),
+                func: Box::new(fix_expr),
+                args,
+            }),
+            None => fix_expr,
+        };
+        match outer_pipe {
+            Some(f) => Ok(Expr::Pipeline(PipelineExpr {
+                span: result.span().merge(f.span()),
+                value: Box::new(result),
+                func: f,
+            })),
+            None => Ok(result),
+        }
     }
 
     fn parse_while(&mut self) -> Result<Expr, Span> {

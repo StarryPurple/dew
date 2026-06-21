@@ -23,6 +23,7 @@ pub struct IrGenerator<'a> {
     var_map: std::collections::HashMap<String, usize>,
     thunk_names: std::collections::HashSet<String>,
     thunk_name_map: std::collections::HashMap<String, String>,
+    rec_fn_names: std::collections::HashSet<String>,
     extra_blocks: Vec<BasicBlock>,
     reg_struct: std::collections::HashMap<usize, String>,
     tuple_elem_types: std::collections::HashMap<usize, Vec<IrType>>,
@@ -40,6 +41,7 @@ impl<'a> IrGenerator<'a> {
             var_map: std::collections::HashMap::new(),
             thunk_names: std::collections::HashSet::new(),
             thunk_name_map: std::collections::HashMap::new(),
+            rec_fn_names: std::collections::HashSet::new(),
             extra_blocks: Vec::new(),
             reg_struct: std::collections::HashMap::new(),
             tuple_elem_types: std::collections::HashMap::new(),
@@ -133,6 +135,10 @@ impl<'a> IrGenerator<'a> {
             }
         }
 
+        // Track rec-defining fn names so self-referencing calls inside the
+        // body resolve via Static call (not thunk Force, which blackholes).
+        self.rec_fn_names.insert(fn_name.clone());
+
         let mut ir_fn = Fn::new(fn_name, params, return_ty.clone());
         let mut block = BasicBlock::new("entry".into());
         self.next_reg = f.params.len();
@@ -146,6 +152,8 @@ impl<'a> IrGenerator<'a> {
         self.compile_finish(&mut block, &mut ir_fn.blocks, result_reg);
         self.extra_blocks.clear();
 
+        let fn_name = ir_fn.name.clone();
+        self.rec_fn_names.remove(&fn_name);
         self.module.fns.push(ir_fn);
     }
 
@@ -371,6 +379,8 @@ impl<'a> IrGenerator<'a> {
                                         .unwrap_or(IrType::Int);
                                     (CallTarget::Static(ident.name.clone()), ret)
                                 }
+                            } else if self.rec_fn_names.contains(&ident.name) {
+                                (CallTarget::Static(ident.name.clone()), IrType::Int)
                             } else if self.thunk_names.contains(&ident.name) {
                                 // Self-referencing closure: force thunk then Dynamic call.
                                 // Use the unique thunk name to avoid collisions.
@@ -439,15 +449,25 @@ impl<'a> IrGenerator<'a> {
                     }
                 }
                 for stmt in &b.stmts {
+                    // For recursive defs, pre-register the name so that the body
+                    // can reference itself (e.g., def rec f = fn(x) { ... f(x) ... }).
+                    if let Some(def) = &stmt.def {
+                        if def.rec {
+                            // Do NOT pre-register in var_map. The closure body's self-referencing
+                            // calls go through the thunk_names path (Force thunk + Dynamic call).
+                            // The thunk is already Evaluated by the time the closure runs.
+                        }
+                    }
                     last_reg = self.compile_expr(&stmt.expr, block);
                     if let Some(def) = &stmt.def {
                         if def.rec {
-                            // Update the placeholder thunk with the actual closure value
                             if let Some(thunk_name) = self.thunk_name_map.get(&def.name.name) {
                                 block.instrs.push(Instr::Update(last_reg, ForceTarget::Static(thunk_name.clone())));
                             }
+                            self.var_map.insert(def.name.name.clone(), last_reg);
+                        } else {
+                            self.var_map.insert(def.name.name.clone(), last_reg);
                         }
-                        self.var_map.insert(def.name.name.clone(), last_reg);
                     }
                 }
                 if let Some(final_expr) = &b.final_expr {
@@ -665,10 +685,16 @@ impl<'a> IrGenerator<'a> {
         for (i, param) in f.params.iter().enumerate() {
             self.var_map.insert(param.name.name.clone(), i);
         }
-        // Map captured vars to their register slots in inner function
-        for (ci, cap_name) in free_vars.iter().enumerate() {
-            let reg = capture_start + ci;
-            self.var_map.insert(cap_name.clone(), reg);
+        // Map resolved captures into var_map. Use the SAVED outer var_map
+        // (before it was cleared for the closure scope) to check which free
+        // vars were actually resolvable from the outer scope.
+        let mut capture_idx = 0;
+        for cap_name in free_vars.iter() {
+            if saved_var_map.get(cap_name).is_some() {
+                let reg = capture_start + capture_idx;
+                self.var_map.insert(cap_name.clone(), reg);
+                capture_idx += 1;
+            }
         }
 
         let result_reg = self.compile_expr(&f.body, &mut fn_block);

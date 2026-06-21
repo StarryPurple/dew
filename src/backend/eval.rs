@@ -354,9 +354,10 @@ fn eval_instr(
             let value = frame.get(*r).clone();
             match target {
                 ForceTarget::Static(name) => {
-                    if let Some(thunk_state) = runtime.thunks.get_mut(name) {
-                        *thunk_state = ThunkState::Evaluated(value);
-                    }
+                    // Insert or overwrite the thunk state. The Update instruction
+                    // may run before the first Force (e.g., in def rec bindings),
+                    // so the runtime entry may not exist yet.
+                    runtime.thunks.insert(name.clone(), ThunkState::Evaluated(value));
                 }
                 ForceTarget::Dynamic(reg) => {
                     // Dynamic thunk update not used in current design
