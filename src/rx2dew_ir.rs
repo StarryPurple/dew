@@ -392,7 +392,7 @@ impl DewEmitter {
                         *self.in_if_body.borrow_mut() = false;
 
                         // Final value of then branch: tuple of latest SSA names
-                        out.push_str(&format!("{}  {}",
+                        out.push_str(&format!("{}{}",
                             inner_pad, Self::final_ssa_value(&all_mutated, &self.var_override.borrow())));
 
                         out.push_str(&format!("\n{}}}", pad));
@@ -401,38 +401,39 @@ impl DewEmitter {
                         match else_body {
                             Some(else_b) if !else_mutated.is_empty() => {
                                 // else branch also has SSA assignments.
-                                // Start with a fresh override (SSA names are branch-specific).
                                 self.var_override.borrow_mut().clear();
                                 out.push_str(&format!(" else {{\n"));
                                 *self.in_if_body.borrow_mut() = true;
                                 self.emit_ssa_block(else_b, &all_mutated, out, indent_lv);
                                 *self.in_if_body.borrow_mut() = false;
-                                out.push_str(&format!("{}  {}\n",
+                                out.push_str(&format!("{}{}\n",
                                     inner_pad, Self::final_ssa_value(&all_mutated, &self.var_override.borrow())));
                                 out.push_str(&format!("{}}}", pad));
                             }
                             Some(else_b) => {
-                                // else branch has no SSA assignments — just emit normally
+                                // else branch has no SSA assignments
                                 let saved = self.var_override.borrow().clone();
                                 self.var_override.borrow_mut().clear();
                                 out.push_str(&format!(" else {{\n"));
                                 self.emit_body(else_b, 0, out, indent_lv);
                                 // Final value: original variable names
                                 if all_mutated.len() == 1 {
-                                    out.push_str(&format!("{}  {}", inner_pad, all_mutated[0]));
+                                    out.push_str(&format!("{}{}", inner_pad, all_mutated[0]));
                                 } else {
-                                    out.push_str(&format!("{}  ({})", inner_pad, all_mutated.join(", ")));
+                                    out.push_str(&format!("{}({})", inner_pad, all_mutated.join(", ")));
                                 }
                                 out.push_str(&format!("\n{}}}", pad));
                                 *self.var_override.borrow_mut() = saved;
                             }
                             None => {
-                                // No else: return original values
+                                // No else: return original values on separate lines
+                                out.push_str(&format!(" else {{\n"));
                                 if all_mutated.len() == 1 {
-                                    out.push_str(&format!(" else {{ {} }}", all_mutated[0]));
+                                    out.push_str(&format!("{}{}\n", inner_pad, all_mutated[0]));
                                 } else {
-                                    out.push_str(&format!(" else {{ ({}) }}", all_mutated.join(", ")));
+                                    out.push_str(&format!("{}({})\n", inner_pad, all_mutated.join(", ")));
                                 }
+                                out.push_str(&format!("{}}}", pad));
                             }
                         }
                         out.push_str(";\n");
