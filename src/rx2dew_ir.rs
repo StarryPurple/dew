@@ -26,8 +26,6 @@ struct DewEmitter {
     in_while_body: RefCell<bool>,                 // true when emitting inside a while-loop body
     in_if_body: RefCell<bool>,                    // true when emitting inside an SSA if-then/else body
     seen_return: RefCell<bool>,                   // true when a Stmt::Return was emitted in current body
-    in_cf_while_body: RefCell<bool>,              // true when emitting inside CF-mode while body
-    cf_fix_params: RefCell<Vec<String>>,           // param names for current CF while fix fn (for recursive call)
 }
 
 /// Context for translating break/continue inside a while loop.
@@ -49,13 +47,11 @@ impl DewEmitter {
             in_while_body: RefCell::new(false),
             in_if_body: RefCell::new(false),
             seen_return: RefCell::new(false),
-            in_cf_while_body: RefCell::new(false),
-            cf_fix_params: RefCell::new(vec![]),
         }
     }
 
     fn emit_program(&mut self, prog: &Program, out: &mut String) {
-        // Emit ControlFlow enum for return/break/continue propagation in while loops
+        // Emit ControlFlow enum for return/break/continue propagation
         out.push_str("enum ControlFlow(T) {\n");
         out.push_str("  Return(T),\n");
         out.push_str("  Normal(T),\n");
@@ -275,14 +271,12 @@ impl DewEmitter {
                         AssignOp::Slash => format!("{} / {}", self.emit_expr(lhs), self.emit_expr(rhs)),
                         AssignOp::Percent => format!("{} % {}", self.emit_expr(lhs), self.emit_expr(rhs)),
                     };
-                    // Simple identifier: use &x = rhs to mutate the outer binding,
-                    // or def x = rhs inside CF-mode while body (value params).
+                    // Simple identifier: use &x = rhs to mutate the outer binding.
+                    // This ensures the modification escapes if/while branches
+                    // (unlike def x = rhs which creates a scoped shadow).
+                    // Compound lvalue (arr[k], x.f): also uses & for borrow syntax.
                     if let Expr::Ident(name) = lhs {
-                        if *self.in_cf_while_body.borrow() {
-                            out.push_str(&format!("{}def {} = {};\n", pad, name, rhs_str));
-                        } else {
-                            out.push_str(&format!("{}&{} = {};\n", pad, name, rhs_str));
-                        }
+                        out.push_str(&format!("{}&{} = {};\n", pad, name, rhs_str));
                     } else {
                         out.push_str(&format!("{}&{} = {};\n", pad, self.emit_expr(lhs), rhs_str));
                     }
@@ -290,71 +284,58 @@ impl DewEmitter {
                 Stmt::While { cond, body } => {
                     let cond_str = format!("({})", self.emit_expr(cond));
                     let vars = self.collect_loop_vars(body);
-                    // CF mode: use value params (no borrow)
-                    let params: Vec<String> = vars.iter().map(|(n, t)| format!("{}: {}", n, t)).collect();
-                    let var_names: Vec<String> = vars.iter().map(|(n, _)| n.clone()).collect();
+                    let params: Vec<String> = vars.iter().map(|(n, t)| format!("&{}: {}", n, t)).collect();
+                    let call_args: Vec<String> = vars.iter().map(|(n, _)| format!("&{}", n)).collect();
                     let (ret_var, ret_var_ty) = vars.last().map(|(n, t)| (n.clone(), t.clone())).unwrap_or_default();
 
                     let saved_ctx = self.while_ctx.borrow_mut().replace(WhileCtx {
                         loop_fn: "__while_loop".into(),
                         accumulator: ret_var.clone(),
-                        call_args: var_names.clone(),
+                        call_args: call_args.clone(),
                     });
 
                     if vars.is_empty() {
-                        // vars=0: simple CF, ControlFlow(Unit)
-                        out.push_str(&format!("{}match (fix __while_loop {{\n", pad));
-                        out.push_str(&format!("{}  fn() -> ControlFlow(Unit) {{\n", pad));
-                        out.push_str(&format!("{}    if {} {{\n", pad, cond_str));
-                        out.push_str(&format!("{}      match ({{\n", pad));
+                        out.push_str(&format!("{}fix __while_loop {{ fn() -> Unit {{\n", pad));
+                        out.push_str(&format!("{}  if {} {{\n", pad, cond_str));
                         *self.in_while_body.borrow_mut() = true;
-                        self.emit_body(body, 0, out, indent + 4);
+                        let had_return = *self.seen_return.borrow();
+                        *self.seen_return.borrow_mut() = false;
+                        self.emit_body(body, 0, out, indent + 2);
+                        *self.seen_return.borrow_mut() = had_return;
                         *self.in_while_body.borrow_mut() = false;
                         while out.ends_with('\n') { out.pop(); }
                         if !out.ends_with(';') { out.push_str(";"); }
-                        out.push_str(&format!("\n{}        Normal(Unit)", "  ".repeat(indent + 2)));
-                        out.push_str(&format!("\n{}      }}) {{\n", pad));
-                        out.push_str(&format!("{}        Return(v) => Return(v),\n", pad));
-                        out.push_str(&format!("{}        Normal(_) => __while_loop(),\n", pad));
-                        out.push_str(&format!("{}        _ => __while_loop(),\n", pad));
-                        out.push_str(&format!("{}      }}\n", pad));
-                        out.push_str(&format!("{}    }} else {{ Normal(Unit) }}\n", pad));
-                        out.push_str(&format!("{}  }}\n", pad));
-                        out.push_str(&format!("{}}}())", pad));
-                        out.push_str(&format!(" {{\n"));
-                        out.push_str(&format!("{}  Return(v) => v,\n", "  ".repeat(indent + 1)));
-                        out.push_str(&format!("{}  Normal(v) => v,\n", "  ".repeat(indent + 1)));
-                        out.push_str(&format!("{}}}", "  ".repeat(indent + 1)));
+                        if !*self.seen_return.borrow() {
+                            out.push_str(&format!("\n{}    __while_loop()\n", pad));
+                        } else {
+                            out.push_str("\n");
+                        }
+                        out.push_str(&format!("{}  }} else {{ Unit }}\n", pad));
+                        out.push_str(&format!("{}  }} }}();\n", pad));
                     } else {
-                        // vars>0: CF with value params, ControlFlow of the loop's return type
-                        let cf_type = if ret_var_ty.is_empty() { "Int".into() } else { ret_var_ty.clone() };
-                        out.push_str(&format!("{}def __cf_r = fix __while_loop {{\n", pad));
-                        out.push_str(&format!("{}  fn({}) -> ControlFlow({}) {{\n", pad, params.join(", "), cf_type));
+                        let ret_anno = if ret_var_ty.is_empty() { String::new() } else { format!(" -> {}", ret_var_ty) };
+                        out.push_str(&format!("{}fix __while_loop {{\n", pad));
+                        out.push_str(&format!("{}  fn({}){} {{\n", pad, params.join(", "), ret_anno));
                         out.push_str(&format!("{}    if {} {{\n", pad, cond_str));
-                        out.push_str(&format!("{}      match ({{\n", pad));
-                        *self.in_cf_while_body.borrow_mut() = true;
-                        *self.cf_fix_params.borrow_mut() = var_names.clone();
-                        self.emit_body(body, 0, out, indent + 4);
-                        self.cf_fix_params.borrow_mut().clear();
-                        *self.in_cf_while_body.borrow_mut() = false;
+                        *self.in_while_body.borrow_mut() = true;
+                        let had_return = *self.seen_return.borrow();
+                        *self.seen_return.borrow_mut() = false;
+                        self.emit_body(body, 0, out, indent + 3);
+                        *self.seen_return.borrow_mut() = had_return || *self.seen_return.borrow();
+                        *self.in_while_body.borrow_mut() = false;
                         while out.ends_with('\n') { out.pop(); }
                         if !out.ends_with(';') { out.push_str(";"); }
-                        out.push_str(&format!("\n{}        Normal(0)", "  ".repeat(indent + 2)));
-                        out.push_str(&format!("\n{}      }}) {{\n", pad));
-                        out.push_str(&format!("{}        Return(v) => Return(v),\n", pad));
-                        out.push_str(&format!("{}        Normal(_) => __while_loop({}),\n", pad, var_names.join(", ")));
-                        out.push_str(&format!("{}        _ => __while_loop({}),\n", pad, var_names.join(", ")));
-                        out.push_str(&format!("{}      }}\n", pad));
-                        out.push_str(&format!("{}    }} else {{ Normal({}) }}\n", pad, ret_var));
+                        if *self.seen_return.borrow() {
+                            // Return inside while: skip the recursive call so the return
+                            // value becomes the if's final expression (and thus the fn's return)
+                            out.push_str("\n");
+                        } else {
+                            out.push_str(&format!("\n{}      __while_loop({})\n", pad, call_args.join(", ")));
+                        }
+                        out.push_str(&format!("{}    }} else {{ {} }}\n", pad, ret_var));
                         out.push_str(&format!("{}  }}\n", pad));
-                        out.push_str(&format!("{}}}({});\n", pad, var_names.join(", ")));
-                        // Outer match: extract Int value from ControlFlow
-                        out.push_str(&format!("{}match (__cf_r) {{\n", pad));
-                        out.push_str(&format!("{}  Return(v) => v,\n", "  ".repeat(indent + 1)));
-                        out.push_str(&format!("{}  Normal(v) => v,\n", "  ".repeat(indent + 1)));
-                        out.push_str(&format!("{}}}", "  ".repeat(indent + 1)));
+                        out.push_str(&format!("{}}}({});\n", pad, call_args.join(", ")));
                     }
-                    if !is_last { out.push_str(";\n"); } else { out.push_str("\n"); }
                     *self.while_ctx.borrow_mut() = saved_ctx;
                 }
                 Stmt::If { cond, then_body, else_body } => {
