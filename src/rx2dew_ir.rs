@@ -25,6 +25,7 @@ struct DewEmitter {
     var_override: RefCell<HashMap<String, String>>, // SSA variable name override for if branches
     in_while_body: RefCell<bool>,                 // true when emitting inside a while-loop body
     in_if_body: RefCell<bool>,                    // true when emitting inside an SSA if-then/else body
+    seen_return: RefCell<bool>,                   // true when a Stmt::Return was emitted in current body
 }
 
 /// Context for translating break/continue inside a while loop.
@@ -45,6 +46,7 @@ impl DewEmitter {
             var_override: RefCell::new(HashMap::new()),
             in_while_body: RefCell::new(false),
             in_if_body: RefCell::new(false),
+            seen_return: RefCell::new(false),
         }
     }
 
@@ -231,9 +233,10 @@ impl DewEmitter {
     fn emit_body(&self, body: &[Stmt], _prev_let_muts: usize, out: &mut String, indent: usize) {
         let pad = "  ".repeat(indent);
         let last_idx = body.len().saturating_sub(1);
-        let mut seen_return = false;
+        let mut seen_return_local = false;
         for (idx, stmt) in body.iter().enumerate() {
-            if seen_return { break; }
+            if seen_return_local { break; }
+            *self.seen_return.borrow_mut() = seen_return_local;
             let is_last = idx == last_idx;
             match stmt {
                 Stmt::Let { name, mutable: _, ty, init } => {
@@ -287,12 +290,18 @@ impl DewEmitter {
                         out.push_str(&format!("{}fix __while_loop {{ fn() -> Unit {{\n", pad));
                         out.push_str(&format!("{}  if {} {{\n", pad, cond_str));
                         *self.in_while_body.borrow_mut() = true;
+                        let had_return = *self.seen_return.borrow();
+                        *self.seen_return.borrow_mut() = false;
                         self.emit_body(body, 0, out, indent + 2);
+                        *self.seen_return.borrow_mut() = had_return;
                         *self.in_while_body.borrow_mut() = false;
-                        // Ensure the last body statement has a semicolon before __while_loop
                         while out.ends_with('\n') { out.pop(); }
                         if !out.ends_with(';') { out.push_str(";"); }
-                        out.push_str(&format!("\n{}    __while_loop()\n", pad));
+                        if !*self.seen_return.borrow() {
+                            out.push_str(&format!("\n{}    __while_loop()\n", pad));
+                        } else {
+                            out.push_str("\n");
+                        }
                         out.push_str(&format!("{}  }} else {{ Unit }}\n", pad));
                         out.push_str(&format!("{}  }} }}();\n", pad));
                     } else {
@@ -301,12 +310,20 @@ impl DewEmitter {
                         out.push_str(&format!("{}  fn({}){} {{\n", pad, params.join(", "), ret_anno));
                         out.push_str(&format!("{}    if {} {{\n", pad, cond_str));
                         *self.in_while_body.borrow_mut() = true;
+                        let had_return = *self.seen_return.borrow();
+                        *self.seen_return.borrow_mut() = false;
                         self.emit_body(body, 0, out, indent + 3);
+                        *self.seen_return.borrow_mut() = had_return || *self.seen_return.borrow();
                         *self.in_while_body.borrow_mut() = false;
-                        // Ensure the last body statement has a semicolon before __while_loop
                         while out.ends_with('\n') { out.pop(); }
                         if !out.ends_with(';') { out.push_str(";"); }
-                        out.push_str(&format!("\n{}      __while_loop({})\n", pad, call_args.join(", ")));
+                        if *self.seen_return.borrow() {
+                            // Return inside while: skip the recursive call so the return
+                            // value becomes the if's final expression (and thus the fn's return)
+                            out.push_str("\n");
+                        } else {
+                            out.push_str(&format!("\n{}      __while_loop({})\n", pad, call_args.join(", ")));
+                        }
                         out.push_str(&format!("{}    }} else {{ {} }}\n", pad, ret_var));
                         out.push_str(&format!("{}  }}\n", pad));
                         out.push_str(&format!("{}}}({});\n", pad, call_args.join(", ")));
@@ -445,11 +462,13 @@ impl DewEmitter {
                 }
                 Stmt::Return(Some(expr)) => {
                     out.push_str(&format!("{}{}\n", pad, self.emit_expr(expr)));
-                    seen_return = true;
+                    seen_return_local = true;
+                    *self.seen_return.borrow_mut() = true;
                 }
                 Stmt::Return(None) => {
                     out.push_str(&format!("{}Unit\n", pad));
-                    seen_return = true;
+                    seen_return_local = true;
+                    *self.seen_return.borrow_mut() = true;
                 }
                 Stmt::Continue => {
                     let ctx = self.while_ctx.borrow();
