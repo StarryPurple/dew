@@ -130,9 +130,7 @@ impl DewEmitter {
         let rtype = self.map_type(&m.ret_type);
         let has_io = has_io_in_stmts(&m.body);
         let needs_cf = has_return_deep(&m.body);
-        let ret_anno_str = if needs_cf {
-            format!(" -> ControlFlow({})", rtype)
-        } else if rtype == "Unit" {
+        let ret_anno_str = if rtype == "Unit" {
             if has_io { " -> IO Unit".into() } else { String::new() }
         } else {
             if has_io { format!(" -> IO {}", rtype) } else { format!(" -> {}", rtype) }
@@ -143,7 +141,9 @@ impl DewEmitter {
             ret_anno_str));
 
         let prev = self.count_let_mut(&m.body);
-        *self.in_cf_fn.borrow_mut() = needs_cf;
+        // Function bodies don't use CF — only while-loop bodies do (via in_while_body).
+        // This keeps the body type matching the annotation type.
+        *self.in_cf_fn.borrow_mut() = false;
         self.emit_body(&m.body, prev, out, 1);
         *self.in_cf_fn.borrow_mut() = false;
         out.push_str("}\n\n");
@@ -176,12 +176,11 @@ impl DewEmitter {
                 format!("{}{}: {}", prefix, n, self.map_type(t))
             })
             .collect();
-        let mut rtype = self.map_type(&fn_decl.ret_type);
+        let rtype = self.map_type(&fn_decl.ret_type);
         let has_io = has_io_in_stmts(&fn_decl.body);
         let needs_cf = has_return_deep(&fn_decl.body);
-        if needs_cf {
-            rtype = format!("ControlFlow({})", rtype);
-        }
+        // Annotation stays as original type (not ControlFlow(T)) so callers see Int, not ControlFlow(Int).
+        // The type checker skips unify for CF bodies, and Return/Normal wrapping handles runtime propagation.
         let ret_anno = if rtype == "Unit" {
             if has_io { " -> IO Unit".into() } else { String::new() }
         } else {
@@ -193,7 +192,9 @@ impl DewEmitter {
             ret_anno));
 
         let prev = self.count_let_mut(&fn_decl.body);
-        *self.in_cf_fn.borrow_mut() = needs_cf;
+        // Function bodies don't use CF — only while-loop bodies do (via in_while_body).
+        // This keeps the body type matching the annotation type.
+        *self.in_cf_fn.borrow_mut() = false;
         self.emit_body(&fn_decl.body, prev, out, 1);
         *self.in_cf_fn.borrow_mut() = false;
         out.push_str("}\n\n");
@@ -410,11 +411,7 @@ impl DewEmitter {
                                 out.push_str(&format!("{}}}", pad));
                             }
                             None => {
-                                if *self.in_cf_fn.borrow() {
-                                    out.push_str(&format!(" else {{ Normal(Unit) }}"));
-                                } else {
-                                    out.push_str(&format!(" else {{ Unit }}"));
-                                }
+                                out.push_str(&format!(" else {{ Unit }}"));
                             }
                         }
                         if !is_last { out.push_str(";"); }
@@ -422,8 +419,6 @@ impl DewEmitter {
                         return;
                     }
                     // Collect variables mutated by assignment in this if's branches.
-                    // If the last statement is a regular assignment (not compound op),
-                    // switch to IIFE mode: def var = if (cond) { SSA body } else { var };
                     let mutated: Vec<String> = Self::collect_mutated_vars(then_body);
                     let else_mutated = else_body.as_ref().map(|b| Self::collect_mutated_vars(b))
                         .unwrap_or_default();
@@ -448,11 +443,7 @@ impl DewEmitter {
                                 out.push_str(&format!("{}}}", pad));
                             }
                             None => {
-                                if *self.in_cf_fn.borrow() {
-                                    out.push_str(&format!(" else {{ Normal(Unit) }}"));
-                                } else {
-                                    out.push_str(&format!(" else {{ Unit }}"));
-                                }
+                                out.push_str(&format!(" else {{ Unit }}"));
                             }
                         }
                         if !is_last { out.push_str(";"); }
@@ -547,7 +538,7 @@ impl DewEmitter {
                     *self.seen_return.borrow_mut() = true;
                 }
                 Stmt::Return(None) => {
-                    if *self.in_cf_fn.borrow() {
+                    if *self.in_while_body.borrow() {
                         out.push_str(&format!("{}Return(Unit)\n", pad));
                     } else {
                         out.push_str(&format!("{}Unit\n", pad));
@@ -594,11 +585,7 @@ impl DewEmitter {
                     }
                     let sep = if is_last { "" } else { ";" };
                     let expr_str = self.emit_expr(expr);
-                    if *self.in_cf_fn.borrow() && is_last && !*self.seen_return.borrow() {
-                        out.push_str(&format!("{}Normal({})\n", pad, expr_str));
-                    } else {
-                        out.push_str(&format!("{}{}{}\n", pad, expr_str, sep));
-                    }
+                    out.push_str(&format!("{}{}{}\n", pad, expr_str, sep));
                 }
             }
         }

@@ -313,8 +313,9 @@ impl<'a> TypeChecker<'a> {
         // Borrow-desugared function: body returns a tuple (modified params + result),
         // while the annotation type is scalar (or also a tuple with matching structure).
         // Skip the check to avoid false mismatches from unresolved type variables.
+        let is_body_cf = matches!(&body_ty, Ty::Named(name, _) if name == "ControlFlow");
         let is_borrow_wrapped = matches!(&body_ty, Ty::Tuple(_));
-        if !is_borrow_wrapped {
+        if !is_borrow_wrapped && !is_body_cf {
             unify_expr(&body_ty, &ret_ty, f.span, self.diag, "function return");
         }
 
