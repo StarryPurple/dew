@@ -600,16 +600,25 @@ impl Parser {
         Ok(Stmt::Let { name, mutable, ty, init })
     }
 
+    /// Strip one outer Group layer from a parsed condition.
+    /// Rx's while(cond) and if(cond) require parens around the condition.
+    /// These parens are parsed as a Group expression, but they should not
+    /// appear as extra parens in the Dew output — Dew's if/while already
+    /// expects a bare expression.
+    fn strip_cond_group(cond: Expr) -> Expr {
+        if let Expr::Group(inner) = cond { *inner } else { cond }
+    }
+
     fn parse_while(&mut self) -> Result<Stmt, String> {
         self.advance(); // while
-        let cond = self.parse_expr()?;
+        let cond = Self::strip_cond_group(self.parse_expr()?);
         let body = self.parse_block()?;
         Ok(Stmt::While { cond, body })
     }
 
     fn parse_if(&mut self) -> Result<Stmt, String> {
         self.advance(); // if
-        let cond = self.parse_expr()?;
+        let cond = Self::strip_cond_group(self.parse_expr()?);
         let then_body = self.parse_block()?;
         let else_body = if matches!(self.current, Token::KwElse) {
             self.advance();
@@ -624,7 +633,7 @@ impl Parser {
 
     fn parse_if_expr(&mut self) -> Result<Expr, String> {
         self.advance(); // if
-        let cond = self.parse_expr()?;
+        let cond = Self::strip_cond_group(self.parse_expr()?);
         let then_body = self.parse_block()?;
         let else_body = if matches!(self.current, Token::KwElse) {
             self.advance();
@@ -933,7 +942,7 @@ pub fn expr_to_dew_string(expr: &Expr) -> String {
                 .replace("isize", "Int").replace("i64", "Int").replace("u32", "Int")
                 .replace("i8", "Int").replace("u8", "Int")
                 .replace("bool", "Bool");
-            format!("({} as {})", expr_to_dew_string(e), dew_ty)
+            format!("{} as {}", expr_to_dew_string(e), dew_ty)
         },
         Expr::Ref(e) => expr_to_dew_string(e),
         Expr::Deref(e) => expr_to_dew_string(e),

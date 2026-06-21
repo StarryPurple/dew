@@ -473,7 +473,7 @@ impl DewEmitter {
                 format!("[{}; {}]", elem, cnt)
             }
             Expr::Group(inner) => format!("({})", self.emit_expr(inner)),
-            Expr::Cast(expr, ty) => format!("({} as {})", self.emit_expr(expr), self.map_type(ty)),
+            Expr::Cast(expr, ty) => format!("{} as {}", self.emit_expr(expr), self.map_type(ty)),
             Expr::Ref(expr) => self.emit_expr(expr),
             Expr::Deref(expr) => self.emit_expr(expr),
             Expr::If { cond, then_body, else_body } => {
