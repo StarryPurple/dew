@@ -22,6 +22,7 @@ struct DewEmitter {
     while_ctx: RefCell<Option<WhileCtx>>, // current while loop context for break/continue
     nested_fns: RefCell<Vec<FnDecl>>,     // fn declarations nested inside function bodies
     tmp_counter: RefCell<usize>,          // counter for __tmpN temp variable names
+    var_override: RefCell<HashMap<String, String>>, // SSA variable name override for if branches
 }
 
 /// Context for translating break/continue inside a while loop.
@@ -39,6 +40,7 @@ impl DewEmitter {
             while_ctx: RefCell::new(None),
             nested_fns: RefCell::new(vec![]),
             tmp_counter: RefCell::new(0),
+            var_override: RefCell::new(HashMap::new()),
         }
     }
 
@@ -257,10 +259,12 @@ impl DewEmitter {
                         AssignOp::Slash => format!("{} / {}", self.emit_expr(lhs), self.emit_expr(rhs)),
                         AssignOp::Percent => format!("{} % {}", self.emit_expr(lhs), self.emit_expr(rhs)),
                     };
-                    // Simple identifier: def x = rhs (works inline now that parser supports it).
-                    // Compound lvalue (arr[k], x.f): still needs & for borrow syntax.
+                    // Simple identifier: use &x = rhs to mutate the outer binding.
+                    // This ensures the modification escapes if/while branches
+                    // (unlike def x = rhs which creates a scoped shadow).
+                    // Compound lvalue (arr[k], x.f): also uses & for borrow syntax.
                     if let Expr::Ident(name) = lhs {
-                        out.push_str(&format!("{}def {} = {};\n", pad, name, rhs_str));
+                        out.push_str(&format!("{}&{} = {};\n", pad, name, rhs_str));
                     } else {
                         out.push_str(&format!("{}&{} = {};\n", pad, self.emit_expr(lhs), rhs_str));
                     }
@@ -305,22 +309,108 @@ impl DewEmitter {
                     *self.while_ctx.borrow_mut() = saved_ctx;
                 }
                 Stmt::If { cond, then_body, else_body } => {
-                    let cond_str = format!("({})", self.emit_expr(cond));
-                    out.push_str(&format!("{}if {} {{\n", pad, cond_str));
-                    self.emit_body(then_body, 0, out, indent + 1);
-                    out.push_str(&format!("{}}}", pad));
-                    match else_body {
-                        Some(else_b) => {
-                            out.push_str(&format!(" else {{\n"));
-                            self.emit_body(else_b, 0, out, indent + 1);
-                            out.push_str(&format!("{}}}", pad));
+                    // Collect variables mutated by assignment in this if's branches.
+                    // If the last statement is a regular assignment (not compound op),
+                    // switch to IIFE mode: def var = if (cond) { SSA body } else { var };
+                    let mutated: Vec<String> = Self::collect_mutated_vars(then_body);
+                    let else_mutated = else_body.as_ref().map(|b| Self::collect_mutated_vars(b))
+                        .unwrap_or_default();
+                    let all_mutated: Vec<String> = {
+                        let mut all: Vec<String> = mutated.clone();
+                        for v in &else_mutated {
+                            if !all.contains(v) { all.push(v.clone()); }
                         }
-                        None => {
-                            out.push_str(&format!(" else {{ Unit }}"));
+                        all
+                    };
+
+                    if all_mutated.is_empty() {
+                        // ── Non-IIFE path (existing behavior) ──
+                        let cond_str = format!("({})", self.emit_expr(cond));
+                        out.push_str(&format!("{}if {} {{\n", pad, cond_str));
+                        self.emit_body(then_body, 0, out, indent + 1);
+                        out.push_str(&format!("{}}}", pad));
+                        match else_body {
+                            Some(else_b) => {
+                                out.push_str(&format!(" else {{\n"));
+                                self.emit_body(else_b, 0, out, indent + 1);
+                                out.push_str(&format!("{}}}", pad));
+                            }
+                            None => { out.push_str(&format!(" else {{ Unit }}")); }
                         }
+                        if !is_last { out.push_str(";"); }
+                        out.push_str("\n");
+                    } else {
+                        // ── IIFE path: def var = if (cond) { SSA body } else { var }; ──
+                        let cond_str = format!("({})", self.emit_expr(cond));
+                        let indent_lv = indent + 1;
+                        let inner_pad = "  ".repeat(indent_lv);
+
+                    // Emit def = if (cond) { ... }
+                    // For single var: def x = if ...;
+                    // For multi var: def __tmp_r = if ...; def x = __tmp_r.0; def y = __tmp_r.1;
+                    let is_multi = all_mutated.len() > 1;
+                    let result_var = if is_multi {
+                        format!("__tmp_r{}", {
+                            let mut c = self.tmp_counter.borrow_mut();
+                            let n = *c; *c += 1; n
+                        })
+                    } else {
+                        all_mutated[0].clone()
+                    };
+                    out.push_str(&format!("{}def {} = if {} {{\n", pad, result_var, cond_str));
+
+                        // ── then branch (SSA mode) ──
+                        self.emit_ssa_block(then_body, &all_mutated, out, indent_lv);
+
+                        // Final value of then branch: tuple of latest SSA names
+                        out.push_str(&format!("{}  {}",
+                            inner_pad, Self::final_ssa_value(&all_mutated, &self.var_override.borrow())));
+
+                        out.push_str(&format!("\n{}}}", pad));
+
+                        // ── else branch ──
+                        match else_body {
+                            Some(else_b) if !else_mutated.is_empty() => {
+                                // else branch also has SSA assignments
+                                out.push_str(&format!(" else {{\n"));
+                                self.emit_ssa_block(else_b, &all_mutated, out, indent_lv);
+                                out.push_str(&format!("{}  {}\n",
+                                    inner_pad, Self::final_ssa_value(&all_mutated, &self.var_override.borrow())));
+                                out.push_str(&format!("{}}}", pad));
+                            }
+                            Some(else_b) => {
+                                // else branch has no SSA assignments — just emit normally
+                                let saved = self.var_override.borrow().clone();
+                                self.var_override.borrow_mut().clear();
+                                out.push_str(&format!(" else {{\n"));
+                                self.emit_body(else_b, 0, out, indent_lv);
+                                // Final value: original variable names
+                                if all_mutated.len() == 1 {
+                                    out.push_str(&format!("{}  {}", inner_pad, all_mutated[0]));
+                                } else {
+                                    out.push_str(&format!("{}  ({})", inner_pad, all_mutated.join(", ")));
+                                }
+                                out.push_str(&format!("\n{}}}", pad));
+                                *self.var_override.borrow_mut() = saved;
+                            }
+                            None => {
+                                // No else: return original values
+                                if all_mutated.len() == 1 {
+                                    out.push_str(&format!(" else {{ {} }}", all_mutated[0]));
+                                } else {
+                                    out.push_str(&format!(" else {{ ({}) }}", all_mutated.join(", ")));
+                                }
+                            }
+                        }
+                        out.push_str(";\n");
+                        // Multi-variable: destructure the tuple result
+                        if is_multi {
+                            for (idx, var) in all_mutated.iter().enumerate() {
+                                out.push_str(&format!("{}def {} = {}.{};\n", pad, var, result_var, idx));
+                            }
+                        }
+                        self.var_override.borrow_mut().clear();
                     }
-                    if !is_last { out.push_str(";"); }
-                    out.push_str("\n");
                 }
                 Stmt::Return(Some(expr)) => {
                     out.push_str(&format!("{}{}\n", pad, self.emit_expr(expr)));
@@ -367,12 +457,230 @@ impl DewEmitter {
         }
     }
 
+    /// Scan a body for all variables assigned via `Stmt::Assign { lhs: Expr::Ident }`.
+    fn collect_mutated_vars(body: &[Stmt]) -> Vec<String> {
+        let mut vars: Vec<String> = Vec::new();
+        for stmt in body {
+            if let Stmt::Assign { lhs: Expr::Ident(name), .. } = stmt {
+                if !vars.contains(name) {
+                    vars.push(name.clone());
+                }
+            }
+        }
+        vars
+    }
+
+    /// Build the final SSA value expression: `(x__0, y__1)` or `x__0` for single.
+    fn final_ssa_value(mutated: &[String], overrides: &HashMap<String, String>) -> String {
+        let values: Vec<String> = mutated.iter()
+            .map(|v| overrides.get(v).cloned().unwrap_or_else(|| v.clone()))
+            .collect();
+        if values.len() == 1 {
+            values[0].clone()
+        } else {
+            format!("({})", values.join(", "))
+        }
+    }
+
+    /// Emit a body in SSA mode: every `x = rhs` becomes `def x__N = rhs_ssa`
+    /// where rhs uses latest SSA names for mutated variables.
+    fn emit_ssa_block(&self, body: &[Stmt], mutated: &[String], out: &mut String, indent: usize) {
+        let pad = "  ".repeat(indent);
+        let mut ssa_counts: HashMap<String, usize> = HashMap::new();
+        for v in mutated {
+            ssa_counts.entry(v.clone()).or_insert(0);
+        }
+
+        let last_idx = body.len().saturating_sub(1);
+        for (idx, stmt) in body.iter().enumerate() {
+            match stmt {
+                Stmt::Assign { lhs: Expr::Ident(name), op: AssignOp::Plain, rhs } => {
+                    let count = ssa_counts.get_mut(name).unwrap();
+                    let ssa_name = format!("{}__{}", name, count);
+                    *count += 1;
+
+                    // Build override: apply all current SSA mappings EXCEPT this var itself
+                    // (RHS should use the previous version of this var)
+                    let mut override_map = self.var_override.borrow().clone();
+                    override_map.remove(name);
+                    *self.var_override.borrow_mut() = override_map.clone();
+                    let rhs_str = self.emit_expr(rhs);
+
+                    out.push_str(&format!("{}def {} = {};\n", pad, ssa_name, rhs_str));
+
+                    // After this def, all references to `name` use the new SSA name
+                    override_map.insert(name.clone(), ssa_name);
+                    *self.var_override.borrow_mut() = override_map;
+                }
+                _ => {
+                    // Non-assignment statements: emit with current overrides
+                    self.emit_ssa_stmt(stmt, out, indent, idx == last_idx);
+                }
+            }
+        }
+    }
+
+    /// Emit a single statement in SSA mode (with variable overrides active).
+    fn emit_ssa_stmt(&self, stmt: &Stmt, out: &mut String, indent: usize, is_last: bool) {
+        let pad = "  ".repeat(indent);
+        match stmt {
+            Stmt::Let { name, mutable: _, ty, init } => {
+                let dew_ty = if ty.is_empty() { "Int".into() } else { self.map_type(ty) };
+                if let Some(expr) = init {
+                    if is_getint_call(expr) {
+                        out.push_str(&format!("{}def {}: {};\n", pad, name, dew_ty));
+                        out.push_str(&format!("{}&{} -> stdin;\n", pad, name));
+                    } else {
+                        out.push_str(&format!("{}def {} = {};\n", pad, name, self.emit_expr(expr)));
+                    }
+                } else {
+                    out.push_str(&format!("{}def {}: {};\n", pad, name, dew_ty));
+                }
+            }
+            Stmt::Assign { lhs, op, rhs } => {
+                // Non-ident assignment: use & syntax
+                let rhs_str = match op {
+                    AssignOp::Plain => self.emit_expr(rhs),
+                    AssignOp::Plus => format!("{} + {}", self.emit_expr(lhs), self.emit_expr(rhs)),
+                    _ => self.emit_expr(rhs),
+                };
+                out.push_str(&format!("{}&{} = {};\n", pad, self.emit_expr(lhs), rhs_str));
+            }
+            Stmt::Expr(expr) => {
+                if let Expr::Ident(name) = expr {
+                    if name == "break" {
+                        out.push_str(&format!("{}{};\n", pad, name));
+                        return;
+                    }
+                }
+                if let Expr::Call { func, .. } = expr {
+                    if let Expr::Ident(name) = func.as_ref() {
+                        if name == "printlnInt" {
+                            out.push_str(&format!("{}{};\n", pad, self.emit_expr(expr)));
+                            out.push_str(&format!("{}'\\n' -> stdout;\n", pad));
+                            return;
+                        }
+                    }
+                }
+                let sep = if is_last { "" } else { ";" };
+                out.push_str(&format!("{}{}{}\n", pad, self.emit_expr(expr), sep));
+            }
+            Stmt::If { cond, then_body, else_body } => {
+                // Recursive if inside SSA block: emit with current overrides
+                let cond_str = format!("({})", self.emit_expr(cond));
+                out.push_str(&format!("{}if {} {{\n", pad, cond_str));
+                // Collect mutated vars in this nested if's branches
+                let inner_mutated = Self::collect_mutated_vars(then_body);
+                let else_inner = else_body.as_ref().map(|b| Self::collect_mutated_vars(b)).unwrap_or_default();
+                let all_inner: Vec<String> = {
+                    let mut a = inner_mutated.clone();
+                    for v in &else_inner { if !a.contains(v) { a.push(v.clone()); } }
+                    a
+                };
+                let inner_indent = indent + 1;
+                if all_inner.is_empty() {
+                    // Nested if has no SSA assignments — emit bodies directly
+                    for s in then_body { self.emit_ssa_stmt(s, out, indent + 1, false); }
+                    out.push_str(&format!("{}}}", pad));
+                    if let Some(eb) = else_body {
+                        out.push_str(&format!(" else {{\n"));
+                        for s in eb { self.emit_ssa_stmt(s, out, indent + 1, true); }
+                        out.push_str(&format!("{}}}", pad));
+                    }
+                    if !is_last { out.push_str(";"); }
+                    out.push_str("\n");
+                } else {
+                    self.emit_ssa_block(then_body, &all_inner, out, inner_indent);
+                    let final_val = Self::final_ssa_value(&all_inner, &self.var_override.borrow());
+                    out.push_str(&format!("{}  {}\n", pad, final_val));
+                    out.push_str(&format!("{}}}", pad));
+                    match else_body {
+                        Some(eb) if !else_inner.is_empty() => {
+                            out.push_str(&format!(" else {{\n"));
+                            self.emit_ssa_block(eb, &all_inner, out, inner_indent);
+                            out.push_str(&format!("{}  {}\n", pad, Self::final_ssa_value(&all_inner, &self.var_override.borrow())));
+                            out.push_str(&format!("{}}}", pad));
+                        }
+                        Some(eb) => {
+                            let saved = self.var_override.borrow().clone();
+                        self.var_override.borrow_mut().clear();
+                            out.push_str(&format!(" else {{\n"));
+                            for s in eb { self.emit_ssa_stmt(s, out, indent + 1, true); }
+                            out.push_str(&format!("{}}}", pad));
+                            *self.var_override.borrow_mut() = saved;
+                        }
+                        None => {
+                            out.push_str(&format!(" else {{ Unit }}"));
+                        }
+                    }
+                }
+                if !is_last { out.push_str(";"); }
+                out.push_str("\n");
+            }
+            Stmt::Return(Some(e)) => {
+                out.push_str(&format!("{}{}\n", pad, self.emit_expr(e)));
+            }
+            Stmt::Return(None) => {
+                out.push_str(&format!("{}Unit\n", pad));
+            }
+            Stmt::Empty => {}
+            Stmt::FnDecl(fd) => {
+                self.nested_fns.borrow_mut().push(fd.clone());
+            }
+            Stmt::While { cond, body } => {
+                let cond_str = format!("({})", self.emit_expr(cond));
+                let vars = self.collect_loop_vars(body);
+                let params: Vec<String> = vars.iter().map(|(n, t)| format!("&{}: {}", n, t)).collect();
+                let call_args: Vec<String> = vars.iter().map(|(n, _)| format!("&{}", n)).collect();
+                let (ret_var, ret_var_ty) = vars.last().map(|(n, t)| (n.clone(), t.clone())).unwrap_or_default();
+                if vars.is_empty() {
+                    out.push_str(&format!("{}fix __while_loop {{ fn() -> Unit {{\n", pad));
+                    out.push_str(&format!("{}  if {} {{\n", pad, cond_str));
+                    // For the while body, recursively use SSA mode
+                    let body_mutated = Self::collect_mutated_vars(body);
+                    if body_mutated.is_empty() {
+                        self.emit_body(body, 0, out, indent + 2);
+                    } else {
+                        self.emit_ssa_block(body, &body_mutated, out, indent + 2);
+                    }
+                    while out.ends_with('\n') { out.pop(); }
+                    if !out.ends_with(';') { out.push_str(";"); }
+                    out.push_str(&format!("\n{}    __while_loop()\n", pad));
+                    out.push_str(&format!("{}  }} else {{ Unit }}\n", pad));
+                    out.push_str(&format!("{}  }} }}();\n", pad));
+                } else {
+                    let ret_anno = if ret_var_ty.is_empty() { String::new() } else { format!(" -> {}", ret_var_ty) };
+                    let saved = self.var_override.borrow().clone();
+                    self.var_override.borrow_mut().clear();
+                    out.push_str(&format!("{}fix __while_loop {{\n", pad));
+                    out.push_str(&format!("{}  fn({}){} {{\n", pad, params.join(", "), ret_anno));
+                    out.push_str(&format!("{}    if {} {{\n", pad, cond_str));
+                    self.emit_body(body, 0, out, indent + 3);
+                    while out.ends_with('\n') { out.pop(); }
+                    if !out.ends_with(';') { out.push_str(";"); }
+                    out.push_str(&format!("\n{}      __while_loop({})\n", pad, call_args.join(", ")));
+                    out.push_str(&format!("{}    }} else {{ {} }}\n", pad, ret_var));
+                    out.push_str(&format!("{}  }}\n", pad));
+                    out.push_str(&format!("{}}}({});\n", pad, call_args.join(", ")));
+                    *self.var_override.borrow_mut() = saved;
+                }
+            }
+            Stmt::Continue => {
+                out.push_str(&format!("{}__while_loop();\n", pad));
+            }
+        }
+    }
+
     fn emit_expr(&self, expr: &Expr) -> String {
         match expr {
             Expr::Int(n) => n.to_string(),
             Expr::Bool(b) => if *b { "true".into() } else { "false".into() },
             Expr::Str(s) => format!("\"{}\"", s),
             Expr::Ident(name) => {
+                // Check SSA variable override first (used in if-branch IIFE mode)
+                if let Some(override_name) = self.var_override.borrow().get(name.as_str()) {
+                    return override_name.clone();
+                }
                 // Resolve const references to their values
                 if let Some(val) = self.const_values.get(name.as_str()) {
                     return val.clone();
