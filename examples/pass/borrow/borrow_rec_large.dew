@@ -6,14 +6,14 @@ def rec sq_acc = fn(n: Int, &s: Int) -> Int {
   if n == 0 { s }
   else {
     &s = s + n * n;
-    &s -> sq_acc(n - 1)
+    sq_acc(n - 1, &s)
   }
 };
 def rec tri_acc = fn(n: Int, &t: Int) -> Int {
   if n == 0 { t }
   else {
     &t = t + n;
-    &t -> tri_acc(n - 1)
+    tri_acc(n - 1, &t)
   }
 };
 def main = fn {

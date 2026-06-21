@@ -6,7 +6,7 @@ def rec loop = fn(n: Int, &a: Acc) -> Acc {
   if n == 0 { a }
   else {
     &a { value = a.value + n };
-    &a -> loop(n - 1)
+    loop(n - 1, &a)
   }
 };
 def main = fn {

@@ -317,7 +317,7 @@ impl<'a> Parser<'a> {
         let mut lhs = self.parse_prefix()?;
         loop {
             let (op, lbp, rbp): (BinaryOp, u8, u8) = match self.peek_kind() {
-                TokenKind::Arrow => (BinaryOp::Add, 9, 0), // pipeline needs special handling
+                TokenKind::Arrow => (BinaryOp::Add, 9, 10), // pipeline, left-associative
                 TokenKind::OrOr => (BinaryOp::Or, 1, 2),
                 TokenKind::AndAnd => (BinaryOp::And, 3, 4),
                 TokenKind::Pipe => (BinaryOp::BitOr, 5, 6),
@@ -355,8 +355,7 @@ impl<'a> Parser<'a> {
             self.advance(); // consume operator
 
             if matches!(op, BinaryOp::Add) && lbp == 9 && self.prev_was_arrow() {
-                // Pipeline: expr -> f(args)
-                let func = self.parse_pratt(0)?;
+                let func = self.parse_pratt(10)?;
                 let span = lhs.span().merge(func.span());
                 lhs = Expr::Pipeline(PipelineExpr {
                     span, value: Box::new(lhs), func: Box::new(func),

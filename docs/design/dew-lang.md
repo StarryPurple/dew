@@ -1689,42 +1689,44 @@ No language changes needed. The type system already enforces this.
 
 ### 5.6 Pipeline Operator
 
-```dew
+ ```dew
 e -> f           →  f(e)         // piped value as only argument
-e -> f(a, b)     →  f(a, b, e)   // piped value as last argument
+e -> f(a, b)     →  f(e, a, b)   // piped value as first argument
 ```
 
 - Lowest precedence, left-associative
 - Right side must be a function call or identifier
-- Left side inserted as the **last argument** of the right-side function
+- Left side inserted as the **first argument** of the right-side function
 - **Syntactic sugar only** — eliminated in the desugar pass; the type checker never sees `->` at expression level
 
 For `f: (Int, Char) -> Unit`:
 
 ```dew
-'a' -> f(1)     → f(1, 'a')      // 'a' placed as last argument
-1 -> f('a')     → f('a', 1)      // 1 placed as last argument
+1 -> f('a')     → f(1, 'a')      // 1 placed as first argument
+'a' -> f(1)     → f('a', 1)      // 'a' placed as first argument
 (1, 'a') -> f   → f((1, 'a'))    // tuple as single argument
 ```
 
-The rule is uniform and arity-independent: the piped value always becomes the last argument. No type-awareness needed in the desugar pass — if the resulting call is ill-typed, the type checker catches it.
+The rule is uniform and arity-independent: the piped value always becomes the first argument. No type-awareness needed in the desugar pass — if the resulting call is ill-typed, the type checker catches it.
 
 ```dew
 // Pipeline chaining — complete program
-// stdout: 7
+// stdout: 15
+def sub = fn(a: Int, b: Int) -> Int { a - b }
 def add = fn(x: Int, y: Int) -> Int { x + y }
-def mul = fn(x: Int, y: Int) -> Int { x * y }
 
 def main = fn {
-  3 -> add(4) -> mul(1) -> stdout;
+  // 3 -> sub(4) → sub(3, 4) = 3 - 4 = -1
+  // -1 -> add(16) → add(-1, 16) = 15
+  3 -> sub(4) -> add(16) -> stdout;
 }
 ```
 
 **Pipeline with borrow.** When the piped value is a borrow argument, `&` precedes the LValue:
 
 ```dew
-&x -> stdin          → stdin(&x)      // desugar: pipeline first, then borrow
-&v -> f(a, b)        → f(a, b, &v)    // & stays with the LValue through desugaring
+&x -> stdin          → stdin(&x)       // desugar: pipeline first, then borrow
+&v -> f(a, b)        → f(&v, a, b)     // &v as first argument (first-insert)
 ```
 
 The pipeline desugars first (`&x -> stdin` → `stdin(&x)`), then the borrow sugar applies as normal. The `&` binds to the LValue, not to the pipeline operator.
@@ -1742,7 +1744,7 @@ def compute = fn(x: Int) -> Int { x -> add(2) -> mul(3) }
 def result = 3 -> add(4);
 ```
 
-> Pipeline is syntactic sugar for a function call. If the call involves a borrow argument (e.g., `&x -> f` where `f` takes `&p`), the pipeline desugars first (`&x -> f` → `f(&x)`), then the borrow sugar applies Rules 2–4b depending on context — the same as if the call were written directly.
+> Pipeline is syntactic sugar for a function call — the piped value becomes the **first argument**. If the call involves a borrow argument (e.g., `&x -> f(a, b)` where `f` takes `&p` as its first param), the pipeline desugars first (`&x -> f(a, b)` → `f(&x, a, b)`), then the borrow sugar applies Rules 2–4b depending on context — the same as if the call were written directly.
 
 ### 5.7 No `return`
 
@@ -2011,7 +2013,7 @@ Operator characters: `+ - * / % < > = ! & |`
 | Logical | `&& \|\|` | Bool | `cond && ok`, `a \|\| b` |
 | Logical NOT | `not` (built-in) | Bool | `not flag` |
 | Force (prefix) | `!` | All types | `!x`, `!(heavy_computation)` |
-| Pipeline | `->` | All types | `x -> stdout`, `3 -> add(4)` |
+| Pipeline (first-insert) | `->` | All types | `x -> stdout`, `3 -> sub(4)` |
 | Field access | `.` | Struct | `p.x`, `req.handle` |
 | Subscript | `[]` | Array | `arr[0]`, `a[i + 1]` |
 | Update | `{}` | Struct, Array, Tuple | `p { x = 10 }`, `t { .0 = 1 }` |
@@ -2048,7 +2050,7 @@ From tightest to loosest:
 | 6 | `==` `!=` |
 | 7 | `&&` |
 | 8 | `\|\|` |
-| 9 (loosest) | `->` pipeline |
+| 9 (loosest) | `->` pipeline (first-argument insert, left-assoc) |
 
 ---
 

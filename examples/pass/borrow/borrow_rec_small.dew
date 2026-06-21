@@ -5,7 +5,7 @@ def rec dec = fn(n: Int, &acc: Int) -> Int {
   if n == 0 { acc }
   else {
     &acc = acc - 1;
-    &acc -> dec(n - 1)
+    dec(n - 1, &acc)
   }
 };
 def main = fn {
