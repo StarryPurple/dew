@@ -21,6 +21,7 @@ struct DewEmitter {
     var_types: RefCell<HashMap<String, String>>, // variable_name → Dew type string
     while_ctx: RefCell<Option<WhileCtx>>, // current while loop context for break/continue
     nested_fns: RefCell<Vec<FnDecl>>,     // fn declarations nested inside function bodies
+    tmp_counter: RefCell<usize>,          // counter for __tmpN temp variable names
 }
 
 /// Context for translating break/continue inside a while loop.
@@ -37,6 +38,7 @@ impl DewEmitter {
             const_values: HashMap::new(), var_types: RefCell::new(HashMap::new()),
             while_ctx: RefCell::new(None),
             nested_fns: RefCell::new(vec![]),
+            tmp_counter: RefCell::new(0),
         }
     }
 
@@ -440,9 +442,6 @@ impl DewEmitter {
                         };
                         // Check if the target method has borrow self (&self).
                         // If so, pass self_expr as &self_expr so mutations persist.
-                        // Only add & when self_expr is a simple variable, field access,
-                        // or index — NOT when it contains a function call (has '('),
-                        // since &(expr()) is not valid Dew syntax.
                         let has_borrow_self = self.impls.iter().any(|(_, methods)| {
                             methods.iter().any(|m| m.name == method && m.has_self)
                         });
@@ -450,6 +449,24 @@ impl DewEmitter {
                             && !self_expr.contains(')');
                         let self_arg = if has_borrow_self && can_borrow {
                             format!("&{}", self_expr)
+                        } else if has_borrow_self && !can_borrow {
+                            // Self expression is a function call result — can't & it directly.
+                            // Wrap in a block with a temp variable:
+                            //   { def __tmpN = inner_call; Struct__method(&__tmpN, args) }
+                            let tmp_idx = {
+                                let mut c = self.tmp_counter.borrow_mut();
+                                let n = *c;
+                                *c += 1;
+                                n
+                            };
+                            let tmp_name = format!("__tmp{}", tmp_idx);
+                            let call_args = if args_str.is_empty() {
+                                format!("&{}", tmp_name)
+                            } else {
+                                format!("&{}, {}", tmp_name, args_str.join(", "))
+                            };
+                            return format!("{{ def {} = {}; {}({}) }}",
+                                tmp_name, self_expr, fn_name, call_args);
                         } else {
                             self_expr.to_string()
                         };

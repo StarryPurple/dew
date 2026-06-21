@@ -84,7 +84,7 @@ fn desugar_expr(expr: &Expr) -> Expr {
             };
             match func {
                 Expr::Call(mut call) => {
-                    call.args.insert(0, piped_arg);
+                    call.args.push(piped_arg);
                     desugar_expr(&Expr::Call(call))
                 }
                 func_expr => {
