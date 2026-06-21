@@ -507,9 +507,16 @@ impl DewEmitter {
                     *self.seen_return.borrow_mut() = true;
                 }
                 Stmt::Continue => {
-                    let ctx = self.while_ctx.borrow();
-                    if let Some(ctx) = ctx.as_ref() {
-                        out.push_str(&format!("{}__while_loop({});\n", pad, ctx.call_args.join(", ")));
+                    if *self.in_while_body.borrow() {
+                        // CF mode: Normal(0) signals "continue loop" to the match arm
+                        out.push_str(&format!("{}Normal(0)\n", pad));
+                        seen_return_local = true;
+                        *self.seen_return.borrow_mut() = true;
+                    } else {
+                        let ctx = self.while_ctx.borrow();
+                        if let Some(ctx) = ctx.as_ref() {
+                            out.push_str(&format!("{}__while_loop({});\n", pad, ctx.call_args.join(", ")));
+                        }
                     }
                 }
                 Stmt::Empty => {}
