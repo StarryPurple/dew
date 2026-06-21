@@ -23,6 +23,8 @@ struct DewEmitter {
     nested_fns: RefCell<Vec<FnDecl>>,     // fn declarations nested inside function bodies
     tmp_counter: RefCell<usize>,          // counter for __tmpN temp variable names
     var_override: RefCell<HashMap<String, String>>, // SSA variable name override for if branches
+    in_while_body: RefCell<bool>,                 // true when emitting inside a while-loop body
+    in_if_body: RefCell<bool>,                    // true when emitting inside an SSA if-then/else body
 }
 
 /// Context for translating break/continue inside a while loop.
@@ -41,6 +43,8 @@ impl DewEmitter {
             nested_fns: RefCell::new(vec![]),
             tmp_counter: RefCell::new(0),
             var_override: RefCell::new(HashMap::new()),
+            in_while_body: RefCell::new(false),
+            in_if_body: RefCell::new(false),
         }
     }
 
@@ -285,7 +289,9 @@ impl DewEmitter {
                     if vars.is_empty() {
                         out.push_str(&format!("{}fix __while_loop {{ fn() -> Unit {{\n", pad));
                         out.push_str(&format!("{}  if {} {{\n", pad, cond_str));
+                        *self.in_while_body.borrow_mut() = true;
                         self.emit_body(body, 0, out, indent + 2);
+                        *self.in_while_body.borrow_mut() = false;
                         // Ensure the last body statement has a semicolon before __while_loop
                         while out.ends_with('\n') { out.pop(); }
                         if !out.ends_with(';') { out.push_str(";"); }
@@ -297,7 +303,9 @@ impl DewEmitter {
                         out.push_str(&format!("{}fix __while_loop {{\n", pad));
                         out.push_str(&format!("{}  fn({}){} {{\n", pad, params.join(", "), ret_anno));
                         out.push_str(&format!("{}    if {} {{\n", pad, cond_str));
+                        *self.in_while_body.borrow_mut() = true;
                         self.emit_body(body, 0, out, indent + 3);
+                        *self.in_while_body.borrow_mut() = false;
                         // Ensure the last body statement has a semicolon before __while_loop
                         while out.ends_with('\n') { out.pop(); }
                         if !out.ends_with(';') { out.push_str(";"); }
@@ -309,6 +317,25 @@ impl DewEmitter {
                     *self.while_ctx.borrow_mut() = saved_ctx;
                 }
                 Stmt::If { cond, then_body, else_body } => {
+                    // Skip SSA IIFE mode inside while-loop bodies or nested if-bodies —
+                    // parent contexts already handle state propagation.
+                    if *self.in_while_body.borrow() || *self.in_if_body.borrow() {
+                        let cond_str = format!("({})", self.emit_expr(cond));
+                        out.push_str(&format!("{}if {} {{\n", pad, cond_str));
+                        self.emit_body(then_body, 0, out, indent + 1);
+                        out.push_str(&format!("{}}}", pad));
+                        match else_body {
+                            Some(else_b) => {
+                                out.push_str(&format!(" else {{\n"));
+                                self.emit_body(else_b, 0, out, indent + 1);
+                                out.push_str(&format!("{}}}", pad));
+                            }
+                            None => { out.push_str(&format!(" else {{ Unit }}")); }
+                        }
+                        if !is_last { out.push_str(";"); }
+                        out.push_str("\n");
+                        return;
+                    }
                     // Collect variables mutated by assignment in this if's branches.
                     // If the last statement is a regular assignment (not compound op),
                     // switch to IIFE mode: def var = if (cond) { SSA body } else { var };
@@ -360,7 +387,9 @@ impl DewEmitter {
                     out.push_str(&format!("{}def {} = if {} {{\n", pad, result_var, cond_str));
 
                         // ── then branch (SSA mode) ──
+                        *self.in_if_body.borrow_mut() = true;
                         self.emit_ssa_block(then_body, &all_mutated, out, indent_lv);
+                        *self.in_if_body.borrow_mut() = false;
 
                         // Final value of then branch: tuple of latest SSA names
                         out.push_str(&format!("{}  {}",
@@ -371,9 +400,13 @@ impl DewEmitter {
                         // ── else branch ──
                         match else_body {
                             Some(else_b) if !else_mutated.is_empty() => {
-                                // else branch also has SSA assignments
+                                // else branch also has SSA assignments.
+                                // Start with a fresh override (SSA names are branch-specific).
+                                self.var_override.borrow_mut().clear();
                                 out.push_str(&format!(" else {{\n"));
+                                *self.in_if_body.borrow_mut() = true;
                                 self.emit_ssa_block(else_b, &all_mutated, out, indent_lv);
+                                *self.in_if_body.borrow_mut() = false;
                                 out.push_str(&format!("{}  {}\n",
                                     inner_pad, Self::final_ssa_value(&all_mutated, &self.var_override.borrow())));
                                 out.push_str(&format!("{}}}", pad));
