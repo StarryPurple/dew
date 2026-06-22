@@ -151,10 +151,35 @@ impl DewEmitter {
             ret_anno_str));
 
         let prev = self.count_let_mut(&m.body);
-        // Function bodies don't use CF — only while-loop bodies do (via in_while_body).
-        // This keeps the body type matching the annotation type.
-        *self.in_cf_fn.borrow_mut() = false;
-        self.emit_body(&m.body, prev, out, 1);
+        *self.in_cf_fn.borrow_mut() = needs_cf;
+        if needs_cf {
+            // Build fix function params and call args, preserving & for borrow params
+            let is_borrow_type = |t: &str| t.starts_with("&mut ") || t.starts_with("&");
+            let mut cf_params: Vec<String> = Vec::new();
+            let mut cf_call_args: Vec<String> = Vec::new();
+            if m.has_self {
+                cf_params.push(format!("self: {}", sname));
+                cf_call_args.push("self".into());
+            }
+            for (n, t) in &m.params {
+                let prefix = if is_borrow_type(t) { "&" } else { "" };
+                cf_params.push(format!("{}{}: {}", prefix, n, self.map_type(t)));
+                cf_call_args.push(format!("{}{}", prefix, n));
+            }
+            let cf_ret = format!("ControlFlow({})", rtype);
+            let default_val = if rtype == "Bool" { "false" } else if rtype == "Unit" { "Unit" } else { "0" };
+            out.push_str(&format!("  match (fix __cf_body {{\n"));
+            out.push_str(&format!("    fn({}) -> {} {{\n", cf_params.join(", "), cf_ret));
+            self.emit_cf_chain(&m.body, out, 2);
+            out.push_str(&format!("    }}\n"));
+            out.push_str(&format!("  }}({})) {{\n", cf_call_args.join(", ")));
+            out.push_str(&format!("    Return(v) => v,\n"));
+            out.push_str(&format!("    Normal(v) => v,\n"));
+            out.push_str(&format!("    _ => {},\n", default_val));
+            out.push_str(&format!("  }}\n"));
+        } else {
+            self.emit_body(&m.body, prev, out, 1);
+        }
         *self.in_cf_fn.borrow_mut() = false;
         out.push_str("}\n\n");
 
@@ -202,10 +227,36 @@ impl DewEmitter {
             ret_anno));
 
         let prev = self.count_let_mut(&fn_decl.body);
-        // Function bodies don't use CF — only while-loop bodies do (via in_while_body).
-        // This keeps the body type matching the annotation type.
-        *self.in_cf_fn.borrow_mut() = false;
-        self.emit_body(&fn_decl.body, prev, out, 1);
+        *self.in_cf_fn.borrow_mut() = needs_cf;
+        if needs_cf {
+            // Build fix function params and call args, preserving & for borrow params
+            let is_borrow_type = |t: &str| t.starts_with("&mut ") || t.starts_with("&");
+            let cf_params: Vec<String> = fn_decl.params.iter()
+                .map(|(n, t)| {
+                    let prefix = if is_borrow_type(t) { "&" } else { "" };
+                    format!("{}{}: {}", prefix, n, self.map_type(t))
+                })
+                .collect();
+            let cf_call_args: Vec<String> = fn_decl.params.iter()
+                .map(|(n, t)| {
+                    let prefix = if is_borrow_type(t) { "&" } else { "" };
+                    format!("{}{}", prefix, n)
+                })
+                .collect();
+            let cf_ret = format!("ControlFlow({})", rtype);
+            let default_val = if rtype == "Bool" { "false" } else if rtype == "Unit" { "Unit" } else { "0" };
+            out.push_str(&format!("  match (fix __cf_body {{\n"));
+            out.push_str(&format!("    fn({}) -> {} {{\n", cf_params.join(", "), cf_ret));
+            self.emit_cf_chain(&fn_decl.body, out, 2);
+            out.push_str(&format!("    }}\n"));
+            out.push_str(&format!("  }}({})) {{\n", cf_call_args.join(", ")));
+            out.push_str(&format!("    Return(v) => v,\n"));
+            out.push_str(&format!("    Normal(v) => v,\n"));
+            out.push_str(&format!("    _ => {},\n", default_val));
+            out.push_str(&format!("  }}\n"));
+        } else {
+            self.emit_body(&fn_decl.body, prev, out, 1);
+        }
         *self.in_cf_fn.borrow_mut() = false;
         out.push_str("}\n\n");
 
@@ -283,12 +334,65 @@ impl DewEmitter {
         vars
     }
 
+    /// Emit a body as a CF-style nested if-else chain.
+    /// When an `if` statement might `return`, its else branch contains all
+    /// remaining statements (recursively), mirroring Rx's early-return semantics.
+    fn emit_cf_chain(&self, body: &[Stmt], out: &mut String, indent: usize) {
+        let pad = "  ".repeat(indent);
+        let last_idx = body.len().saturating_sub(1);
+        for (idx, stmt) in body.iter().enumerate() {
+            let is_last = idx == last_idx;
+            match stmt {
+                Stmt::If { cond, then_body, else_body } => {
+                    let then_has_return = has_return_deep(then_body);
+                    let else_has_return = else_body.as_ref().map_or(false, |eb| has_return_deep(eb));
+                    if then_has_return || else_has_return {
+                        out.push_str(&format!("{}if ({}) {{\n", pad, self.emit_expr(cond)));
+                        self.emit_body(then_body, 0, out, indent + 1);
+                        out.push_str(&format!("{}}} else {{\n", pad));
+                        let rest = &body[idx + 1..];
+                        if rest.is_empty() && !else_has_return {
+                            out.push_str(&format!("{}  Normal(Unit)\n", pad));
+                        } else {
+                            if let Some(eb) = else_body {
+                                self.emit_body(eb, 0, out, indent + 1);
+                            }
+                            if !rest.is_empty() {
+                                self.emit_cf_chain(rest, out, indent + 1);
+                            }
+                        }
+                        out.push_str(&format!("{}}}\n", pad));
+                        return;
+                    }
+                }
+                Stmt::Return(Some(expr)) => {
+                    out.push_str(&format!("{}Return({})\n", pad, self.emit_expr(expr)));
+                    return;
+                }
+                Stmt::Return(None) => {
+                    out.push_str(&format!("{}Return(Unit)\n", pad));
+                    return;
+                }
+                _ => {}
+            }
+            // Non-return if or other statements — emit via emit_body
+            self.emit_body(&[stmt.clone()], 0, out, indent);
+        }
+        // After all statements without a Return leaf, add Normal final expression
+        let trimmed = out.trim_end();
+        if trimmed.ends_with(';') || trimmed.ends_with("}") {
+            out.push_str(&format!("{}Normal(Unit)\n", pad));
+        }
+    }
+
     fn emit_body(&self, body: &[Stmt], _prev_let_muts: usize, out: &mut String, indent: usize) {
         let pad = "  ".repeat(indent);
         let last_idx = body.len().saturating_sub(1);
-        let mut seen_return_local = false;
+        let mut seen_return_local = *self.seen_return.borrow();
         for (idx, stmt) in body.iter().enumerate() {
-            if seen_return_local { break; }
+            // Read from shared cell: recursive emit_body calls (if-branches, while-loops)
+            // set it to true, but the local variable doesn't reflect that.
+            if *self.seen_return.borrow() { break; }
             *self.seen_return.borrow_mut() = seen_return_local;
             let is_last = idx == last_idx;
             match stmt {
@@ -555,16 +659,23 @@ impl DewEmitter {
                         out.push_str(&format!("{}{}\n", pad, self.emit_expr(expr)));
                     }
                     seen_return_local = true;
-                    *self.seen_return.borrow_mut() = true;
+                    // Only break for while-loop bodies. In function-level CF mode,
+                    // Return is a value expression that doesn't exit the body — the
+                    // fix+match wrapper handles early exit via ControlFlow matching.
+                    if *self.in_while_body.borrow() {
+                        *self.seen_return.borrow_mut() = true;
+                    }
                 }
                 Stmt::Return(None) => {
-                    if *self.in_while_body.borrow() {
+                    if *self.in_while_body.borrow() || *self.in_cf_fn.borrow() {
                         out.push_str(&format!("{}Return(Unit)\n", pad));
                     } else {
                         out.push_str(&format!("{}Unit\n", pad));
                     }
                     seen_return_local = true;
-                    *self.seen_return.borrow_mut() = true;
+                    if *self.in_while_body.borrow() {
+                        *self.seen_return.borrow_mut() = true;
+                    }
                 }
                 Stmt::Continue => {
                     if *self.in_while_body.borrow() {
@@ -607,7 +718,11 @@ impl DewEmitter {
                     }
                     let sep = if is_last { "" } else { ";" };
                     let expr_str = self.emit_expr(expr);
-                    out.push_str(&format!("{}{}{}\n", pad, expr_str, sep));
+                    if *self.in_cf_fn.borrow() && is_last && !*self.seen_return.borrow() {
+                        out.push_str(&format!("{}Normal({})\n", pad, expr_str));
+                    } else {
+                        out.push_str(&format!("{}{}{}\n", pad, expr_str, sep));
+                    }
                 }
             }
         }
