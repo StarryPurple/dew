@@ -86,6 +86,16 @@ impl DewEmitter {
             }
         }
 
+        // Emit const declarations (after structs, before functions)
+        for decl in &prog.decls {
+            if let Decl::Const { name, value } = decl {
+                out.push_str(&format!("def {} = {};\n", name, value));
+            }
+        }
+        if prog.decls.iter().any(|d| matches!(d, Decl::Const { .. })) {
+            out.push_str("\n");
+        }
+
         // Emit impl methods as standalone functions
         for (sname, methods) in &self.impls {
             for m in methods {
@@ -388,12 +398,22 @@ impl DewEmitter {
                         for (idx, vn) in var_names.iter().enumerate() {
                             out.push_str(&format!("{}def {} = __while_r.{};\n", pad, vn, idx));
                         }
-                        out.push_str(&format!("{}match (__while_r.{}) {{\n", pad, cf_idx));
-                        out.push_str(&format!("{}  Return(v) => v,\n", "  ".repeat(indent + 1)));
-                        out.push_str(&format!("{}  Normal(v) => v,\n", "  ".repeat(indent + 1)));
-                        out.push_str(&format!("{}}}", "  ".repeat(indent + 1)));
+                        // CF-unwrapping match. When it's the final expression, emit directly.
+                        // When it's a statement, wrap in `def __cf_v = match ...` so it stays
+                        // in Dew's Phase 1a (def bindings before expression statements).
+                        if is_last {
+                            out.push_str(&format!("{}match (__while_r.{}) {{\n", pad, cf_idx));
+                            out.push_str(&format!("{}  Return(v) => v,\n", "  ".repeat(indent + 1)));
+                            out.push_str(&format!("{}  Normal(v) => v,\n", "  ".repeat(indent + 1)));
+                            out.push_str(&format!("{}}}", "  ".repeat(indent + 1)));
+                        } else {
+                            out.push_str(&format!("{}def __cf_v = match (__while_r.{}) {{\n", pad, cf_idx));
+                            out.push_str(&format!("{}  Return(v) => v,\n", "  ".repeat(indent + 1)));
+                            out.push_str(&format!("{}  Normal(v) => v,\n", "  ".repeat(indent + 1)));
+                            out.push_str(&format!("{}}};", "  ".repeat(indent + 1)));
+                        }
                     }
-                    if !is_last { out.push_str(";\n"); } else { out.push_str("\n"); }
+                    out.push_str("\n");
                     *self.while_ctx.borrow_mut() = saved_ctx;
                 }
                 Stmt::If { cond, then_body, else_body } => {
@@ -569,6 +589,8 @@ impl DewEmitter {
                             let ctx = self.while_ctx.borrow();
                             if let Some(ctx) = ctx.as_ref() {
                                 out.push_str(&format!("{}{};\n", pad, ctx.accumulator));
+                            } else {
+                                out.push_str(&format!("{}__break_value;\n", pad));
                             }
                             continue;
                         }
@@ -647,8 +669,10 @@ impl DewEmitter {
                     *self.var_override.borrow_mut() = override_map;
                 }
                 _ => {
-                    // Non-assignment statements: emit with current overrides
-                    self.emit_ssa_stmt(stmt, out, indent, idx == last_idx);
+                    // Non-assignment statements: always emit as statement (with ;).
+                    // The SSA block's final value is always added by the caller
+                    // via final_ssa_value(), so is_last would cause two 'final expressions'.
+                    self.emit_ssa_stmt(stmt, out, indent, false);
                 }
             }
         }
@@ -683,7 +707,13 @@ impl DewEmitter {
             Stmt::Expr(expr) => {
                 if let Expr::Ident(name) = expr {
                     if name == "break" {
-                        out.push_str(&format!("{}{};\n", pad, name));
+                        let ctx = self.while_ctx.borrow();
+                        if let Some(ctx) = ctx.as_ref() {
+                            out.push_str(&format!("{}{};\n", pad, ctx.accumulator));
+                        } else {
+                            // Outside while loop: use renamed identifier to avoid Dew keyword clash
+                            out.push_str(&format!("{}__break_value;\n", pad));
+                        }
                         return;
                     }
                 }
@@ -712,17 +742,22 @@ impl DewEmitter {
                     a
                 };
                 let inner_indent = indent + 1;
-                if all_inner.is_empty() {
-                    // Nested if has no SSA assignments — emit bodies directly
-                    for s in then_body { self.emit_ssa_stmt(s, out, indent + 1, false); }
-                    out.push_str(&format!("{}}}", pad));
-                    if let Some(eb) = else_body {
-                        out.push_str(&format!(" else {{\n"));
-                        for s in eb { self.emit_ssa_stmt(s, out, indent + 1, true); }
+                    if all_inner.is_empty() {
+                        // Nested if has no SSA assignments — emit bodies directly.
+                        // Track is_last properly so only the final expression omits ';'.
+                        for (i, s) in then_body.iter().enumerate() {
+                            self.emit_ssa_stmt(s, out, indent + 1, i == then_body.len() - 1);
+                        }
                         out.push_str(&format!("{}}}", pad));
-                    }
-                    if !is_last { out.push_str(";"); }
-                    out.push_str("\n");
+                        if let Some(eb) = else_body {
+                            out.push_str(&format!(" else {{\n"));
+                            for (i, s) in eb.iter().enumerate() {
+                                self.emit_ssa_stmt(s, out, indent + 1, i == eb.len() - 1);
+                            }
+                            out.push_str(&format!("{}}}", pad));
+                        }
+                        if !is_last { out.push_str(";"); }
+                        out.push_str("\n");
                 } else {
                     self.emit_ssa_block(then_body, &all_inner, out, inner_indent);
                     let final_val = Self::final_ssa_value(&all_inner, &self.var_override.borrow());
@@ -739,7 +774,9 @@ impl DewEmitter {
                             let saved = self.var_override.borrow().clone();
                         self.var_override.borrow_mut().clear();
                             out.push_str(&format!(" else {{\n"));
-                            for s in eb { self.emit_ssa_stmt(s, out, indent + 1, true); }
+                            for (i, s) in eb.iter().enumerate() {
+                                self.emit_ssa_stmt(s, out, indent + 1, i == eb.len() - 1);
+                            }
                             out.push_str(&format!("{}}}", pad));
                             *self.var_override.borrow_mut() = saved;
                         }
