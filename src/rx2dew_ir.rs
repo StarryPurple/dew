@@ -957,12 +957,13 @@ impl DewEmitter {
                         return format!("{}({})", fn_name, all_args);
                     }
                 }
-                // Handle normal function calls with borrow parameters
+                // Handle normal function calls with borrow parameters.
+                // Wrap in a minimal block so the desugarer's flattening
+                // isolates type variables (preventing occurs-check issues).
                 let borrow_info = self.fn_borrow_params.borrow().get(&func_str).cloned();
                 let has_borrow = borrow_info.as_ref().map(|(bf, _)| bf.iter().any(|&b| b)).unwrap_or(false);
                 if has_borrow {
-                    let (bf, bn) = borrow_info.unwrap();
-                    let n_borrow = bf.iter().filter(|&&b| b).count();
+                    let (bf, _bn) = borrow_info.unwrap();
                     let mut adjusted_args = Vec::new();
                     for (i, arg) in args_str.iter().enumerate() {
                         if i < bf.len() && bf[i] {
@@ -973,19 +974,13 @@ impl DewEmitter {
                     }
                     let tmp_idx = {
                         let mut c = self.tmp_counter.borrow_mut();
-                        let n = *c;
-                        *c += 1;
-                        n
+                        let n = *c; *c += 1; n
                     };
                     let tmp_name = format!("__brw{}", tmp_idx);
                     let call_str = format!("{}({})", func_str, adjusted_args.join(", "));
-                    // Build block: def + destructure + result
-                    let mut block = format!("{{ def {} = {};", tmp_name, call_str);
-                    for (i, pn) in bn.iter().enumerate() {
-                        block.push_str(&format!(" def {} = {}.{};", pn, tmp_name, i));
-                    }
-                    block.push_str(&format!(" {}.{} }}", tmp_name, n_borrow));
-                    block
+                    // Minimal block: def + result. No .0/.1/.2 destructuring
+                    // (the Dew desugarer handles borrow-variable shadowing via %_btmp).
+                    format!("{{ def {} = {}; {} }}", tmp_name, call_str, tmp_name)
                 } else {
                     format!("{}({})", func_str, args_str.join(", "))
                 }

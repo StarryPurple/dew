@@ -839,7 +839,7 @@ impl<'a> TypeChecker<'a> {
         let param_vars: Vec<Ty> = (0..arity).map(|i| Ty::Var(TypeVar(2000 + i))).collect();
         let enum_ty = Ty::Named(e.name.name.clone(), param_vars.clone());
         let vars: Vec<TypeVar> = (0..arity).map(|i| TypeVar(2000 + i)).collect();
-        self.env.insert(e.name.name.clone(), Scheme { vars, ty: enum_ty });
+        self.env.insert(e.name.name.clone(), Scheme { vars: vars.clone(), ty: enum_ty });
 
         // Mark affine enums
         if e.attrs.iter().any(|a| matches!(a, Attr::Affine)) {
@@ -854,7 +854,8 @@ impl<'a> TypeChecker<'a> {
             };
             variant_names.push(vname.name.clone());
             let variant_ty = Ty::Named(enum_name.clone(), param_vars.clone());
-            self.env.insert(vname.name.clone(), Scheme { vars: Vec::new(), ty: variant_ty });
+            // Quantify the enum type parameters so each use gets fresh variables.
+            self.env.insert(vname.name.clone(), Scheme { vars: vars.clone(), ty: variant_ty });
         }
         self.enum_variants.insert(enum_name, variant_names);
     }
