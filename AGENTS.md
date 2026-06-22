@@ -15,7 +15,7 @@ This document is the entry point for **how we build the Dew programming language
 | [IR Spec](docs/design/dew-ir.md) | Thunk Graph IR specification | Implementing any compiler pass involving IR |
 | [Lang → IR Impl](docs/design/dew-lang-impl.md) | How each language feature lowers to Dew IR | Understanding the compiler pipeline for a specific feature |
 | [IR → LLVM Impl](docs/design/dew-ir-impl.md) | How Dew IR translates to LLVM IR and evaluator | Implementing backend or understanding evaluation |
-| [Rx↔Dew Interop](docs/design/rx-dew-interop.md) | Rx ↔ Dew translation rules and architecture | Working on cross-language translation |
+| [Rx↔Dew Interop](docs/design/rx-dew-interop/index.md) | Rx ↔ Dew translation rules and architecture | Working on cross-language translation |
 | [Language Design](docs/methodology/language-design.md) | How to design language features, type rules, syntax | Proposing any new feature or type system change |
 | [Compiler Engineering](docs/methodology/compiler-engineering.md) | Pipeline architecture, IR design, verification | Implementing any compiler pass or IR change |
 | [Project Conventions](docs/methodology/project-conventions.md) | Repository structure, naming, commits, examples | Writing any code or docs |
@@ -271,7 +271,21 @@ pass/lazy/
 
 Both compute `40 + 2` — `force_small` uses `!x` to force immediately; `lazy_small` lets the thunk suspend. Output is `42` for both. Their IR differs: one has `thunk @x` with `force{} @x` in `@main`; the other compiles `x` inline.
 
-### 16. Discussion Mode — No Modification Without Explicit Authorization
+### 16. Documentation: Unified + Fragmented Coexistence
+
+Design documentation uses two coexisting forms:
+
+- **Unified document** — a single long-form document (`index.md` in a folder) that a human reads to understand the whole domain. It is the canonical reference.
+- **Fragments** — separate files in the same folder for specific subtopics, implementation details, or design discussions that change frequently.
+
+Rules:
+1. The unified document IS the source of truth. When a fragment contains information that should be in the unified doc, it must be merged in.
+2. Fragments can exist independently when their content is too detailed for the unified doc, or when the implementation is still in flux.
+3. **Regular synchronization**: after stabilizing a feature, the unified doc must be updated to reflect the fragment's content. The fragment is preserved (not deleted) for historical reference.
+4. When reading: start with the unified document. Use fragments only for details that the unified doc says "see fragment X for."
+5. When writing: if a change touches a domain already covered by a unified doc, update the unified doc. Fragments are for incremental design notes that will later be merged.
+
+> This avoids the all-or-nothing trap: waiting until a doc is "perfect" before writing it, versus having only fragmented notes with no overview. The unified doc provides the overview; fragments capture the experimental edge.
 
 When the user says "讨论", "询问细节", "有个疑问", "调查", "搜索", or otherwise signals a **question/discussion** (as opposed to a "fix this" or "implement that" task):
 

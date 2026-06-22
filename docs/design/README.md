@@ -12,7 +12,8 @@ This directory contains the **canonical design specifications** for the Dew prog
 | [dew-lang-impl.md](dew-lang-impl.md) | Dew → Dew IR | Implementation: how each language feature lowers through the compiler pipeline |
 | [dew-ir.md](dew-ir.md) | Dew IR | Thunk Graph IR specification: primitives, instructions, text format, evaluation model |
 | [dew-ir-impl.md](dew-ir-impl.md) | Dew IR → LLVM IR | Implementation: how Dew IR translates to LLVM IR and tree-walking evaluator |
-| [rx-dew-interop.md](rx-dew-interop.md) | Rx ↔ Dew Interop | Translation rules for Rx (Rust-like) ↔ Dew round-trip, safety analysis architecture |
+| [rx-dew-interop/](rx-dew-interop/index.md) | Rx ↔ Dew Interop | Translation rules for Rx (Rust-like) ↔ Dew round-trip, safety analysis architecture |
+| [rx-dew-interop/cf-wrapper.md](rx-dew-interop/cf-wrapper.md) | CF Wrapper Design | ControlFlow + fix + match pattern for while loops and function-level return |
 | [rx-lang.md](rx-lang.md) | Rx Language AST | AST specification for the Rx parser — all node types, token kinds, and translation-relevant details |
 | [todo.md](todo.md) | Roadmap | Implementation roadmap: completed features, gaps, planned phases, dependency graph |
 | [dew-lang-ebnf.md](dew-lang-ebnf.md) | Dew Grammar (doc) | Full EBNF grammar for the Dew surface syntax with explanatory notes |
@@ -28,7 +29,7 @@ dew-lang.md ──────────────── Dew source language
      │
      ├── defines the type system that dew-ir.md implements
      │
-     ├── defines the target language for rx-dew-interop.md translations
+     ├── defines the target language for rx-dew-interop/ translation rules
      │
      └── dew-lang-impl.md ─── How language features lower to IR
 
@@ -36,16 +37,20 @@ dew-ir.md ────────────────── Compiler IR
      │
      ├── compilation target for dew-lang.md
      │
-     ├── analysis IR for rx-dew-interop.md safety checks
+     ├── analysis IR for rx-dew-interop/ safety checks
      │
      └── dew-ir-impl.md ──── How IR translates to LLVM / evaluator
 
-rx-dew-interop.md ────────── Cross-language pipeline
+rx-dew-interop/ ──────────── Cross-language pipeline
      │
-     ├── Rx source → dew-lang.md (forward translation)
+     ├── index.md ────────── Unified specification
      │
-     └── dew-lang.md's type checker → Rx safety report (reverse analysis)
+     ├── cf-wrapper.md ──── Fragment: ControlFlow wrapper design
+     │
+     └── (future fragments)
 ```
+
+**Unified + Fragmented**: The `rx-dew-interop/` directory follows the [Documentation: Unified + Fragmented Coexistence](../../AGENTS.md#16-documentation-unified--fragmented-coexistence) convention. `index.md` is the unified document; fragments like `cf-wrapper.md` capture incremental design details. After stabilization, fragment content is merged into `index.md` but the fragment file is preserved for history.
 
 ---
 
