@@ -1,0 +1,36 @@
+// expect: 5
+// Tier: Small
+// Feature: ControlFlow, fix, match
+// MVP: while-loop via fix+match+ControlFlow. Counter from 0 to N.
+
+enum ControlFlow(T) {
+  Return(T),
+  Normal(T),
+  Break,
+  Continue,
+}
+
+def count_to = fn(max: Int) -> Int {
+  def result = match (fix loop {
+    fn(cnt: Int) -> ControlFlow(Int) {
+      if (cnt < max) {
+        match ({
+          Normal(cnt + 1)
+        }) {
+          Return(v) => Return(v),
+          Normal(next) => loop(next),
+          Break => Break,
+          Continue => Continue,
+        }
+      } else { Normal(cnt) }
+    }
+  }(0)) {
+    Return(v) => v,
+    Normal(v) => v,
+    Break => 0,
+    Continue => 0,
+  };
+  result
+};
+
+def main = fn { count_to(5) -> stdout }

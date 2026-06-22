@@ -1,0 +1,42 @@
+// expect: 45
+// Tier: Medium
+// Feature: ControlFlow, fix, match, Return for early break
+// Sum 0..9 (i < max where max=10). Early break if partial sum exceeds limit.
+
+enum ControlFlow(T) {
+  Return(T),
+  Normal(T),
+  Break,
+  Continue,
+}
+
+def sum_to = fn(max: Int, limit: Int) -> Int {
+  def result = match (fix loop {
+    fn(acc: Int, i: Int) -> ControlFlow(Int) {
+      if (i < max) {
+        def next_i = i + 1;
+        def next_acc = acc + i;
+        if (next_acc > limit) {
+          Return(next_acc)
+        } else {
+          match ({
+            Normal(0)
+          }) {
+            Return(v) => Return(v),
+            Normal(_) => loop(next_acc, next_i),
+            Break => Break,
+            Continue => Continue,
+          }
+        }
+      } else { Normal(acc) }
+    }
+  }(0, 0)) {
+    Return(v) => v,
+    Normal(v) => v,
+    Break => 0,
+    Continue => 0,
+  };
+  result
+};
+
+def main = fn { sum_to(10, 1000) -> stdout }

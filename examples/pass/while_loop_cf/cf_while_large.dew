@@ -1,0 +1,62 @@
+// expect: 1390
+// Tier: Large
+// Feature: ControlFlow, fix, match, nested loops, Return early break
+// Sum of i*j for i in 0..9, j in 0..9, break inner loop when i*j > 50.
+// Inner loop starts j from 0 each iteration, accumulates product = i*j.
+// Breaks at j where i*j > 50. Verified total: 1390.
+
+enum ControlFlow(T) {
+  Return(T),
+  Normal(T),
+  Break,
+  Continue,
+}
+
+def main = fn {
+  def total = match (fix outer_loop {
+    fn(sum: Int, i: Int) -> ControlFlow(Int) {
+      if (i < 10) {
+        def next_i = i + 1;
+        def inner_total = match (fix inner_loop {
+          fn(inner_sum: Int, j: Int) -> ControlFlow(Int) {
+            if (j < 10) {
+              def next_j = j + 1;
+              def product = i * j;
+              if (product > 50) {
+                Return(inner_sum)
+              } else {
+                match ({
+                  Normal(0)
+                }) {
+                  Return(v) => Return(v),
+                  Normal(_) => inner_loop(inner_sum + product, next_j),
+                  Break => Break,
+                  Continue => Continue,
+                }
+              }
+            } else { Normal(inner_sum) }
+          }
+        }(0, 0)) {
+          Return(v) => v,
+          Normal(v) => v,
+          Break => 0,
+          Continue => 0,
+        };
+        match ({
+          Normal(0)
+        }) {
+          Return(v) => Return(v),
+          Normal(_) => outer_loop(sum + inner_total, next_i),
+          Break => Break,
+          Continue => Continue,
+        }
+      } else { Normal(sum) }
+    }
+  }(0, 0)) {
+    Return(v) => v,
+    Normal(v) => v,
+    Break => 0,
+    Continue => 0,
+  };
+  total -> stdout;
+}
