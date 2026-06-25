@@ -18,4 +18,4 @@ pub mod backend;
 pub mod lsp;
 pub mod semantic_tokens;
 pub mod rx_parser;
-pub mod rx2dew_ir;
+// pub mod rx2dew_ir;

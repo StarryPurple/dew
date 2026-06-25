@@ -313,9 +313,8 @@ impl<'a> TypeChecker<'a> {
         // Borrow-desugared function: body returns a tuple (modified params + result),
         // while the annotation type is scalar (or also a tuple with matching structure).
         // Skip the check to avoid false mismatches from unresolved type variables.
-        let is_body_cf = matches!(&body_ty, Ty::Named(name, _) if name == "ControlFlow");
         let is_borrow_wrapped = matches!(&body_ty, Ty::Tuple(_));
-        if !is_borrow_wrapped && !is_body_cf {
+        if !is_borrow_wrapped {
             unify_expr(&body_ty, &ret_ty, f.span, self.diag, "function return");
         }
 
@@ -854,8 +853,7 @@ impl<'a> TypeChecker<'a> {
             };
             variant_names.push(vname.name.clone());
             let variant_ty = Ty::Named(enum_name.clone(), param_vars.clone());
-            // Quantify the enum type parameters so each use gets fresh variables.
-            self.env.insert(vname.name.clone(), Scheme { vars: vars.clone(), ty: variant_ty });
+            self.env.insert(vname.name.clone(), Scheme { vars: Vec::new(), ty: variant_ty });
         }
         self.enum_variants.insert(enum_name, variant_names);
     }

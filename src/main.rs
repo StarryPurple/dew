@@ -14,7 +14,6 @@ use dew::ir::display;
 use dew::ir_gen::IrGenerator;
 use dew::backend;
 use dew::ast::{Decl, Program};
-use dew::rx2dew_ir::translate_rx_to_dew;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -41,15 +40,6 @@ fn run(args: &[String]) -> Result<i32, String> {
         "lsp" => {
             dew::lsp::run().map_err(|e| format!("LSP error: {}", e))?;
             Ok(0)
-        }
-        "rx2dew" => {
-            let path = args.get(2).ok_or("expected <file.rx> after rx2dew")?;
-            let src = fs::read_to_string(path)
-                .map_err(|e| format!("cannot read {}: {}", path, e))?;
-            match translate_rx_to_dew(&src) {
-                Ok(dew_src) => { print!("{dew_src}"); Ok(0) }
-                Err(e) => Err(format!("translation error: {}", e)),
-            }
         }
         path => {
             let emit_text = args.iter().any(|a| a == "--emit=text");
