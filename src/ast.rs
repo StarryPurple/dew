@@ -79,6 +79,10 @@ pub struct DefDecl {
     pub span: Span,
     pub rec: bool,
     pub name: Ident,
+    /// For `def (a, b) = expr`: names to bind from tuple destructuring.
+    /// When Some, `name` is a synthetic temp, and `destructure` lists the
+    /// real variable names to extract via `.0`, `.1`, ...
+    pub destructure: Option<Vec<Ident>>,
     pub ty: Option<Type>,
     pub value: Expr,
 }

@@ -46,7 +46,7 @@ fn desugar_decl(decl: &Decl, _diag: &mut DiagnosticCollector) -> Vec<Decl> {
                     return vec![Decl::Def(DefDecl {
                         span: d.span,
                         rec: true,
-                        name: d.name.clone(),
+                        name: d.name.clone(), destructure: None, 
                         ty: d.ty.clone(),
                         value: new_fn,
                     })];
@@ -56,7 +56,7 @@ fn desugar_decl(decl: &Decl, _diag: &mut DiagnosticCollector) -> Vec<Decl> {
             vec![Decl::Def(DefDecl {
                 span: d.span,
                 rec: d.rec,
-                name: d.name.clone(),
+                name: d.name.clone(), destructure: None, 
                 ty: d.ty.clone(),
                 value,
             })]
@@ -214,7 +214,7 @@ fn desugar_expr(expr: &Expr) -> Expr {
             block_stmts.push(BlockStmt {
                 span: c.span, expr: call_expr,
                 def: Some(DefDecl {
-                    span: c.span, rec: false, name: tmp.clone(),
+                    span: c.span, rec: false, name: tmp.clone(), destructure: None, 
                     ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
                 }),
             });
@@ -236,7 +236,7 @@ fn desugar_expr(expr: &Expr) -> Expr {
                     block_stmts.push(BlockStmt {
                         span: c.span, expr: field,
                         def: Some(DefDecl {
-                            span: c.span, rec: false, name: name.clone(),
+                            span: c.span, rec: false, name: name.clone(), destructure: None, 
                             ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
                         }),
                     });
@@ -259,7 +259,7 @@ fn desugar_expr(expr: &Expr) -> Expr {
                     block_stmts.push(BlockStmt {
                         span: c.span, expr: update,
                         def: Some(DefDecl {
-                            span: c.span, rec: false, name: name.clone(),
+                            span: c.span, rec: false, name: name.clone(), destructure: None, 
                             ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
                         }),
                     });
@@ -321,7 +321,10 @@ fn desugar_expr(expr: &Expr) -> Expr {
             span: s.span, name: s.name.clone(),
             fields: s.fields.iter().map(|f| StructLitField {
                 span: f.span, name: f.name.clone(),
-                value: f.value.as_ref().map(|v| desugar_expr(v)),
+                value: Some(f.value.as_ref().map_or_else(
+                    || Expr::Var(f.name.clone()),    // shorthand: `x` → `x: x`
+                    |v| desugar_expr(v),
+                )),
             }).collect(),
         }),
         Expr::EnumLit(e) => Expr::EnumLit(EnumLit {
@@ -355,7 +358,7 @@ fn desugar_expr(expr: &Expr) -> Expr {
                 stmts: vec![BlockStmt {
                     span: f.span, expr: body,
                     def: Some(DefDecl {
-                        span: f.span, rec: true, name: loop_ident.clone(),
+                        span: f.span, rec: true, name: loop_ident.clone(), destructure: None, 
                         ty: None, value: inner_fn,
                     }),
                 }],
@@ -446,7 +449,7 @@ fn desugar_fn(f: &FnExpr) -> Expr {
                 expr: orig_final,
                 def: Some(DefDecl {
                     span: body_span, rec: false,
-                    name: result_name.clone(),
+                    name: result_name.clone(), destructure: None, 
                     ty: None,
                     value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
                 }),
@@ -475,7 +478,7 @@ fn desugar_fn(f: &FnExpr) -> Expr {
                 expr: body,
                 def: Some(DefDecl {
                     span: body_span, rec: false,
-                    name: p_name.clone(),
+                    name: p_name.clone(), destructure: None, 
                     ty: None,
                     value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
                 }),
@@ -575,7 +578,7 @@ fn desugar_while(w: &WhileExpr) -> Expr {
     let if_expr = Expr::If(IfExpr { span: w.span, condition: w.condition.clone(), then_branch: Box::new(Expr::Block(BlockExpr { span: w.span, stmts: then_stmts, final_expr: None })), else_branch: Some(Box::new(Expr::UnitLit(Span::DUMMY))) });
     Expr::Block(BlockExpr {
         span: w.span,
-        stmts: vec![BlockStmt { span: w.span, expr: Expr::Fn(FnExpr { span: w.span, params: vec![], return_ty: None, body: Box::new(if_expr) }), def: Some(DefDecl { span: w.span, rec: true, name: lname.clone(), ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }) }) }],
+        stmts: vec![BlockStmt { span: w.span, expr: Expr::Fn(FnExpr { span: w.span, params: vec![], return_ty: None, body: Box::new(if_expr) }), def: Some(DefDecl { span: w.span, rec: true, name: lname.clone(), destructure: None,  ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }) }) }],
         final_expr: Some(Box::new(Expr::Call(CallExpr { span: w.span, func: Box::new(Expr::Var(lname)), args: vec![] }))),
     })
 }
@@ -586,7 +589,7 @@ fn desugar_loop(l: &LoopExpr) -> Expr {
     let bstmts = vec![BlockStmt { span: l.span, expr: (*l.body).clone(), def: None }, BlockStmt { span: l.span, expr: self_call, def: None }];
     Expr::Block(BlockExpr {
         span: l.span,
-        stmts: vec![BlockStmt { span: l.span, expr: Expr::Fn(FnExpr { span: l.span, params: vec![], return_ty: None, body: Box::new(Expr::Block(BlockExpr { span: l.span, stmts: bstmts, final_expr: None })) }), def: Some(DefDecl { span: l.span, rec: true, name: lname.clone(), ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }) }) }],
+        stmts: vec![BlockStmt { span: l.span, expr: Expr::Fn(FnExpr { span: l.span, params: vec![], return_ty: None, body: Box::new(Expr::Block(BlockExpr { span: l.span, stmts: bstmts, final_expr: None })) }), def: Some(DefDecl { span: l.span, rec: true, name: lname.clone(), destructure: None,  ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }) }) }],
         final_expr: Some(Box::new(Expr::Call(CallExpr { span: l.span, func: Box::new(Expr::Var(lname)), args: vec![] }))),
     })
 }
@@ -690,6 +693,39 @@ fn desugar_enum_payload(p: &EnumPayload) -> EnumPayload {
 fn desugar_block(b: &BlockExpr) -> Expr {
     let mut stmts: Vec<BlockStmt> = Vec::new();
     for s in &b.stmts {
+        // Expand tuple destructure: `def (a, b) = expr`
+        if let Some(DefDecl { destructure: Some(vars), name: tmp_name, value, .. }) = &s.def {
+            let tmp = Ident::new(&tmp_name.name, Span::DUMMY);
+            // def %_dstmp = value;
+            stmts.push(BlockStmt {
+                span: s.span,
+                expr: desugar_expr(value),
+                def: Some(DefDecl {
+                    span: s.span, rec: false, name: tmp.clone(),
+                    destructure: None, ty: None,
+                    value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                }),
+            });
+            // def a = %_dstmp.0; def b = %_dstmp.1; ...
+            for (i, v) in vars.iter().enumerate() {
+                let field = Expr::Field(FieldExpr {
+                    span: s.span,
+                    object: Box::new(Expr::Var(tmp.clone())),
+                    field: Ident::new(format!("{}", i), Span::DUMMY),
+                });
+                stmts.push(BlockStmt {
+                    span: s.span,
+                    expr: field,
+                    def: Some(DefDecl {
+                        span: s.span, rec: false, name: v.clone(),
+                        destructure: None, ty: None,
+                        value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                    }),
+                });
+            }
+            continue;
+        }
+
         let expr = desugar_expr(&s.expr);
 
         if let Expr::Borrow(borrow) = &s.expr {
@@ -702,6 +738,7 @@ fn desugar_block(b: &BlockExpr) -> Expr {
                     span: s.span,
                     rec: false,
                     name,
+                    destructure: None,
                     ty: None,
                     value: rhs,
                 }),
@@ -745,7 +782,7 @@ fn desugar_block(b: &BlockExpr) -> Expr {
                                 def: Some(DefDecl {
                                     span: s.span,
                                     rec: false,
-                                    name: def_name,
+                                    name: def_name, destructure: None, 
                                     ty: None,
                                     value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
                                 }),
@@ -759,7 +796,7 @@ fn desugar_block(b: &BlockExpr) -> Expr {
                             def: Some(DefDecl {
                                 span: s.span,
                                 rec: false,
-                                name: def_name,
+                                name: def_name, destructure: None, 
                                 ty: None,
                                 value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
                             }),

@@ -163,7 +163,21 @@ impl<'a> Parser<'a> {
         let start = self.current_span().start;
         self.expect(TokenKind::Def)?;
         let rec = self.eat(TokenKind::Rec);
-        let name = self.expect_ident()?;
+        // Tuple destructuring: `def (a, b) = expr`
+        let (name, destructure) = if self.eat(TokenKind::LParen) {
+            let mut vars = Vec::new();
+            while !self.check(TokenKind::RParen) && !self.is_eof() {
+                let v = self.expect_ident()?;
+                vars.push(v);
+                if !self.check(TokenKind::RParen) {
+                    self.expect(TokenKind::Comma)?;
+                }
+            }
+            self.expect(TokenKind::RParen)?;
+            (Ident::new("%_dstmp", Span::DUMMY), Some(vars))
+        } else {
+            (self.expect_ident()?, None)
+        };
         let params = self.parse_generic_params();
         let ty: Option<Type> = if self.eat(TokenKind::Colon) {
             self.parse_type().ok()
@@ -189,7 +203,7 @@ impl<'a> Parser<'a> {
             };
             return Ok(Decl::Def(DefDecl {
                 span: Span { start, end, line: 0, col: start },
-                rec, name, ty, value: default_value,
+                rec, name, destructure, ty, value: default_value,
             }));
         } else {
             self.diag.error("E002", "expected '=' or ';' after def binding",
@@ -204,7 +218,7 @@ impl<'a> Parser<'a> {
         };
         Ok(Decl::Def(DefDecl {
             span: Span { start, end, line: 0, col: start },
-            rec, name, ty, value,
+            rec, name, destructure, ty, value,
         }))
     }
 
@@ -541,13 +555,17 @@ impl<'a> Parser<'a> {
 
     fn is_struct_construction(&self) -> bool {
         let p = self.pos;
-        if p + 1 < self.tokens.len() {
-            if self.tokens[p + 1].kind == TokenKind::Ident("".into()) { return false; }
-            if p + 2 < self.tokens.len() && self.tokens[p + 2].kind == TokenKind::Colon {
-                return true;
-            }
+        // p is `{`. The token before `{` is the struct name (consumed).
+        if p + 2 >= self.tokens.len() { return false; }
+        // If first field is `ident :`, it's struct construction (long form)
+        // If first field is `ident ,` or `ident }`, it's struct construction (shorthand)
+        // If first field is `ident =`, it's an update expression
+        match &self.tokens[p + 2].kind {
+            TokenKind::Colon => true,
+            TokenKind::Comma => true,
+            TokenKind::RBrace => true,
+            _ => false,
         }
-        false
     }
 
     fn parse_struct_construction(&mut self, name_expr: Expr) -> Result<Expr, Span> {
@@ -560,9 +578,12 @@ impl<'a> Parser<'a> {
         while !self.check(TokenKind::RBrace) && !self.is_eof() {
             let fspan = self.current_span();
             let fname = self.expect_ident()?;
-            self.expect(TokenKind::Colon)?;
-            let value = self.parse_expr();
-            fields.push(StructLitField { span: fspan, name: fname, value: Some(value) });
+            let value = if self.eat(TokenKind::Colon) {
+                Some(self.parse_expr())
+            } else {
+                None  // shorthand: `x` means `x: x`
+            };
+            fields.push(StructLitField { span: fspan, name: fname, value });
             if !self.check(TokenKind::RBrace) {
                 self.expect(TokenKind::Comma)?;
             }

@@ -489,6 +489,9 @@ impl<'a> IrGenerator<'a> {
                 for f in &s.fields {
                     if let Some(v) = &f.value {
                         field_regs.push(self.compile_expr(v, block));
+                    } else {
+                        // shorthand: `x` → `x: x`
+                        field_regs.push(self.compile_expr(&Expr::Var(f.name.clone()), block));
                     }
                 }
                 let result_r = self.fresh_reg();
@@ -941,7 +944,7 @@ fn collect_free_vars_impl(expr: &Expr, bound: &std::collections::HashSet<&str>, 
             collect_free_vars_impl(&f.body, &inner_bound, fvs);
         }
         Expr::TupleLit(t) => { for e in &t.elements { collect_free_vars_impl(e, bound, fvs); } }
-        Expr::StructLit(s) => { for f in &s.fields { if let Some(v) = &f.value { collect_free_vars_impl(v, bound, fvs); } } }
+        Expr::StructLit(s) => { for f in &s.fields { if let Some(v) = &f.value { collect_free_vars_impl(v, bound, fvs); } else { collect_free_vars_impl(&Expr::Var(f.name.clone()), bound, fvs); } } }
         Expr::ArrayLit(a) => { for e in &a.elements { collect_free_vars_impl(e, bound, fvs); } }
         Expr::ArrayFill(a) => { collect_free_vars_impl(&a.value, bound, fvs); }
         Expr::Update(u) => {

@@ -166,6 +166,9 @@ impl<'a> NameResolver<'a> {
                 for f in &s.fields {
                     if let Some(v) = &f.value {
                         self.resolve_expr(v, scope);
+                    } else {
+                        // shorthand: `x` needs to resolve `x` as a variable
+                        self.resolve_expr(&Expr::Var(f.name.clone()), scope);
                     }
                 }
             }
