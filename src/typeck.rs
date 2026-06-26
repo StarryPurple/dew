@@ -197,7 +197,13 @@ impl<'a> TypeChecker<'a> {
             Expr::Fix(fix) => {
                 let scheme = Scheme { vars: vec![], ty: self.tvg.fresh_ty() };
                 self.env.insert(fix.loop_var.name.clone(), scheme);
-                self.infer_expr(&fix.body)
+                let body_ty = self.infer_expr(&fix.body);
+                // Propagate IO effect from fix function to enclosing scope.
+                // infer_fn stores the body's inferred effect in last_fn_effect.
+                if self.last_fn_effect == Some(Effect::IO) {
+                    self.current_effect = Effect::IO;
+                }
+                body_ty
             }
             Expr::While(_) | Expr::Loop(_) | Expr::ForIn(_) => {
                 self.diag.error("E003", "loop should be desugared before type checking", None);
@@ -329,10 +335,12 @@ impl<'a> TypeChecker<'a> {
                     Some(f.span));
             }
         }
-        if annotated_effect.is_none() && f.return_ty.is_some() && inferred_effect == Effect::IO {
-            self.diag.warn("W005",
-                "pure function annotation violated: body calls IO but return type does not declare IO",
-                Some(f.span));
+        if annotated_effect.is_none() && inferred_effect == Effect::IO {
+            if f.return_ty.is_some() {
+                self.diag.warn("W005",
+                    "pure function annotation violated: body calls IO but return type does not declare IO",
+                    Some(f.span));
+            }
         }
 
         self.current_effect = saved_effect;
@@ -345,7 +353,9 @@ impl<'a> TypeChecker<'a> {
         // Detect IO calls: stdin/stdout are IO primitives; calling an IO fn propagates IO
         if let Expr::Var(ident) = &*c.func {
             match ident.name.as_str() {
-                "stdout" | "stdin" => self.current_effect = Effect::IO,
+                "stdout" | "stdin" => {
+                    self.current_effect = Effect::IO;
+                },
                 name => {
                     if self.fn_effects.get(name) == Some(&Effect::IO) {
                         self.current_effect = Effect::IO;
