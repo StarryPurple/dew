@@ -477,6 +477,8 @@ pub struct FixExpr {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhileExpr {
     pub span: Span,
+    /// Borrow variables: `while (&x, &y; cond) { ... }`. Empty = traditional while.
+    pub borrow_vars: Vec<Ident>,
     pub condition: Box<Expr>,
     pub body: Box<Expr>,
 }

@@ -250,7 +250,8 @@ impl Lexer {
             "Unit" => TokenKind::Unit, "affine" => TokenKind::Affine,
             "type_match" => TokenKind::TypeMatch, "typeof" => TokenKind::TypeOf,
             "not" => TokenKind::Not, "_" => TokenKind::Underscore,
-            // while/forever/for reserved — loops handled by Rx→Dew translator
+            "while" => TokenKind::While, // native while loop
+            "forever" => TokenKind::Loop, // native infinite loop
             _ => TokenKind::Ident(name),
         }
     }

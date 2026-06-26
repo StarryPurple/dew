@@ -655,6 +655,9 @@ fn desugar_borrow_stmt(b: &BorrowExpr) -> Expr {
 }
 
 fn desugar_while(w: &WhileExpr) -> Expr {
+    if !w.borrow_vars.is_empty() {
+        return desugar_while_borrow(w);
+    }
     let lname = Ident::new("%while_loop", Span::DUMMY);
     let self_call = Expr::Call(CallExpr { span: w.span, func: Box::new(Expr::Var(lname.clone())), args: vec![] });
     let then_stmts = vec![
@@ -664,9 +667,111 @@ fn desugar_while(w: &WhileExpr) -> Expr {
     let if_expr = Expr::If(IfExpr { span: w.span, if_borrow: vec![], else_borrow: None, condition: w.condition.clone(), then_branch: Box::new(Expr::Block(BlockExpr { span: w.span, stmts: then_stmts, final_expr: None })), else_branch: Some(Box::new(Expr::UnitLit(Span::DUMMY))) });
     Expr::Block(BlockExpr {
         span: w.span,
-        stmts: vec![BlockStmt { span: w.span, expr: Expr::Fn(FnExpr { span: w.span, params: vec![], return_ty: None, body: Box::new(if_expr) }), def: Some(DefDecl { span: w.span, rec: true, name: lname.clone(), destructure: None,  ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }) }) }],
+        stmts: vec![BlockStmt { span: w.span, expr: Expr::Fn(FnExpr { span: w.span, params: vec![], return_ty: None, body: Box::new(if_expr) }), def: Some(DefDecl { span: w.span, rec: true, name: lname.clone(), destructure: None, ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }) }) }],
         final_expr: Some(Box::new(Expr::Call(CallExpr { span: w.span, func: Box::new(Expr::Var(lname)), args: vec![] }))),
     })
+}
+
+fn desugar_while_borrow(w: &WhileExpr) -> Expr {
+    let vars = &w.borrow_vars;
+    let vty = Type::Named(NamedType { span: Span::DUMMY, name: Ident::new("Int", Span::DUMMY), args: None });
+    let params: Vec<FnParam> = vars.iter().map(|v| FnParam {
+        span: Span::DUMMY, name: v.clone(), ty: Some(vty.clone()), is_borrow: false,
+    }).collect();
+
+    // Build tuple type and value expressions
+    let tuple_ty = Type::Tuple(TupleType { span: Span::DUMMY, elements: vec![vty.clone(); vars.len()] });
+    let build_tuple_expr = |exprs: Vec<Expr>| -> Expr {
+        Expr::TupleLit(TupleLit { span: Span::DUMMY, elements: exprs })
+    };
+    let var_refs: Vec<Expr> = vars.iter().map(|v| Expr::Var(v.clone())).collect();
+    let initial_tuple = build_tuple_expr(var_refs);
+
+    // Inner match dispatch: Continue(v) => __wb(v.0,v.1), Done(v) => Done(v)
+    let loop_name = Ident::new("%__wb", Span::DUMMY);
+    let rec_call = Expr::Call(CallExpr { span: w.span, func: Box::new(Expr::Var(loop_name.clone())), args: vec![] });
+    let dispatch_arms = vec![
+        MatchArm { span: Span::DUMMY,
+            pattern: Pattern::Variant(VariantPattern { span: Span::DUMMY, name: Ident::new("Done", Span::DUMMY), payload: vec![Pattern::Var(Ident::new("%_d", Span::DUMMY))] }),
+            body: Expr::EnumLit(EnumLit { span: Span::DUMMY, name: Ident::new("Done", Span::DUMMY), payload: EnumPayload::Single(vec![Box::new(Expr::Var(Ident::new("%_d", Span::DUMMY)))]) }),
+        },
+        MatchArm { span: Span::DUMMY,
+            pattern: Pattern::Variant(VariantPattern { span: Span::DUMMY, name: Ident::new("Continue", Span::DUMMY), payload: vec![Pattern::Var(Ident::new("%_c", Span::DUMMY))] }),
+            body: Expr::Call(CallExpr { span: w.span, func: Box::new(Expr::Var(Ident::new("%__wb", Span::DUMMY))),
+                args: (0..vars.len()).map(|i| ExprArg::Value(Box::new(Expr::Field(FieldExpr {
+                    span: Span::DUMMY,
+                    object: Box::new(Expr::Var(Ident::new("%_c", Span::DUMMY))),
+                    field: Ident::new(format!("{}", i), Span::DUMMY),
+                })))).collect(),
+            }),
+        },
+    ];
+
+    // Body: wrap to ensure Continue/Done in final_expr
+    let body_block = match &*w.body {
+        Expr::Block(b) => b.clone(),
+        other => BlockExpr { span: Span::DUMMY, stmts: vec![BlockStmt { span: Span::DUMMY, expr: other.clone(), def: None }], final_expr: None },
+    };
+
+    // Build fix fn body: if (cond) { match ({ body }) { Dispatch } } else { Done(init_tuple) }
+    let fix_body = Expr::If(IfExpr {
+        span: w.span, if_borrow: vec![], else_borrow: None,
+        condition: w.condition.clone(),
+        then_branch: Box::new(Expr::Match(MatchExpr {
+            span: w.span,
+            scrutinee: Box::new(Expr::Block(BlockExpr {
+                span: Span::DUMMY, stmts: body_block.stmts.clone(), final_expr: body_block.final_expr.clone(),
+            })),
+            arms: dispatch_arms,
+        })),
+        else_branch: Some(Box::new(Expr::EnumLit(EnumLit {
+            span: Span::DUMMY, name: Ident::new("Done", Span::DUMMY),
+            payload: EnumPayload::Single(vec![Box::new(initial_tuple.clone())]),
+        }))),
+    });
+
+    // Build fix fn
+    let fix_span = w.span;
+    let fix_fn = Expr::Fix(FixExpr {
+        span: fix_span,
+        loop_var: loop_name.clone(),
+        body: Box::new(Expr::Fn(FnExpr {
+            span: fix_span, params, return_ty: Some(tuple_ty),
+            body: Box::new(fix_body),
+        })),
+    });
+
+    // Match the fix call result: Done(v) => v
+    let call_args: Vec<ExprArg> = vars.iter().map(|v| ExprArg::Value(Box::new(Expr::Var(v.clone())))).collect();
+    let fix_call = Expr::Call(CallExpr { span: w.span, func: Box::new(fix_fn), args: call_args });
+    let match_result = Expr::Match(MatchExpr {
+        span: w.span,
+        scrutinee: Box::new(fix_call),
+        arms: vec![MatchArm { span: Span::DUMMY,
+            pattern: Pattern::Variant(VariantPattern { span: Span::DUMMY, name: Ident::new("Done", Span::DUMMY), payload: vec![Pattern::Var(Ident::new("%_r", Span::DUMMY))] }),
+            body: Expr::Var(Ident::new("%_r", Span::DUMMY)),
+        }],
+    });
+
+    // Wrap in def (x,) = match ...
+    let tmp = Ident::new("%_wb_res", Span::DUMMY);
+    let mut stmts: Vec<BlockStmt> = Vec::new();
+    stmts.push(BlockStmt {
+        span: w.span,
+        expr: match_result,
+        def: Some(DefDecl { span: w.span, rec: false, name: tmp.clone(), destructure: None, ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }) }),
+    });
+    for (i, v) in vars.iter().enumerate() {
+        let field = Expr::Field(FieldExpr {
+            span: w.span, object: Box::new(Expr::Var(tmp.clone())),
+            field: Ident::new(format!("{}", i), Span::DUMMY),
+        });
+        stmts.push(BlockStmt {
+            span: w.span, expr: field,
+            def: Some(DefDecl { span: w.span, rec: false, name: v.clone(), destructure: None, ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }) }),
+        });
+    }
+    Expr::Block(BlockExpr { span: w.span, stmts, final_expr: None })
 }
 
 fn desugar_loop(l: &LoopExpr) -> Expr {

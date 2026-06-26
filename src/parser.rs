@@ -875,10 +875,28 @@ impl<'a> Parser<'a> {
 
     fn parse_while(&mut self) -> Result<Expr, Span> {
         let start = self.advance().start;
-        let condition = self.parse_expr_no_postfix().unwrap_or(Expr::UnitLit(Span::DUMMY));
+        // Detect `while (&x, &y; cond)` borrow syntax (same pattern as parse_if)
+        let (borrow_vars, condition) = if self.check(TokenKind::LParen)
+            && self.peek_ahead(1) == Some(&TokenKind::Amp)
+        {
+            self.advance(); // (
+            let mut vars = Vec::new();
+            while self.check(TokenKind::Amp) {
+                self.advance(); // &
+                let name = self.expect_ident()?;
+                vars.push(name);
+                if self.check(TokenKind::Comma) { self.advance(); }
+            }
+            self.expect(TokenKind::Semicolon)?;
+            let cond = self.parse_expr_no_postfix()?;
+            self.expect(TokenKind::RParen)?;
+            (vars, cond)
+        } else {
+            (vec![], self.parse_expr_no_postfix().unwrap_or(Expr::UnitLit(Span::DUMMY)))
+        };
         let body = self.parse_block()?;
         let end = body.span().end;
-        Ok(Expr::While(WhileExpr { span: Span { start, end, line: 0, col: start }, condition: Box::new(condition), body: Box::new(body) }))
+        Ok(Expr::While(WhileExpr { span: Span { start, end, line: 0, col: start }, borrow_vars, condition: Box::new(condition), body: Box::new(body) }))
     }
 
     fn parse_loop(&mut self) -> Result<Expr, Span> {
