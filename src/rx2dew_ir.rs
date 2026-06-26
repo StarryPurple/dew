@@ -10,8 +10,35 @@ pub fn translate_rx_to_dew(src: &str) -> Result<String, String> {
     let prog = parser.parse_program()?;
     let mut out = String::new();
     let mut ctx = Ctx::new();
+    // Pre-pass: detect &self vs self for each method by scanning source
+    for d in &prog.decls {
+        if let Decl::Impl { struct_name, methods } = d {
+            for m in methods {
+                let mname = format!("{}_{}", struct_name, m.name);
+                // Find the method in the original source and check for &self
+                let src_around = find_method_src(src, struct_name, &m.name);
+                ctx.method_ref_self.insert(mname, src_around.contains("&self") || src_around.contains("&mut self"));
+            }
+        }
+    }
     ctx.emit_program(&prog, &mut out);
     Ok(out)
+}
+
+/// Find the method definition in source and return a string around it.
+fn find_method_src(src: &str, struct_name: &str, method: &str) -> String {
+    let pattern = format!("impl {} {{", struct_name);
+    if let Some(impl_start) = src.find(&pattern) {
+        let after_impl = &src[impl_start..];
+        // Find fn method_name
+        let fn_pat = format!("fn {}(", method);
+        if let Some(fn_start) = after_impl.find(&fn_pat) {
+            let ctx_start = fn_start.saturating_sub(20);
+            let ctx_end = (fn_start + fn_pat.len() + 60).min(after_impl.len());
+            return after_impl[ctx_start..ctx_end].to_string();
+        }
+    }
+    String::new()
 }
 
 struct Ctx {
@@ -19,15 +46,15 @@ struct Ctx {
     var_types: HashMap<String, String>,
     in_func_ret_ty: String,
     in_while: bool,
-    /// For each function name, which params are borrow (&).
+    current_while_borrow: Vec<String>,  // borrow vars of enclosing while, for avoiding double &
     fn_borrow_params: HashMap<String, Vec<bool>>,
-    /// Maps method name → struct name for destructurization.
     method_map: HashMap<String, String>,
+    method_ref_self: HashMap<String, bool>,
 }
 
 impl Ctx {
     fn new() -> Self {
-        Self { const_values: HashMap::new(), var_types: HashMap::new(), in_func_ret_ty: String::new(), in_while: false, fn_borrow_params: HashMap::new(), method_map: HashMap::new() }
+        Self { const_values: HashMap::new(), var_types: HashMap::new(), in_func_ret_ty: String::new(), in_while: false, current_while_borrow: Vec::new(), fn_borrow_params: HashMap::new(), method_map: HashMap::new(), method_ref_self: HashMap::new() }
     }
 
     fn map_type(&self, t: &str) -> String {
@@ -84,6 +111,8 @@ impl Ctx {
     fn emit_program(&mut self, prog: &Program, out: &mut String) {
         // Collect consts
         for d in &prog.decls { if let Decl::Const { name, value } = d { self.const_values.insert(name.clone(), value.clone()); } }
+        // Emit ControlFlow enum (needed by while borrow)
+        out.push_str("enum ControlFlow(T) {\n  Done(T),\n  Continue(T),\n}\n\n");
         // Emit structs
         for d in &prog.decls {
             if let Decl::Struct { name, fields } = d {
@@ -131,7 +160,12 @@ impl Ctx {
         let mut params = Vec::new();
         if fd.has_self {
             let sname = if struct_name.is_empty() { "Self".into() } else { struct_name.to_string() };
-            params.push(format!("&self: {}", sname));
+            let is_ref = self.method_ref_self.get(&name).copied().unwrap_or(true);
+            if is_ref {
+                params.push(format!("&self: {}", sname));
+            } else {
+                params.push(format!("self: {}", sname));
+            }
             self.var_types.insert("self".into(), sname);
         }
         for (pn, pt) in &fd.params {
@@ -146,7 +180,10 @@ impl Ctx {
         }
         // Track borrow params for call-site & emission
         let mut borrow_flags = Vec::new();
-        if fd.has_self { borrow_flags.push(true); }
+        if fd.has_self {
+            let is_ref = self.method_ref_self.get(&name).copied().unwrap_or(true);
+            borrow_flags.push(is_ref);
+        }
         for (pn, pt) in &fd.params {
             let mt = self.const_propagate_str(pt);
             borrow_flags.push(mt.starts_with("&mut ") || mt.starts_with("&"));
@@ -233,9 +270,11 @@ impl Ctx {
                 let cs = self.emit_expr(cond);
                 let mut carried = Vec::new();
                 self.collect_carried(body, &mut carried);
-                let prev = self.in_while;
+                let prev_in_while = self.in_while;
+                let prev_borrow = self.current_while_borrow.clone();
                 self.in_while = true;
                 if !carried.is_empty() {
+                    self.current_while_borrow = carried.clone();
                     let bl: Vec<String> = carried.iter().map(|v| format!("&{}", v)).collect();
                     out.push_str(&format!("{}while ({}; {}) {{\n", pad, bl.join(", "), cs));
                     self.emit_stmts(body, out, indent + 1);
@@ -247,7 +286,8 @@ impl Ctx {
                     self.emit_stmts(body, out, indent + 1);
                     out.push_str(&format!("{}}};\n", pad));
                 }
-                self.in_while = prev;
+                self.current_while_borrow = prev_borrow;
+                self.in_while = prev_in_while;
             }
             Stmt::If { cond, then_body, else_body } => {
                 let cs = self.emit_expr(cond);
@@ -343,12 +383,14 @@ impl Ctx {
     fn collect_carried(&self, stmts: &[Stmt], acc: &mut Vec<String>) {
         for s in stmts {
             match s {
-                Stmt::Assign { lhs, .. } => {
+                Stmt::Assign { lhs, rhs, .. } => {
                     if let Some(r) = extract_root(lhs) { if !acc.contains(&r) && self.var_types.contains_key(&r) { acc.push(r); } }
+                    // Also capture vars from RHS expressions
+                    for v in self.collect_var_refs(rhs) {
+                        if !acc.contains(&v) && self.var_types.contains_key(&v) { acc.push(v); }
+                    }
                 }
                 Stmt::Expr(e) => {
-                    // Also capture variables that are referenced in the body,
-                    // especially borrow params that need to be in the fix fn scope
                     for v in self.collect_var_refs(e) {
                         if !acc.contains(&v) && self.var_types.contains_key(&v) { acc.push(v); }
                     }
@@ -439,9 +481,14 @@ impl Ctx {
                     let borrow_info = self.fn_borrow_params.get(s);
                     let mut as_ = Vec::new();
                     for (i, a) in args.iter().enumerate() {
-                        let is_brw = borrow_info.map_or(false, |bi| i < bi.len() && bi[i]);
-                        if is_brw { as_.push(format!("&{}", self.emit_expr(a))); }
-                        else { as_.push(self.emit_expr(a)); }
+                        let needs_borrow = borrow_info.map_or(false, |bi| i < bi.len() && bi[i]);
+                        let arg_str = self.emit_expr(a);
+                        if needs_borrow {
+                            if arg_str.starts_with('&') { as_.push(arg_str); }
+                            else { as_.push(format!("&{}", arg_str)); }
+                        } else {
+                            as_.push(arg_str);
+                        }
                     }
                     return format!("{}({})", s, as_.join(", "));
                 }
@@ -452,11 +499,16 @@ impl Ctx {
                     if let Some(sname) = self.method_map.get(method) {
                         let func_name = format!("{}_{}", sname, method);
                         let borrow_info = self.fn_borrow_params.get(&func_name);
-                        let mut all_args = vec![format!("&{}", obj_str)]; // self is always borrow
+                        let self_is_ref = self.method_ref_self.get(&func_name).copied().unwrap_or(true);
+                        let self_prefix = if self_is_ref { "&" } else { "" };
+                        let mut all_args = vec![format!("{}{}", self_prefix, obj_str)];
                         for (i, a) in args.iter().enumerate() {
-                            let is_brw = borrow_info.map_or(false, |bi| (i + 1) < bi.len() && bi[i + 1]);
-                            if is_brw { all_args.push(format!("&{}", self.emit_expr(a))); }
-                            else { all_args.push(self.emit_expr(a)); }
+                            let needs_borrow = borrow_info.map_or(false, |bi| (i + 1) < bi.len() && bi[i + 1]);
+                            let arg_str = self.emit_expr(a);
+                            if needs_borrow {
+                                if arg_str.starts_with('&') { all_args.push(arg_str); }
+                                else { all_args.push(format!("&{}", arg_str)); }
+                            } else { all_args.push(arg_str); }
                         }
                         return format!("{}({})", func_name, all_args.join(", "));
                     }
@@ -528,6 +580,15 @@ fn stmt_to_expr(stmt: &Stmt) -> Expr {
     match stmt {
         Stmt::Expr(e) | Stmt::Return(Some(e)) => e.clone(),
         _ => Expr::Int(0),
+    }
+}
+
+/// Check if an expression is (possibly wrapped in Ref) a variable that's in the borrow list.
+fn arg_is_borrowed(expr: &Expr, borrow_list: &[String]) -> bool {
+    match expr {
+        Expr::Ident(n) => borrow_list.contains(n),
+        Expr::Ref(inner) => arg_is_borrowed(inner, borrow_list),
+        _ => false,
     }
 }
 

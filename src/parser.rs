@@ -701,7 +701,7 @@ impl<'a> Parser<'a> {
             self.expect(TokenKind::RParen)?;
             (vars, cond)
         } else {
-            (vec![], self.parse_pratt(0)?)
+            (vec![], self.parse_expr_no_postfix()?)
         };
         let then_branch = self.parse_block()?;
         // Parse else (may also have borrows: `else (&x) { }`)
@@ -894,7 +894,7 @@ impl<'a> Parser<'a> {
             self.expect(TokenKind::RParen)?;
             (vars, cond)
         } else {
-            (vec![], self.parse_pratt(0).unwrap_or(Expr::UnitLit(Span::DUMMY)))
+            (vec![], self.parse_expr_no_postfix().unwrap_or(Expr::UnitLit(Span::DUMMY)))
         };
         let body = self.parse_block()?;
         let end = body.span().end;
