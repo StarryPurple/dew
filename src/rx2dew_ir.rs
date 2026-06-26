@@ -234,7 +234,7 @@ impl Ctx {
                 }
             }
             let is_last = i == stmts.len() - 1;
-            let is_tail_expr = is_last && matches!(&stmts[i], Stmt::Expr(_));
+            let is_tail_expr = is_last && (matches!(&stmts[i], Stmt::Expr(_)) || matches!(&stmts[i], Stmt::If { .. }));
             self.emit_one_stmt(&stmts[i], out, indent, is_tail_expr);
             i += 1;
         }
@@ -303,6 +303,7 @@ impl Ctx {
                 let mut bv = Vec::new();
                 self.collect_assignments(then_body, &mut bv);
                 if let Some(eb) = else_body { self.collect_assignments(eb, &mut bv); }
+                let term = if is_tail_expr { "\n" } else { ";\n" };
                 if !bv.is_empty() {
                     let bl: Vec<String> = bv.iter().map(|v| format!("&{}", v)).collect();
                     out.push_str(&format!("{}if ({}; {}) {{\n", pad, bl.join(", "), cs));
@@ -310,8 +311,8 @@ impl Ctx {
                     if let Some(eb) = else_body {
                         out.push_str(&format!("{}}} else {{\n", pad));
                         self.emit_stmts(eb, out, indent + 1);
-                        out.push_str(&format!("{}}};\n", pad));
-                    } else { out.push_str(&format!("{}}};\n", pad)); }
+                        out.push_str(&format!("{}}}{}\n", pad, term));
+                    } else { out.push_str(&format!("{}}}{}\n", pad, term)); }
                 } else if let Some(eb) = else_body {
                     if eb.len() == 1 && matches!(&eb[0], Stmt::If { .. }) {
                         out.push_str(&format!("{}if ({}) {{\n", pad, cs));
@@ -324,20 +325,20 @@ impl Ctx {
                             if let Some(eb2) = else_body {
                                 out.push_str(&format!("{}}} else {{\n", pad));
                                 self.emit_stmts(eb2, out, indent + 1);
-                                out.push_str(&format!("{}}};\n", pad));
-                            } else { out.push_str(&format!("{}}};\n", pad)); }
+                                out.push_str(&format!("{}}}{}\n", pad, term));
+                            } else { out.push_str(&format!("{}}}{}\n", pad, term)); }
                         }
                     } else {
                         out.push_str(&format!("{}if ({}) {{\n", pad, cs));
                         self.emit_stmts(then_body, out, indent + 1);
                         out.push_str(&format!("{}}} else {{\n", pad));
                         self.emit_stmts(eb, out, indent + 1);
-                        out.push_str(&format!("{}}};\n", pad));
+                        out.push_str(&format!("{}}}{}\n", pad, term));
                     }
                 } else {
                     out.push_str(&format!("{}if ({}) {{\n", pad, cs));
                     self.emit_stmts(then_body, out, indent + 1);
-                    out.push_str(&format!("{}}};\n", pad));
+                    out.push_str(&format!("{}}}{}\n", pad, term));
                 }
             }
             Stmt::Return(Some(e)) => {
