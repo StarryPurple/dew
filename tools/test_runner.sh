@@ -14,7 +14,13 @@ echo ""
 echo "--- pass/ ---"
 for file in $(find "$DIR/examples/pass" -name '*.dew' 2>/dev/null | sort); do
     rel="${file#$DIR/examples/}"
-    expected=$(head -1 "$file" | sed 's/.*expect: //')
+    first_line=$(head -1 "$file")
+    # Skip deprecated tests
+    if echo "$first_line" | grep -q "deprecated:"; then
+        echo "  $rel ... SKIP (deprecated)"
+        continue
+    fi
+    expected=$(echo "$first_line" | sed 's/.*expect: //')
     echo -n "  $rel ... "
     if [ "$MODE" = "llvm" ]; then
         output=$("$DEW" "$file" --backend=llvm 2>/dev/null | tail -1 || echo "ERROR")
@@ -34,7 +40,13 @@ echo ""
 echo "--- fail/ ---"
 for file in $(find "$DIR/examples/fail" -name '*.dew' 2>/dev/null | sort); do
     rel="${file#$DIR/examples/}"
-    expected_code=$(head -1 "$file" | sed 's/.*expect error: //')
+    first_line=$(head -1 "$file")
+    # Skip deprecated tests
+    if echo "$first_line" | grep -q "deprecated:"; then
+        echo "  $rel ... SKIP (deprecated)"
+        continue
+    fi
+    expected_code=$(echo "$first_line" | sed 's/.*expect error: //')
     echo -n "  $rel ... "
     if [ "$MODE" = "llvm" ]; then
         output=$("$DEW" "$file" --emit=llvm 2>&1 | head -5 || true)
