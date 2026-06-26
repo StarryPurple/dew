@@ -19,12 +19,15 @@ struct Ctx {
     var_types: HashMap<String, String>,
     in_func_ret_ty: String,
     in_while: bool,
-    borrow_params: Vec<String>,  // param names that are & borrow in current function
+    /// For each function name, which params are borrow (&).
+    fn_borrow_params: HashMap<String, Vec<bool>>,
+    /// Maps method name → struct name for destructurization.
+    method_map: HashMap<String, String>,
 }
 
 impl Ctx {
     fn new() -> Self {
-        Self { const_values: HashMap::new(), var_types: HashMap::new(), in_func_ret_ty: String::new(), in_while: false, borrow_params: Vec::new() }
+        Self { const_values: HashMap::new(), var_types: HashMap::new(), in_func_ret_ty: String::new(), in_while: false, fn_borrow_params: HashMap::new(), method_map: HashMap::new() }
     }
 
     fn map_type(&self, t: &str) -> String {
@@ -92,8 +95,15 @@ impl Ctx {
                 out.push_str("}\n\n");
             }
         }
-        // Emit impl methods
-        for d in &prog.decls { if let Decl::Impl { struct_name, methods } = d { for m in methods { self.emit_fn_decl(struct_name, m, out); } } }
+        // Collect method mappings and emit impl methods
+        for d in &prog.decls {
+            if let Decl::Impl { struct_name, methods } = d {
+                for m in methods {
+                    self.method_map.insert(m.name.clone(), struct_name.clone());
+                    self.emit_fn_decl(struct_name, m, out);
+                }
+            }
+        }
         // Emit standalone fns (non-main, non-method)
         for d in &prog.decls {
             if let Decl::Fn(fd) = d {
@@ -134,6 +144,15 @@ impl Ctx {
             }
             self.var_types.insert(pn.clone(), self.map_type(&mt));
         }
+        // Track borrow params for call-site & emission
+        let mut borrow_flags = Vec::new();
+        if fd.has_self { borrow_flags.push(true); }
+        for (pn, pt) in &fd.params {
+            let mt = self.const_propagate_str(pt);
+            borrow_flags.push(mt.starts_with("&mut ") || mt.starts_with("&"));
+        }
+        self.fn_borrow_params.insert(name.clone(), borrow_flags);
+
         let ret = self.map_type(&self.const_propagate_str(&fd.ret_type));
         self.in_func_ret_ty = ret.clone();
         let ret_anno = if ret == "Unit" { String::new() } else { format!(" -> {}", ret) };
@@ -323,13 +342,50 @@ impl Ctx {
 
     fn collect_carried(&self, stmts: &[Stmt], acc: &mut Vec<String>) {
         for s in stmts {
-            if let Stmt::Assign { lhs, .. } = s {
-                if let Some(r) = extract_root(lhs) { if !acc.contains(&r) && self.var_types.contains_key(&r) { acc.push(r); } }
+            match s {
+                Stmt::Assign { lhs, .. } => {
+                    if let Some(r) = extract_root(lhs) { if !acc.contains(&r) && self.var_types.contains_key(&r) { acc.push(r); } }
+                }
+                Stmt::Expr(e) => {
+                    // Also capture variables that are referenced in the body,
+                    // especially borrow params that need to be in the fix fn scope
+                    for v in self.collect_var_refs(e) {
+                        if !acc.contains(&v) && self.var_types.contains_key(&v) { acc.push(v); }
+                    }
+                }
+                Stmt::If { then_body, else_body, .. } => {
+                    self.collect_carried(then_body, acc);
+                    if let Some(eb) = else_body { self.collect_carried(eb, acc); }
+                }
+                _ => {}
             }
-            if let Stmt::If { then_body, else_body, .. } = s {
-                self.collect_carried(then_body, acc);
-                if let Some(eb) = else_body { self.collect_carried(eb, acc); }
+        }
+    }
+
+    fn collect_var_refs(&self, expr: &Expr) -> Vec<String> {
+        let mut vars = Vec::new();
+        self.collect_var_refs_inner(expr, &mut vars);
+        vars
+    }
+    fn collect_var_refs_inner(&self, expr: &Expr, acc: &mut Vec<String>) {
+        match expr {
+            Expr::Ident(s) => { if !acc.contains(s) { acc.push(s.clone()); } }
+            Expr::Binary(l, _, r) => { self.collect_var_refs_inner(l, acc); self.collect_var_refs_inner(r, acc); }
+            Expr::Unary(_, e) => self.collect_var_refs_inner(e, acc),
+            Expr::Call { func, args } => {
+                self.collect_var_refs_inner(func, acc);
+                for a in args { self.collect_var_refs_inner(a, acc); }
             }
+            Expr::Field(obj, _) => self.collect_var_refs_inner(obj, acc),
+            Expr::Index(arr, idx) => { self.collect_var_refs_inner(arr, acc); self.collect_var_refs_inner(idx, acc); }
+            Expr::Cast(e, _) => self.collect_var_refs_inner(e, acc),
+            Expr::Ref(e) | Expr::Deref(e) | Expr::Group(e) => self.collect_var_refs_inner(e, acc),
+            Expr::StructLit { fields, .. } => for (_, f) in fields { self.collect_var_refs_inner(f, acc); }
+            Expr::ArrayLit { elements, repeat } => {
+                for e in elements { self.collect_var_refs_inner(e, acc); }
+                if let Some(r) = repeat { self.collect_var_refs_inner(r, acc); }
+            }
+            _ => {}
         }
     }
 
@@ -374,12 +430,43 @@ impl Ctx {
                 match op { UnOp::Neg => format!("-{}", e), UnOp::Not => format!("not {}", e) }
             }
             Expr::Call { func, args } => {
+                // Handle `getInt()` builtin
+                if let Expr::Ident(s) = func.as_ref() {
+                    if s == "getInt" { return "(stdin(0) as Int)".into(); }
+                    if s == "printlnInt" { if let Some(a) = args.first() { return format!("{} -> stdout", self.emit_expr(a)); } }
+                    if s == "exit" { return String::new(); }
+                    // Direct function call — add & for borrow params
+                    let borrow_info = self.fn_borrow_params.get(s);
+                    let mut as_ = Vec::new();
+                    for (i, a) in args.iter().enumerate() {
+                        let is_brw = borrow_info.map_or(false, |bi| i < bi.len() && bi[i]);
+                        if is_brw { as_.push(format!("&{}", self.emit_expr(a))); }
+                        else { as_.push(self.emit_expr(a)); }
+                    }
+                    return format!("{}({})", s, as_.join(", "));
+                }
+                // Method call: x.foo(args) → Type__foo(&x, args)
+                if let Expr::Field(obj, method) = func.as_ref() {
+                    let obj_str = self.emit_expr(obj);
+                    // Look up which struct this method belongs to
+                    if let Some(sname) = self.method_map.get(method) {
+                        let func_name = format!("{}_{}", sname, method);
+                        let borrow_info = self.fn_borrow_params.get(&func_name);
+                        let mut all_args = vec![format!("&{}", obj_str)]; // self is always borrow
+                        for (i, a) in args.iter().enumerate() {
+                            let is_brw = borrow_info.map_or(false, |bi| (i + 1) < bi.len() && bi[i + 1]);
+                            if is_brw { all_args.push(format!("&{}", self.emit_expr(a))); }
+                            else { all_args.push(self.emit_expr(a)); }
+                        }
+                        return format!("{}({})", func_name, all_args.join(", "));
+                    }
+                    // Not a method — emit as regular field access + call
+                    let as_: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
+                    return format!("{}.{}({})", obj_str, method, as_.join(", "));
+                }
+                // Fallback: unknown function call
                 let fs = self.emit_expr(func);
                 let as_: Vec<String> = args.iter().map(|a| self.emit_expr(a)).collect();
-                if fs == "getInt" { return "(stdin(0) as Int)".into(); }
-                if fs == "printlnInt" { if let Some(a) = args.first() { return format!("{} -> stdout", self.emit_expr(a)); } }
-                if fs == "exit" { return String::new(); }
-                // Method call x.foo(args) handled in Field case
                 format!("{}({})", fs, as_.join(", "))
             }
             Expr::Field(obj, field) => {
