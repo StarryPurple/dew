@@ -25,17 +25,21 @@ pub fn translate_rx_to_dew(src: &str) -> Result<String, String> {
     Ok(out)
 }
 
-/// Find the method definition in source and return a string around it.
+/// Find the method definition in source and return just the method header (fn line).
 fn find_method_src(src: &str, struct_name: &str, method: &str) -> String {
     let pattern = format!("impl {} {{", struct_name);
     if let Some(impl_start) = src.find(&pattern) {
         let after_impl = &src[impl_start..];
-        // Find fn method_name
         let fn_pat = format!("fn {}(", method);
         if let Some(fn_start) = after_impl.find(&fn_pat) {
-            let ctx_start = fn_start.saturating_sub(20);
-            let ctx_end = (fn_start + fn_pat.len() + 60).min(after_impl.len());
-            return after_impl[ctx_start..ctx_end].to_string();
+            // Read from fn_start to the opening { to get just the method header
+            let rest = &after_impl[fn_start..];
+            let header_end = rest.find('{').unwrap_or(rest.len());
+            let header = &rest[..header_end];
+            // Find the last newline before this method for context
+            let before = &after_impl[..fn_start];
+            let ctx_start = before.rfind('\n').map(|p| p + 1).unwrap_or(0);
+            return format!("{}{}", &before[ctx_start..], header);
         }
     }
     String::new()
@@ -277,7 +281,12 @@ impl Ctx {
                     self.current_while_borrow = carried.clone();
                     let bl: Vec<String> = carried.iter().map(|v| format!("&{}", v)).collect();
                     out.push_str(&format!("{}while ({}; {}) {{\n", pad, bl.join(", "), cs));
-                    self.emit_stmts(body, out, indent + 1);
+                    // Emit body without tail-expr optimization — __Continue is the real tail
+                    let saved_tail = std::mem::replace(&mut self.in_while, true);
+                    for (j, s) in body.iter().enumerate() {
+                        self.emit_one_stmt(s, out, indent + 1, false);
+                    }
+                    self.in_while = saved_tail;
                     let tv: Vec<String> = carried.iter().map(|v| v.clone()).collect();
                     out.push_str(&format!("{}__Continue(({}))\n", pad, tv.join(", ")));
                     out.push_str(&format!("{}}};\n", pad));
@@ -485,7 +494,11 @@ impl Ctx {
                         let arg_str = self.emit_expr(a);
                         if needs_borrow {
                             if arg_str.starts_with('&') { as_.push(arg_str); }
-                            else { as_.push(format!("&{}", arg_str)); }
+                            else if extract_root(a).is_some() { as_.push(format!("&{}", arg_str)); }
+                            else {
+                                eprintln!("[W006] warning: rvalue passed to &-parameter of {}, modification to temporary discarded", s);
+                                as_.push(arg_str);
+                            }
                         } else {
                             as_.push(arg_str);
                         }
@@ -500,7 +513,15 @@ impl Ctx {
                         let func_name = format!("{}_{}", sname, method);
                         let borrow_info = self.fn_borrow_params.get(&func_name);
                         let self_is_ref = self.method_ref_self.get(&func_name).copied().unwrap_or(true);
-                        let self_prefix = if self_is_ref { "&" } else { "" };
+                        let self_is_lvalue = extract_root(obj).is_some();
+                        let self_prefix = if self_is_ref {
+                            if self_is_lvalue {
+                                "&"
+                            } else {
+                                eprintln!("[W006] warning: rvalue passed to &-parameter of {}, modification to temporary discarded", func_name);
+                                ""
+                            }
+                        } else { "" };
                         let mut all_args = vec![format!("{}{}", self_prefix, obj_str)];
                         for (i, a) in args.iter().enumerate() {
                             let needs_borrow = borrow_info.map_or(false, |bi| (i + 1) < bi.len() && bi[i + 1]);
@@ -538,7 +559,15 @@ impl Ctx {
                 } else { format!("[{}]", elems.join(", ")) }
             }
             Expr::Cast(e, t) => format!("({} as {})", self.emit_expr(e), self.map_type(&self.const_propagate_str(t))),
-            Expr::Ref(e) => format!("&{}", self.emit_expr(e)),
+            Expr::Ref(e) => {
+                let inner = self.emit_expr(e);
+                if extract_root(e).is_some() {
+                    format!("&{}", inner)
+                } else {
+                    eprintln!("[W006] warning: rvalue passed to &-parameter, modification to temporary discarded");
+                    inner
+                }
+            }
             Expr::Deref(e) => self.emit_expr(e),
             Expr::Group(e) => format!("({})", self.emit_expr(e)),
             Expr::If { cond, then_body, else_body } => {

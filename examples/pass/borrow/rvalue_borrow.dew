@@ -1,0 +1,13 @@
+// expect: 7
+// Tier: Small
+// Feature: rvalue-borrow
+// Passing a function-call result to a &self method should work
+// (the & is dropped, value passed directly — temporary can't be rebound)
+struct Wrapper { x: Int }
+def Wrapper_get_x = fn(&self: Wrapper) -> Int { self.x }
+def Wrapper_make = fn(v: Int) -> Wrapper { Wrapper { x: v } }
+def main = fn {
+  def v = Wrapper_get_x(&Wrapper_make(3));
+  def w = Wrapper_make(4);
+  v + w.x -> stdout
+}
