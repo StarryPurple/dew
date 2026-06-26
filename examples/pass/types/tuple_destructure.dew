@@ -1,0 +1,8 @@
+// expect: 7
+// Tier: Small
+// Feature: def-tuple-destructure
+// def (a, b) = expr
+def main = fn {
+  def (a, b) = (3, 4);
+  a + b -> stdout
+}

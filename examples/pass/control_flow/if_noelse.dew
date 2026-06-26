@@ -1,0 +1,9 @@
+// expect: 42
+// Tier: Small
+// Feature: if-no-else
+// if without else when branch is Unit
+def main = fn {
+  def x = 0;
+  if true { 42 -> stdout };
+  // implicit Unit follows — no else needed
+}

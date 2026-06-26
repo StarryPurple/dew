@@ -1,0 +1,13 @@
+// expect: 5
+// Tier: Medium
+// Feature: while-borrow
+// while (&x; cond) with Continue
+enum ControlFlow(T) { Done(T), Continue(T) }
+def main = fn {
+  def x = 0;
+  while (&x; x < 5) {
+    &x = x + 1;
+    Continue((x,))
+  };
+  x -> stdout
+}

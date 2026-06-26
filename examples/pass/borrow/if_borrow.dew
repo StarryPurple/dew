@@ -1,0 +1,9 @@
+// expect: 42
+// Tier: Medium
+// Feature: if-borrow
+// if (&x; cond) cross-scope rebinding
+def main = fn {
+  def x = 0;
+  if (&x; true) { &x = 42 };
+  x -> stdout
+}

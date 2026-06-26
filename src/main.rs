@@ -37,6 +37,13 @@ fn run(args: &[String]) -> Result<i32, String> {
             let expr = args.get(2).ok_or("expected expression after -e")?;
             run_eval(expr)
         }
+        "rx2dew" => {
+            let path = args.get(2).ok_or("expected .rx file path after rx2dew")?;
+            let src = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path, e))?;
+            let dew = dew::rx2dew_ir::translate_rx_to_dew(&src)?;
+            println!("{}", dew);
+            Ok(0)
+        }
         "lsp" => {
             dew::lsp::run().map_err(|e| format!("LSP error: {}", e))?;
             Ok(0)

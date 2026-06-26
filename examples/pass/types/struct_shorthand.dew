@@ -1,0 +1,11 @@
+// expect: 7
+// Tier: Small
+// Feature: struct-shorthand
+// Point { x, y } shorthand for Point { x: x, y: y }
+struct Point { x: Int, y: Int }
+def main = fn {
+  def x = 3;
+  def y = 4;
+  def p = Point { x, y };
+  p.x + p.y -> stdout
+}

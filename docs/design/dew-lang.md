@@ -1591,6 +1591,9 @@ At the IR level, `Place` instructions perform copy-on-write: unchanged structure
 | Call arg ([pipeline](#56-pipeline-operator)) | `&LValue -> f` | `&x -> stdin` `&v -> f(a, b)` | Pipeline with borrow argument |
 | Statement rebind | `&LValue = expr;` | `&p = Point(1,2);` `&a[i] = v;` | Rebind with new value |
 | Statement update | `&LValue { ... };` | `&p { x = 10 };` `&a[i] { [0] = v };` `&t { .0 = v };` | Update nested fields and rebind |
+| If borrow | `if (&x; cond) { }` | `if (&x; x < n) { &x = x+1 }` | Cross-scope rebinding via if |
+| Else borrow | `else (&y) { }` | `... else (&y) { &y = y+1 }` | Independent else borrow vars |
+| While borrow | `while (&x; cond) { }` | `while (&x; x < n) { &x = x+1; Continue((x,)) }` | Loop with cross-iteration rebinding |
 
 **LValue grammar.** An lvalue is any expression that can appear on the left side of a rebinding:
 
@@ -1798,6 +1801,26 @@ def rec x = x + 1;      // self-cycle — compiles, blackhole at runtime
 
 > `def rec x = x + 1` compiles successfully — the self-cycle is detected at runtime by the thunk blackhole mechanism, not at compile time. This preserves lazy evaluation's ability to define self-referential structures that may never be forced.
 
+**Tuple destructuring.** `def` supports binding multiple names from a tuple expression:
+
+```dew
+def (a, b) = (1, 2);               // a = 1, b = 2
+def (x,) = f(&arg);                // single-element tuple
+def (head, ..rest) = list;         // rest pattern (future)
+```
+
+Desugaring:
+
+```
+def (a, b) = expr
+  ⇓
+def %_dstmp = expr;
+def a = %_dstmp.0;
+def b = %_dstmp.1;
+```
+
+Single-element tuple `(x,)` requires a trailing comma — same convention as Rust and most C-like languages.
+
 **Default initialization.** A `def` with a type annotation but no initializer gets the type's default value:
 
 ```dew
@@ -1940,7 +1963,15 @@ def main = fn {
 }
 ```
 
-`if` without `else` is not allowed — `if/else` desugars to `match` on `Bool`, and `Bool` has exactly two constructors (`True`, `False`). Both arms are required for exhaustiveness. The same branch return type consistency and affine consumption rules from `match` (§6.1) apply to `if/else`.
+**`if` without `else`.** When the `then` branch yields `Unit`, the `else` branch is optional:
+
+```dew
+if cond { x -> stdout }          // OK: then-branch is Unit
+if cond { do_something() }       // OK: returns Unit
+if cond { 42 }                   // ERROR: then-branch is Int, not Unit
+```
+
+Without `else`, the `if` expression has type `Unit`. This is syntactic sugar — the compiler inserts `else { Unit }` during desugaring.
 
 **`else if`** is syntactic sugar for nested `if/else`:
 
@@ -1952,31 +1983,113 @@ if a { b } else { if c { d } else { e } }
 
 Each `else if` introduces a nested `if` in the else-branch. No special parsing needed — the parser sees `else if` as `else` followed by a new `if` expression.
 
-**No structural ambiguity.** Rust has a parsing ambiguity: `if Struct{} { } { }` — the parser cannot tell whether the second `{ }` starts an `else` block or is a trailing block statement. Dew avoids this entirely because `if` always requires `else`:
+**Borrow `if` — cross-scope assignment.** `if` supports borrow variables for rebinding values across branch boundaries:
 
 ```dew
-if Point{} { a }              // SYNTAX ERROR: missing else after then-block
+if (&x, &y; cond) {
+  &x = x + 1;
+  &y = y + 1;
+}
+// After the if, x and y are rebound to the values from the executed branch
+```
+
+Desugaring:
+
+```
+if (&x, &y; cond) { &x = e1; &y = e2 }
+  ⇓
+def %_ifbrw = if (cond) {
+  def x = e1;
+  def y = e2;
+  (x, y)                // implicit: all borrow vars as tuple
+} else { (x, y) };      // implicit: original values
+def x = %_ifbrw.0;
+def y = %_ifbrw.1;
+```
+
+The `else` branch can declare its own borrow variables:
+
+```dew
+if (&x; cond) { &x = e1 } else (&y) { &y = e2 }
+```
+
+Union of all branch borrow vars determines the tuple in the implicit return. Each branch without explicit borrow vars inherits the union of all explicit ones.
+
+**No structural ambiguity.** Rust has a parsing ambiguity: `if Struct{} { } { }` — the parser cannot tell whether the second `{ }` starts an `else` block or is a trailing block statement. Dew avoids this:
+
+```dew
+if Point{} { a }              // OK: then-branch is Unit, no else needed
 if Point{} { a } else { b }   // parsed as: if (Point{}) { a } else { b }
                                // type error: Point is not Bool (caught by type checker)
 ```
 
-The parser never needs to guess. It always consumes `if expr { then } else { else }` — no other interpretation is possible. If `expr` happens to be a struct construction, the type checker catches it later as a type mismatch. Inserting `else` into a single-arm `if` is impossible: there is always a `{` after `if expr`, which is the then-block, and then `else` is mandatory.
+### 6.3 Loops — Native `while` with Borrow
 
-### 6.3 Loops — Handled by Rx→Dew Translator
+Dew provides a native `while` loop that supports cross-iteration variable rebinding through the borrow syntax.
 
-Dew has **no native loop constructs.** The keywords `while`, `forever`, and `for` are reserved but have no semantics in the Dew core language. All imperative control flow translation is the responsibility of the [Rx→Dew interop layer](rx-dew-interop.md).
+**Traditional `while`** (no borrow — Unit body, no state propagation):
 
-The translator converts Rx loops to Dew recursive functions with [`&` borrow parameters](#55-borrow-parameter--sugar):
+```dew
+while (cond) {
+  x -> stdout;
+}
+// Executes body while cond is true. Body must yield Unit.
+```
 
-```rust
-// Rx (input to translator)
-let mut n = 5;
-while n > 0 { n = n - 1; }
+**Borrow `while`** — loop-carried variables are declared in the borrow list:
 
-// Dew (output from translator)
-def n = 5;
-def n = fix loop {
-  fn(&n: Int) -> Int {
+```dew
+while (&x, &y; cond) {
+  &x = x + 1;
+  &y = y + 1;
+  Continue((x, y))       // explicit: continue with current values
+}
+// After the loop, x and y hold the final values.
+```
+
+The body must end with `Continue(v)` (continue looping) or `Done(v)` (exit early):
+- `Continue((x, y))` → next iteration starts with the provided values
+- `Done((x, y))` → exit loop, return the provided values
+- `break` equivalent → `Done(acc)`
+- `continue` equivalent → `Continue(acc)`
+
+Desugaring (no break/continue):
+
+```
+while (&x; cond) {
+  &x = x + 1;
+  Continue((x,))
+}
+  ⇓
+def (x,) = match (fix __wb {
+  fn(x: T) -> ControlFlow((T,)) {
+    if (cond) {
+      match ({
+        def x = x + 1;
+        Continue((x,))
+      }) {
+        Done(v) => Done(v),
+        Continue(v) => __wb(v.0),    // recursive call with updated value
+      }
+    } else { Done((x,)) }
+  }
+}(x)) {
+  Done(v) => v,
+};
+```
+
+The `ControlFlow` enum is generated as part of the desugaring output:
+
+```
+enum ControlFlow(T) {
+  Done(T),
+  Continue(T),
+}
+```
+
+**When `ControlFlow` is needed.** The `ControlFlow` enum is only generated when the while body contains any `Done`/`Continue` expression (always true for borrow while). Simple Unit-typed while loops (no borrow) use the traditional `def rec` desugaring and do not require `ControlFlow`.
+
+The Rx→Dew translator also uses this native while syntax instead of manually constructing `fix` expressions. See [rx-dew-interop.md](rx-dew-interop.md) for translation rules.
     if n > 0 { &n = n - 1; loop(&n) } else { n }
   }
 }(&n)

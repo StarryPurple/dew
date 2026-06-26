@@ -61,20 +61,21 @@ Rx Source
   │
   ├── rx_parser ──→ Rx AST
   │
-  ├── [Destructurization Pass]      ← 新增：将 codata-style Rx 译为 data-style Dew
+  ├── [Pass 0: Const Propagation]   将 const 引用展开为字面量
+  │
+  ├── [Destructurization Pass]     将 codata-style Rx 译为 data-style Dew
   │     struct + method → ADT + standalone function
   │     method call → function call with self as first arg
   │     this/self 参数注入
   │
-  ├── [Control Flow Pass]           ← 新增：将指令式控制流转为函数式
-  │     while → fix + match + ControlFlow (已有模式)
-  │     return → Return(expr) / Normal(expr)
-  │     break → Return(acc)
-  │     continue → Normal(0)
-  │
-  ├── [Mutation Pass]               ← 新增：将可变赋值转为纯函数式
-  │     x = expr → def x = expr
-  │     &mut param → & borrow param (Dew level)
+  ├── [Body Translation Pass]      直译 + 控制流 + 赋值 一次完成
+  │     while → while (&x; cond) { &x = e; Continue((x,)) }
+  │     return in while → Done(acc)
+  │     return outside while → if-else 链
+  │     break → Done(acc)
+  │     continue → Continue(acc)
+  │     x = e → &x = e
+  │     &mut T → &name: T
   │
   └── Dew Source
 ```
@@ -83,50 +84,111 @@ Rx Source
 
 1. **控制流翻译（while/return/break）与分解变换（struct→ADT）应该分离**。Binder 论文的 destructurization 不处理控制流，控制流是 Rx 的指令式特性，与 OO/FP 分解正交。
 
-2. **ControlFlow 枚举 + fix + match 的模式是可用的**（已经在 e2e test `examples/pass/while_loop_cf/` 中验证）。不需要改。
+2. **Dew 原生支持 `while (&x; cond) { Continue/Done }`**。翻译器不再手动构造 `fix + match + ControlFlow`，而是 emit `while` 给 Dew 编译器处理。ControlFlow 枚举 (`Done(T)` / `Continue(T)`) 由翻译器生成，无 `Return`/`Break`/`Normal` 关键字。
 
 3. **变换应类型导向**。`x.foo(args)` 变成 `Foo__foo(x, args)` 需要知道 `x` 的类型是哪个 struct，不能只按语法。
 
 4. **Borrow 参数不应在翻译层手动解包**。Dew 的 desugarer 自动处理 `&` 参数的元组展开。翻译器只输出 `func(&x, &y)`，不输出 `{ def __brw = func(&x, &y); def x = __brw.0; ... }`。
 
+5. **`if (&x; cond) { }` 原生支持跨作用域赋值**。翻译器使用 Dew 的 if-borrow 语法而不是手动构造 tuple return。
+
+6. **`getInt()` → `&x -> stdin`**。Dew 使用 pipeline 语法读入：`&x -> stdin`。不是 `Stdin(0)` 函数调用。
+
+7. **`exit(0)` 直接跳过**。Dew 没有 `exit`，翻译忽略该语句。
+
 ### 3.3 需要避免的陷阱
 
-- ❌ 不要在函数体上套 `fix + match + ControlFlow` 做函数级 return。那是控制流翻译的产物，不是分解变换。
+- ❌ 不要在函数体上套 `fix + match + ControlFlow` 做函数级 return。那是旧设计，新设计用 if-else 链。
 - ❌ 不要用 subagent 读论文。
 - ❌ 不要在翻译层手动解包 borrow 调用的元组（`.0`/`.1`/`.2`）。
 - ❌ 不要试图在单次 pass 里同时处理分解变换和控制流。
 
 ---
 
-## 4. 实现步骤（建议顺序）
+## 4. 翻译对照表
 
-### Phase 1: 恢复基础翻译器框架
+### 4.1 类型映射
 
-1. 在 `src/lib.rs` 恢复 `pub mod rx2dew_ir;`
-2. 创建新的 `src/rx2dew_ir.rs`：只做 struct + function 的直译（无控制流、无 borrow 参数处理）
-3. 恢复 `src/main.rs` 的 `rx2dew` 命令
-4. 写一个简单的 e2e 测试验证基本翻译
+| Rx 类型 | Dew 类型 |
+|---------|---------|
+| `i32`, `u32`, `i64`, `u64`, `i8`, `u8`, `usize`, `isize` | `Int` |
+| `bool` | `Bool` |
+| `()` | `Unit` |
+| `[T; N]`（const 展开后） | `[T; N]` |
+| struct 名 | struct 名 |
 
-### Phase 2: Destructurization（struct + method 翻译）
+### 4.2 表达式翻译
 
-- Rx struct → Dew struct（ADT）
-- Rx impl method → Dew standalone function（self 作为第一个参数）
-- Rx method call `x.foo(args)` → `Struct__foo(x, args)`
-- 类型导向：根据 `x` 的类型查找对应的方法
+| Rx | Dew |
+|----|-----|
+| `expr as T` | `(expr as T)` |
+| `a + b`, `a - b`, etc. | 直译 |
+| `a == b`, `a < b`, etc. | 直译 |
+| `obj.field` | `obj.field` |
+| `arr[i]` | `arr[i]` |
+| `f(args)` | `f(args)` |
+| `x.foo(args)` | `Type__foo(&x, args)`（self 为 &）或 `Type__foo(x, args)`（self 非 &） |
+| `self` / `&self` / `&mut self` | `&self: Type`（统一用 &） |
+| `getInt()` | `&x -> stdin`（生成 `let x: Int;` + `&x -> stdin;`） |
+| `printlnInt(x)` | `x -> stdout` |
+| `exit(0)` | 跳过，不生成代码 |
 
-### Phase 3: 控制流翻译
+### 4.3 语句翻译
 
-- while → fix + match + ControlFlow（复用现有 `examples/pass/while_loop_cf/` 已验证的模式）
-- return → Return(expr) / Normal(expr)
-- break → Return(acc)
-- continue → Normal(0)
-- **函数级别不应套 CF wrapper**，CF wrapper 只用于 while 循环
+| Rx | Dew |
+|----|-----|
+| `let x: T = e;` | `def x = e;` |
+| `let mut x: T = e;` | `def x = e;`（mut 标记丢弃） |
+| `x = e;` | `&x = e;` |
+| `x += e;` | `&x = x + e;` |
+| `x -= e;` | `&x = x - e;` |
+| `x *= e;` | `&x = x * e;` |
+| `arr[i] = e;` | `&arr[i] = e;` |
+| `if (c) { stmt }` | `if (c) { stmt }`（分支为 Unit 时可无 else） |
+| `if (c) { s1; x = e }` | `if (&x; c) { s1; &x = e }` |
+| `while (c) { x = e; }` | `while (&x; c) { &x = e; Continue((x,)) }` |
+| `break;`（在 while 内） | `Done((x, y))` |
+| `continue;`（在 while 内） | `Continue((x, y))` |
+| `return e;`（在 while 内） | `Done((e,))` |
+| `return e;`（在 while 外） | `e`（if-else 链重组） |
+| `return;` | `Unit`（所在分支最终表达式） |
+| `{ stmts }` | 直译（Dew 的 block 语法） |
+| const 声明 | 常量传播后移除 |
 
-### Phase 4: Mutation + Borrow
+### 4.4 声明翻译
 
-- `&mut T` 参数 → Dew `&T` borrow 参数
-- 赋值 `x = rhs` → `def x = rhs`（阴影）
-- borrow 调用直接输出 `func(&x, &y)`，不手动解包
+| Rx | Dew |
+|----|-----|
+| `struct S { f1: T1, f2: T2 }` | `struct S { f1: T1, f2: T2 }` |
+| `impl S { fn m(&self, args) }` | `def S_m = fn(&self: S, args) -> Ret { body }` |
+| `fn f(p: T) -> U { body }` | `def f = fn(p: T) -> U { body }` |
+| `const NAME: T = N;` | 常量传播后移除 |
+
+### 4.5 控制流处理
+
+**函数级 `return`：** 翻译为 if-else 链。`return e;` 之后的语句移入 else 分支：
+
+```
+// Rx:
+fn f() -> Int {
+  if (cond) { return 1; }
+  x + 1
+}
+
+// Dew:
+def f = fn() -> Int {
+  if (cond) { 1 } else { x + 1 }
+}
+```
+
+**while 内的 `return`：** 翻译为 `Done(v)`，外层 match 区分正常结束和提前返回。需要生成 `ControlFlow` 枚举：
+
+```
+enum ControlFlow(T) {
+  Done(T),
+  Continue(T),
+}
+```
 
 ---
 
