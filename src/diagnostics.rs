@@ -110,6 +110,20 @@ impl DiagnosticCollector {
         self.diagnostics.iter().filter(|d| d.severity == Severity::Error).collect()
     }
 
+    /// Subtract a line offset from all diagnostic spans.
+    /// Used when stdlib is prepended to user source — adjusts line numbers
+    /// so they point to the user's original file, not the combined text.
+    pub fn shift_origin(&mut self, line_offset: usize, byte_offset: usize) {
+        for d in &mut self.diagnostics {
+            if let Some(ref mut span) = d.span {
+                span.line = span.line.saturating_sub(line_offset);
+                span.col = span.col.saturating_sub(byte_offset);
+                span.start = span.start.saturating_sub(byte_offset);
+                span.end = span.end.saturating_sub(byte_offset);
+            }
+        }
+    }
+
     /// Print all diagnostics to stderr in a human-readable format.
     pub fn emit_all(&self, source: &str) {
         for diag in &self.diagnostics {

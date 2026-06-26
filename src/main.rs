@@ -61,15 +61,21 @@ fn run(args: &[String]) -> Result<i32, String> {
 fn run_file(path: &str, emit_text: bool, emit_json: bool, emit_llvm: bool, use_llvm: bool) -> Result<i32, String> {
     let stdlib = load_stdlib()?;
     let user_src = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path, e))?;
+    // Count stdlib lines and bytes for span adjustment
+    let stdlib_lines = if stdlib.is_empty() { 0 } else { stdlib.matches('\n').count() + 1 };
+    let stdlib_bytes = stdlib.len() + 1; // +1 for the \n separator
     let src = format!("{}\n{}", stdlib, user_src);
-    let (module, diag) = compile(&src)?;
+    let (module, mut diag) = compile(&src)?;
+
+    // Shift spans so they point to the original user file, not the combined source
+    diag.shift_origin(stdlib_lines, stdlib_bytes);
 
     if diag.has_errors() {
-        diag.emit_all(&src);
+        diag.emit_all(&user_src);
         return Ok(1);
     }
     if diag.has_warnings() {
-        diag.emit_all(&src);
+        diag.emit_all(&user_src);
     }
 
     if emit_json {
