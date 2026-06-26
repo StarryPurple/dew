@@ -202,36 +202,54 @@ impl Ctx {
         out.push_str("}\n\n");
     }
 
+    /// If `stmts[i]` is an if-statement whose body ends with a jump (return/continue),
+    /// emit it as an if-else chain and return true. The remaining statements `stmts[i+1..]`
+    /// are emitted inside the else branch via `emit_stmts`, enabling recursive handling of
+    /// nested jump chains (e.g., `if (a) { return e1; } if (b) { return e2; } e3`).
+    fn try_emit_jump_chain(&mut self, stmts: &[Stmt], i: usize, out: &mut String, indent: usize) -> bool {
+        if i + 1 >= stmts.len() { return false; }
+        let Stmt::If { cond, then_body, .. } = &stmts[i] else { return false; };
+        let jump_pos = match then_body.iter().position(|s| matches!(s, Stmt::Return(_) | Stmt::Continue)) {
+            Some(p) => p,
+            None => return false,
+        };
+        let pad = "  ".repeat(indent);
+        let then_before: Vec<Stmt> = then_body[..jump_pos].to_vec();
+        let jump_value = match &then_body[jump_pos] {
+            Stmt::Return(Some(e)) => self.emit_expr(e),
+            Stmt::Return(None) => "Unit".to_string(),
+            Stmt::Continue => {
+                if self.in_while {
+                    format!("__Continue(({}))", self.current_while_borrow.join(", "))
+                } else {
+                    "Unit".to_string()
+                }
+            }
+            _ => unreachable!(),
+        };
+        let cs = self.emit_expr(cond);
+        out.push_str(&format!("{}if ({}) {{\n", pad, cs));
+        for s in &then_before { self.emit_one_stmt(s, out, indent + 1, false); }
+        out.push_str(&format!("{}  {}\n", pad, jump_value));
+        let remaining: Vec<&Stmt> = stmts[i+1..].iter().collect();
+        if !remaining.is_empty() {
+            out.push_str(&format!("{}}} else {{\n", pad));
+            self.emit_stmts(&stmts[i+1..], out, indent + 1);
+            out.push_str(&format!("{}}}\n", pad));
+        } else {
+            out.push_str(&format!("{}}}\n", pad));
+        }
+        true
+    }
+
     fn emit_stmts(&mut self, stmts: &[Stmt], out: &mut String, indent: usize) {
         let pad = "  ".repeat(indent);
         // Handle return chains: when an `if (c) { .. return e; }` is followed by more stmts,
         // the if becomes the condition, return value is the then-branch, rest goes in else.
         let mut i = 0;
         while i < stmts.len() {
-            if i + 1 < stmts.len() {
-                if let Stmt::If { cond, then_body, .. } = &stmts[i] {
-                    if let Some(ret_pos) = then_body.iter().position(|s| matches!(s, Stmt::Return(Some(_)))) {
-                        // if body has a return — transform to if-else chain
-                        let mut then_without_ret: Vec<Stmt> = then_body[..ret_pos].to_vec();
-                        if let Stmt::Return(Some(ret_expr)) = &then_body[ret_pos] {
-                            // The statements before return in the if body
-                            let cs = self.emit_expr(cond);
-                            out.push_str(&format!("{}if ({}) {{\n", pad, cs));
-                            for s in &then_without_ret { self.emit_one_stmt(s, out, indent + 1, false); }
-                            out.push_str(&format!("{}  {}\n", pad, self.emit_expr(ret_expr)));
-                            // Everything after this if goes in else
-                            let remaining: Vec<&Stmt> = stmts[i+1..].iter().collect();
-                            if !remaining.is_empty() {
-                                out.push_str(&format!("{}}} else {{\n", pad));
-                                for s in remaining { self.emit_one_stmt(s, out, indent + 1, false); }
-                                out.push_str(&format!("{}}};\n", pad));
-                            } else {
-                                out.push_str(&format!("{}}};\n", pad));
-                            }
-                            return;
-                        }
-                    }
-                }
+            if self.try_emit_jump_chain(stmts, i, out, indent) {
+                return;
             }
             let is_last = i == stmts.len() - 1;
             let is_tail_expr = is_last && (matches!(&stmts[i], Stmt::Expr(_)) || matches!(&stmts[i], Stmt::If { .. }));
@@ -281,14 +299,17 @@ impl Ctx {
                     self.current_while_borrow = carried.clone();
                     let bl: Vec<String> = carried.iter().map(|v| format!("&{}", v)).collect();
                     out.push_str(&format!("{}while ({}; {}) {{\n", pad, bl.join(", "), cs));
-                    // Emit body without tail-expr optimization — __Continue is the real tail
-                    let saved_tail = std::mem::replace(&mut self.in_while, true);
-                    for (j, s) in body.iter().enumerate() {
-                        self.emit_one_stmt(s, out, indent + 1, false);
+                    // Emit body — use try_emit_jump_chain so if-continue produces if-else chains
+                    let mut j = 0;
+                    while j < body.len() {
+                        if self.try_emit_jump_chain(body, j, out, indent + 1) {
+                            break;
+                        }
+                        self.emit_one_stmt(&body[j], out, indent + 1, false);
+                        j += 1;
                     }
-                    self.in_while = saved_tail;
                     let tv: Vec<String> = carried.iter().map(|v| v.clone()).collect();
-                    out.push_str(&format!("{}__Continue(({}))\n", pad, tv.join(", ")));
+                    out.push_str(&format!("{}__Continue(({}))\n", "  ".repeat(indent + 1), tv.join(", ")));
                     out.push_str(&format!("{}}};\n", pad));
                 } else {
                     out.push_str(&format!("{}while ({}) {{\n", pad, cs));
@@ -344,15 +365,24 @@ impl Ctx {
             Stmt::Return(Some(e)) => {
                 if self.in_while {
                     out.push_str(&format!("{}Done(({},))\n", pad, self.emit_expr(e)));
+                } else {
+                    out.push_str(&format!("{}{}\n", pad, self.emit_expr(e)));
                 }
-                // function-level return handled by emit_stmts return-chain
             }
             Stmt::Return(None) => {
                 if self.in_while {
                     out.push_str(&format!("{}__Done((Unit,))\n", pad));
+                } else {
+                    out.push_str(&format!("{}Unit\n", pad));
                 }
             }
-            Stmt::Continue => {}
+            Stmt::Continue => {
+                if self.in_while {
+                    out.push_str(&format!("{}__Continue(({}))\n", pad, self.current_while_borrow.join(", ")));
+                } else {
+                    out.push_str(&format!("{}Unit\n", pad));
+                }
+            }
             Stmt::Expr(e) => {
                 if is_exit_call(e) { return; }
                 let es = self.emit_expr(e);
