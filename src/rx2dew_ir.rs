@@ -489,11 +489,46 @@ impl Ctx {
             Expr::Ref(e) => format!("&{}", self.emit_expr(e)),
             Expr::Deref(e) => self.emit_expr(e),
             Expr::Group(e) => format!("({})", self.emit_expr(e)),
-            Expr::If { cond, then_body, else_body } => format!("if ({}) {{ ... }} else {{ ... }}", self.emit_expr(cond)),
-            Expr::Block(stmts) => "{ ... }".to_string(),
+            Expr::If { cond, then_body, else_body } => {
+                let mut r = format!("if ({}) {{\n", self.emit_expr(cond));
+                for (i, s) in then_body.iter().enumerate() {
+                    let is_last = i == then_body.len() - 1;
+                    if is_last && matches!(s, Stmt::Expr(_)) {
+                        r.push_str(&format!("    {}\n", self.emit_expr(&stmt_to_expr(s))));
+                    } else {
+                        r.push_str(&format!("    {};\n", self.emit_expr(&stmt_to_expr(s))));
+                    }
+                }
+                r.push_str("  } else {\n");
+                for (i, s) in else_body.iter().enumerate() {
+                    let is_last = i == else_body.len() - 1;
+                    if is_last && matches!(s, Stmt::Expr(_)) {
+                        r.push_str(&format!("    {}\n", self.emit_expr(&stmt_to_expr(s))));
+                    } else {
+                        r.push_str(&format!("    {};\n", self.emit_expr(&stmt_to_expr(s))));
+                    }
+                }
+                r.push_str("  }");
+                r
+            }
+            Expr::Block(stmts) => {
+                let mut r = "{\n".to_string();
+                for s in stmts {
+                    r.push_str(&format!("    {};\n", self.emit_expr(&stmt_to_expr(s))));
+                }
+                r.push_str("  }");
+                r
+            }
         }
     }
 
+}
+
+fn stmt_to_expr(stmt: &Stmt) -> Expr {
+    match stmt {
+        Stmt::Expr(e) | Stmt::Return(Some(e)) => e.clone(),
+        _ => Expr::Int(0),
+    }
 }
 
 fn is_get_int(expr: &Expr) -> bool {
