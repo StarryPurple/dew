@@ -692,11 +692,11 @@ fn desugar_while_borrow(w: &WhileExpr) -> Expr {
     let rec_call = Expr::Call(CallExpr { span: w.span, func: Box::new(Expr::Var(loop_name.clone())), args: vec![] });
     let dispatch_arms = vec![
         MatchArm { span: Span::DUMMY,
-            pattern: Pattern::Variant(VariantPattern { span: Span::DUMMY, name: Ident::new("Done", Span::DUMMY), payload: vec![Pattern::Var(Ident::new("%_d", Span::DUMMY))] }),
-            body: Expr::EnumLit(EnumLit { span: Span::DUMMY, name: Ident::new("Done", Span::DUMMY), payload: EnumPayload::Single(vec![Box::new(Expr::Var(Ident::new("%_d", Span::DUMMY)))]) }),
+            pattern: Pattern::Variant(VariantPattern { span: Span::DUMMY, name: Ident::new("__Done", Span::DUMMY), payload: vec![Pattern::Var(Ident::new("%_d", Span::DUMMY))] }),
+            body: Expr::EnumLit(EnumLit { span: Span::DUMMY, name: Ident::new("__Done", Span::DUMMY), payload: EnumPayload::Single(vec![Box::new(Expr::Var(Ident::new("%_d", Span::DUMMY)))]) }),
         },
         MatchArm { span: Span::DUMMY,
-            pattern: Pattern::Variant(VariantPattern { span: Span::DUMMY, name: Ident::new("Continue", Span::DUMMY), payload: vec![Pattern::Var(Ident::new("%_c", Span::DUMMY))] }),
+            pattern: Pattern::Variant(VariantPattern { span: Span::DUMMY, name: Ident::new("__Continue", Span::DUMMY), payload: vec![Pattern::Var(Ident::new("%_c", Span::DUMMY))] }),
             body: Expr::Call(CallExpr { span: w.span, func: Box::new(Expr::Var(Ident::new("%__wb", Span::DUMMY))),
                 args: (0..vars.len()).map(|i| ExprArg::Value(Box::new(Expr::Field(FieldExpr {
                     span: Span::DUMMY,
@@ -725,7 +725,7 @@ fn desugar_while_borrow(w: &WhileExpr) -> Expr {
             arms: dispatch_arms,
         })),
         else_branch: Some(Box::new(Expr::EnumLit(EnumLit {
-            span: Span::DUMMY, name: Ident::new("Done", Span::DUMMY),
+            span: Span::DUMMY, name: Ident::new("__Done", Span::DUMMY),
             payload: EnumPayload::Single(vec![Box::new(initial_tuple.clone())]),
         }))),
     });
@@ -748,7 +748,7 @@ fn desugar_while_borrow(w: &WhileExpr) -> Expr {
         span: w.span,
         scrutinee: Box::new(fix_call),
         arms: vec![MatchArm { span: Span::DUMMY,
-            pattern: Pattern::Variant(VariantPattern { span: Span::DUMMY, name: Ident::new("Done", Span::DUMMY), payload: vec![Pattern::Var(Ident::new("%_r", Span::DUMMY))] }),
+            pattern: Pattern::Variant(VariantPattern { span: Span::DUMMY, name: Ident::new("__Done", Span::DUMMY), payload: vec![Pattern::Var(Ident::new("%_r", Span::DUMMY))] }),
             body: Expr::Var(Ident::new("%_r", Span::DUMMY)),
         }],
     });

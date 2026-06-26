@@ -112,7 +112,7 @@ impl Ctx {
         // Collect consts
         for d in &prog.decls { if let Decl::Const { name, value } = d { self.const_values.insert(name.clone(), value.clone()); } }
         // Emit ControlFlow enum (needed by while borrow)
-        out.push_str("enum ControlFlow(T) {\n  Done(T),\n  Continue(T),\n}\n\n");
+        out.push_str("enum __ControlFlow(T) {\n  __Done(T),\n  __Continue(T),\n}\n\n");
         // Emit structs
         for d in &prog.decls {
             if let Decl::Struct { name, fields } = d {
@@ -279,7 +279,7 @@ impl Ctx {
                     out.push_str(&format!("{}while ({}; {}) {{\n", pad, bl.join(", "), cs));
                     self.emit_stmts(body, out, indent + 1);
                     let tv: Vec<String> = carried.iter().map(|v| v.clone()).collect();
-                    out.push_str(&format!("{}Continue(({}))\n", pad, tv.join(", ")));
+                    out.push_str(&format!("{}__Continue(({}))\n", pad, tv.join(", ")));
                     out.push_str(&format!("{}}};\n", pad));
                 } else {
                     out.push_str(&format!("{}while ({}) {{\n", pad, cs));
@@ -339,7 +339,7 @@ impl Ctx {
             }
             Stmt::Return(None) => {
                 if self.in_while {
-                    out.push_str(&format!("{}Done((Unit,))\n", pad));
+                    out.push_str(&format!("{}__Done((Unit,))\n", pad));
                 }
             }
             Stmt::Continue => {}
