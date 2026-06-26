@@ -52,8 +52,9 @@ fn run(args: &[String]) -> Result<i32, String> {
             let emit_text = args.iter().any(|a| a == "--emit=text");
             let emit_json = args.iter().any(|a| a == "--emit=json");
             let emit_llvm = args.iter().any(|a| a == "--emit=llvm");
+            let emit_desugared = args.iter().any(|a| a == "--emit=desugared");
             let use_llvm = args.iter().any(|a| a == "--backend=llvm");
-            run_file(path, emit_text, emit_json, emit_llvm, use_llvm)
+            run_file(path, emit_text, emit_json, emit_llvm, emit_desugared, use_llvm)
         }
     }
 }
@@ -84,7 +85,7 @@ fn compile(src: &str) -> Result<(dew::ir::module::Module, DiagnosticCollector), 
     Ok((module, diag))
 }
 
-fn run_file(path: &str, emit_text: bool, emit_json: bool, emit_llvm: bool, use_llvm: bool) -> Result<i32, String> {
+fn run_file(path: &str, emit_text: bool, emit_json: bool, emit_llvm: bool, emit_desugared: bool, use_llvm: bool) -> Result<i32, String> {
     let user_src = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path, e))?;
     let mut diag = DiagnosticCollector::new();
     // Register both source files so error display can look up the right one
@@ -95,6 +96,26 @@ fn run_file(path: &str, emit_text: bool, emit_json: bool, emit_llvm: bool, use_l
     }
     let combined = if stdlib.is_empty() { user_src.clone() } else { format!("{}\n{}", stdlib, user_src) };
     diag.stdlib_lines = if stdlib.is_empty() { 0 } else { stdlib.matches('\n').count() + 1 };
+
+    // --emit=desugared: lex → parse → desugar → print, then exit
+    if emit_desugared {
+        let mut lexer = dew::lexer::Lexer::new(&combined);
+        let tokens = lexer.lex_all();
+        let mut parser = dew::parser::Parser::new(tokens, &mut diag, &combined);
+        let prog = parser.parse_program();
+        let prog = expand_imports(prog, &mut diag)?;
+        let prog = dew::desugar::desugar_program(&prog, &mut diag);
+        if diag.has_errors() {
+            diag.emit_all(&combined);
+            return Ok(1);
+        }
+        if diag.has_warnings() {
+            diag.emit_all(&combined);
+        }
+        print!("{}", dew::ast::display_program(&prog));
+        return Ok(0);
+    }
+
     let module = compile_with_diag(&combined, &mut diag)?;
 
     if diag.has_errors() {
