@@ -97,7 +97,7 @@ impl<'a> NameResolver<'a> {
             Expr::If(i) => {
                 self.resolve_expr(&i.condition, scope);
                 self.resolve_expr(&i.then_branch, scope);
-                self.resolve_expr(&i.else_branch, scope);
+                if let Some(ref eb) = i.else_branch { self.resolve_expr(eb, scope); }
             }
             Expr::Match(m) => {
                 self.resolve_expr(&m.scrutinee, scope);

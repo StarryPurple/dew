@@ -69,7 +69,7 @@ impl StrictnessContext {
             crate::ast::Expr::If(i) => {
                 self.classify_expr(&i.condition, Strictness::Strict);
                 self.classify_expr(&i.then_branch, context);
-                self.classify_expr(&i.else_branch, context);
+                if let Some(ref eb) = i.else_branch { self.classify_expr(eb, context); }
                 context
             }
             crate::ast::Expr::Match(m) => {

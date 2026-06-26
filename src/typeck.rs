@@ -756,7 +756,7 @@ impl<'a> TypeChecker<'a> {
                     if let Some(fe) = &b.final_expr { collect_captures(fe, &inner_bound, fvs); }
                 }
                 Expr::Field(f) => { collect_captures(&f.object, bound, fvs); }
-                Expr::If(i) => { collect_captures(&i.condition, bound, fvs); collect_captures(&i.then_branch, bound, fvs); collect_captures(&i.else_branch, bound, fvs); }
+                Expr::If(i) => { collect_captures(&i.condition, bound, fvs); collect_captures(&i.then_branch, bound, fvs); if let Some(ref eb) = i.else_branch { collect_captures(eb, bound, fvs); } }
                 _ => {}
             }
         }
@@ -793,7 +793,7 @@ impl<'a> TypeChecker<'a> {
             }
             Expr::If(i) => self.expr_mentions_name(&i.condition, name)
                 || self.expr_mentions_name(&i.then_branch, name)
-                || self.expr_mentions_name(&i.else_branch, name),
+                || i.else_branch.as_ref().map_or(false, |eb| self.expr_mentions_name(eb, name)),
             Expr::Match(m) => {
                 self.expr_mentions_name(&m.scrutinee, name)
                 || m.arms.iter().any(|a| self.expr_mentions_name(&a.body, name))

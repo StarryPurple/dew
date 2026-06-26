@@ -101,7 +101,7 @@ fn desugar_expr(expr: &Expr) -> Expr {
         Expr::If(i) => {
             let condition = desugar_expr(&i.condition);
             let then_branch = desugar_expr(&i.then_branch);
-            let else_branch = desugar_expr(&i.else_branch);
+            let else_branch = desugar_expr(i.else_branch.as_deref().unwrap_or(&Expr::UnitLit(Span::DUMMY)));
             Expr::Match(MatchExpr {
                 span: i.span,
                 scrutinee: Box::new(condition),
@@ -522,7 +522,7 @@ fn expr_has_borrow(expr: &Expr) -> bool {
         Expr::If(i) => {
             expr_has_borrow(&i.condition)
             || expr_has_borrow(&i.then_branch)
-            || expr_has_borrow(&i.else_branch)
+            || i.else_branch.as_ref().map_or(false, |eb| expr_has_borrow(eb))
         }
         Expr::Match(m) => {
             expr_has_borrow(&m.scrutinee)
@@ -572,7 +572,7 @@ fn desugar_while(w: &WhileExpr) -> Expr {
         BlockStmt { span: w.span, expr: (*w.body).clone(), def: None },
         BlockStmt { span: w.span, expr: self_call, def: None },
     ];
-    let if_expr = Expr::If(IfExpr { span: w.span, condition: w.condition.clone(), then_branch: Box::new(Expr::Block(BlockExpr { span: w.span, stmts: then_stmts, final_expr: None })), else_branch: Box::new(Expr::UnitLit(Span::DUMMY)) });
+    let if_expr = Expr::If(IfExpr { span: w.span, condition: w.condition.clone(), then_branch: Box::new(Expr::Block(BlockExpr { span: w.span, stmts: then_stmts, final_expr: None })), else_branch: Some(Box::new(Expr::UnitLit(Span::DUMMY))) });
     Expr::Block(BlockExpr {
         span: w.span,
         stmts: vec![BlockStmt { span: w.span, expr: Expr::Fn(FnExpr { span: w.span, params: vec![], return_ty: None, body: Box::new(if_expr) }), def: Some(DefDecl { span: w.span, rec: true, name: lname.clone(), ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }) }) }],
@@ -844,7 +844,7 @@ fn substitute_var(expr: &Expr, from: &str, to: &str) -> Expr {
             span: i.span,
             condition: Box::new(substitute_var(&i.condition, from, to)),
             then_branch: Box::new(substitute_var(&i.then_branch, from, to)),
-            else_branch: Box::new(substitute_var(&i.else_branch, from, to)),
+            else_branch: i.else_branch.as_ref().map(|eb| Box::new(substitute_var(eb, from, to))),
         }),
         Expr::Match(m) => Expr::Match(MatchExpr {
             span: m.span,

@@ -921,7 +921,7 @@ fn collect_free_vars_impl(expr: &Expr, bound: &std::collections::HashSet<&str>, 
             }
             if let Some(fe) = &b.final_expr { collect_free_vars_impl(fe, &inner_bound, fvs); }
         }
-        Expr::If(i) => { collect_free_vars_impl(&i.condition, bound, fvs); collect_free_vars_impl(&i.then_branch, bound, fvs); collect_free_vars_impl(&i.else_branch, bound, fvs); }
+        Expr::If(i) => { collect_free_vars_impl(&i.condition, bound, fvs); collect_free_vars_impl(&i.then_branch, bound, fvs); if let Some(ref eb) = i.else_branch { collect_free_vars_impl(eb, bound, fvs); } }
         Expr::Match(m) => {
             collect_free_vars_impl(&m.scrutinee, bound, fvs);
             for arm in &m.arms { collect_free_vars_impl(&arm.body, bound, fvs); }

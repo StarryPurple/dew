@@ -1,0 +1,21 @@
+[E002] error: expected Else, found Semicolon at line 193, col 1
+      };
+  ^
+[E002] error: expected Else, found Semicolon at line 196, col 1
+      };
+  ^
+[E002] error: expected Else, found Semicolon at line 324, col 1
+    };
+  ^
+[E002] error: expected Else, found Semicolon at line 385, col 1
+          };
+  ^
+[W005] warning: pure function annotation violated: body calls IO but return type does not declare IO at byte 12741
+    // while (i < n - 1) — build graph edges
+         ^
+[W005] warning: pure function annotation violated: body calls IO but return type does not declare IO at byte 13189
+    prepare(&node_pool, 1, 0);
+                   ^
+[W005] warning: pure function annotation violated: body calls IO but return type does not declare IO at byte 14064
+    dfs(&node_pool, &seg_pool, &seg_cnt, 1, 0);
+                                 ^

@@ -299,8 +299,8 @@ pub struct IfExpr {
     pub span: Span,
     pub condition: Box<Expr>,
     pub then_branch: Box<Expr>,
-    /// `else` is always required
-    pub else_branch: Box<Expr>,
+    /// None when then_branch has type Unit (else defaults to Unit)
+    pub else_branch: Option<Box<Expr>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -664,17 +664,24 @@ impl<'a> Parser<'a> {
         let start = self.advance().start; // if
         let condition = self.parse_expr_no_postfix()?;
         let then_branch = self.parse_block()?;
-        self.expect(TokenKind::Else)?;
-        let else_branch = if self.check(TokenKind::If) {
-            self.parse_if()?
+        let else_branch = if self.eat(TokenKind::Else) {
+            if self.check(TokenKind::If) {
+                Some(self.parse_if()?)
+            } else {
+                Some(self.parse_block()?)
+            }
         } else {
-            self.parse_block()?
+            None
         };
-        let span = condition.span().merge(else_branch.span());
+        let span = if let Some(ref eb) = else_branch {
+            condition.span().merge(eb.span())
+        } else {
+            then_branch.span()
+        };
         Ok(Expr::If(IfExpr {
             span, condition: Box::new(condition),
             then_branch: Box::new(then_branch),
-            else_branch: Box::new(else_branch),
+            else_branch: else_branch.map(Box::new),
         }))
     }
 

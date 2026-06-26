@@ -1,0 +1,107 @@
+// prepare 函数翻译 — 新 while borrow 设计
+// const propagation: MAXN=200, LOG_MAXN=10
+
+struct Node { edges: [Int; 201], edges_len: Int, d: Int, fa: [Int; 11], segment: Int, ans: Int }
+
+// while 中有 break/continue/return 时需要生成的 ControlFlow 定义
+// 当前版本（prepare 的第二个 while 含 continue 语义）需要
+enum ControlFlow(T) {
+  Done(T),
+  Continue(T),
+}
+
+// ========================
+// 版本 A：带语法糖（翻译器输出）
+// ========================
+
+def prepare = fn(&node_pool: [Node; 201], v: Int, f: Int) -> Unit {
+  &node_pool[v].fa[0] = f;
+  &node_pool[v].d = if (f == 0) { 1 } else { node_pool[f].d + 1 };
+
+  // while (i <= LOG_MAXN)
+  def i = 1;
+  while (&node_pool, &i; i <= 10) {
+    def ff = node_pool[v].fa[i - 1];
+    if (ff != 0) {
+      &node_pool[v].fa[i] = node_pool[ff].fa[i - 1]
+    };
+    &i = i + 1;
+    Continue((node_pool, i))
+  };
+
+  // while (i < node_pool[v].edges_len)
+  def i = 0;
+  while (&node_pool, &i; i < node_pool[v].edges_len) {
+    def to = node_pool[v].edges[i];
+    &i = i + 1;
+    if (to == f) {
+      Continue((node_pool, i))          // continue: 跳过 prepare
+    } else {
+      prepare(&node_pool, to, v);       // & 调用——IR gen 扁平 var_map 传播 node_pool
+      Continue((node_pool, i))
+    }
+  }
+};
+
+// ========================
+// 版本 B：完全脱糖（等价的 fix + match + ControlFlow 展开）
+// ========================
+
+def prepare_desugared = fn(&node_pool: [Node; 201], v: Int, f: Int) -> Unit {
+  &node_pool[v].fa[0] = f;
+  &node_pool[v].d = if (f == 0) { 1 } else { node_pool[f].d + 1 };
+
+  // === 第一个 while 脱糖 ===
+  // while (&node_pool, &i; i <= 10) { body }
+  // → def (node_pool, i) = match (fix __w1 { fn(np, i) -> CF((Node, Int)) {
+  //     if (i <= 10) { match ({ body }) {
+  //       Done(v) => Done(v), Continue(v) => __w1(v.0, v.1)
+  //     }} else { Done((np, i)) }
+  //   }}(node_pool, i)) { Done(v) => v }
+
+  def i = 1;
+  def (node_pool, i) = match (fix __w1 {
+    fn(node_pool: [Node; 201], i: Int) -> ControlFlow(([Node; 201], Int)) {
+      if (i <= 10) {
+        match ({
+          def ff = node_pool[v].fa[i - 1];
+          if (ff != 0) {
+            &node_pool[v].fa[i] = node_pool[ff].fa[i - 1]
+          };
+          &i = i + 1;
+          Continue((node_pool, i))
+        }) {
+          Done(v) => Done(v),
+          Continue(v) => __w1(v.0, v.1),
+        }
+      } else { Done((node_pool, i)) }
+    }
+  }(node_pool, i)) {
+    Done(v) => v,
+  };
+
+  // === 第二个 while 脱糖 ===
+  // 含 continue → body 中有 Done/Continue 分支
+  def i = 0;
+  def (node_pool, i) = match (fix __w2 {
+    fn(node_pool: [Node; 201], i: Int) -> ControlFlow(([Node; 201], Int)) {
+      if (i < node_pool[v].edges_len) {
+        match ({
+          def to = node_pool[v].edges[i];
+          &i = i + 1;
+          if (to == f) {
+            Continue((node_pool, i))          // 跳过 prepare
+          } else {
+            prepare(&node_pool, to, v);
+            Continue((node_pool, i))
+          }
+        }) {
+          Done(v) => Done(v),
+          Continue(v) => __w2(v.0, v.1),
+        }
+      } else { Done((node_pool, i)) }
+    }
+  }(node_pool, i)) {
+    Done(v) => v,
+  };
+};

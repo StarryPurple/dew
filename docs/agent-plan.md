@@ -16,11 +16,12 @@
 - [x] Name resolver: added `Expr::Cast` recursion (was incorrectly treated as leaf node)
 - [x] Documented `as` cast in `dew-lang.md` §7.2 (Operators), §7.3 (Precedence), §14 (Keywords)
 
-## In Progress
+### 2026-06-26 — New Session Start: Rx→Dew Redesign
 
-- [ ] **Case 9/10/14**: struct-type array element assignment (`&self.edges[idx] = Edge__new(...)`)
-- [ ] **Case 37**: IO annotation on while-loop functions
-- [ ] **Case 41**: self-referential `def final_status = final_status + k`
+- [ ] Phase 1: Restore basic translator framework (struct + function direct translation)
+- [ ] Phase 2: Destructurization (struct→ADT, method→standalone fn, type-directed dispatch)
+- [ ] Phase 3: Control flow translation (while→fix+CF, return/break/continue)
+- [ ] Phase 4: Mutation + Borrow (`&mut`→`&`, assignment→shadowing)
 
 ### 2026-06-19 — Rx↔Dew Interop Specification Rewrite
 
@@ -73,18 +74,4 @@
 ## Deferred
 
 - [ ] **typeof/type_match (§4.9)**: spec designed, requires monomorphization pass (~150 lines)
-- [ ] **Rx→Dew translator**: while/for/in loops via def rec + borrow params
 - [ ] **for-in list iteration**: requires self-referencing closure infrastructure (Rc sharing)
-
-## Test Status
-
-**143 e2e passed, 0 failed** (2026-06-21)
-
-**Rx→Dew pipeline: 45/50 LLVM IR generated** (up from 24)
-
-Remaining type errors (5 cases):
-- Cases 9, 10, 14: struct-type array element assignment (`Edge`/`Node` to `Int`)
-- Case 37: IO annotation violation
-- Case 41: self-referential `def final_status = final_status + k`
-
-Interpreter correct: 0/50 (runtime issues remain)

@@ -252,7 +252,7 @@ impl<'a> TokenExtractor<'a> {
             Expr::If(i) => {
                 self.collect_from_expr(&i.condition);
                 self.collect_from_expr(&i.then_branch);
-                self.collect_from_expr(&i.else_branch);
+                if let Some(ref eb) = i.else_branch { self.collect_from_expr(eb); }
             }
             Expr::Match(m) => {
                 self.collect_from_expr(&m.scrutinee);
