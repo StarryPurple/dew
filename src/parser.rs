@@ -684,9 +684,11 @@ impl<'a> Parser<'a> {
     fn parse_if(&mut self) -> Result<Expr, Span> {
         let start = self.advance().start; // if
         // Detect `if (&x, &y; cond)` borrow syntax
-        let (if_borrow, condition) = if self.check(TokenKind::LParen)
-            && self.peek_ahead(1) == Some(&TokenKind::Amp)
-        {
+        let (if_borrow, condition) = if self.check(TokenKind::LParen) && {
+            // Check if token after `(` is `&` — use direct comparison
+            let p = self.pos;
+            p + 1 < self.tokens.len() && matches!(self.tokens[p + 1].kind, TokenKind::Amp)
+        } {
             self.advance(); // (
             let mut vars = Vec::new();
             while self.eat(TokenKind::Amp) {
@@ -695,18 +697,18 @@ impl<'a> Parser<'a> {
                 if !self.check(TokenKind::Semicolon) { self.expect(TokenKind::Comma)?; }
             }
             self.expect(TokenKind::Semicolon)?;
-            let cond = self.parse_expr_no_postfix()?;
+            let cond = self.parse_pratt(0)?;
             self.expect(TokenKind::RParen)?;
             (vars, cond)
         } else {
-            (vec![], self.parse_expr_no_postfix()?)
+            (vec![], self.parse_pratt(0)?)
         };
         let then_branch = self.parse_block()?;
         // Parse else (may also have borrows: `else (&x) { }`)
         let (else_borrow, else_branch) = if self.eat(TokenKind::Else) {
-            let else_brw = if self.check(TokenKind::LParen)
-                && self.peek_ahead(1) == Some(&TokenKind::Amp)
-            {
+            let else_brw = if self.check(TokenKind::LParen) && {
+                let p = self.pos; p + 1 < self.tokens.len() && matches!(self.tokens[p + 1].kind, TokenKind::Amp)
+            } {
                 self.advance(); // (
                 let mut vars = Vec::new();
                 while self.eat(TokenKind::Amp) {
@@ -876,9 +878,9 @@ impl<'a> Parser<'a> {
     fn parse_while(&mut self) -> Result<Expr, Span> {
         let start = self.advance().start;
         // Detect `while (&x, &y; cond)` borrow syntax (same pattern as parse_if)
-        let (borrow_vars, condition) = if self.check(TokenKind::LParen)
-            && self.peek_ahead(1) == Some(&TokenKind::Amp)
-        {
+        let (borrow_vars, condition) = if self.check(TokenKind::LParen) && {
+            let p = self.pos; p + 1 < self.tokens.len() && matches!(self.tokens[p + 1].kind, TokenKind::Amp)
+        } {
             self.advance(); // (
             let mut vars = Vec::new();
             while self.check(TokenKind::Amp) {
@@ -888,11 +890,11 @@ impl<'a> Parser<'a> {
                 if self.check(TokenKind::Comma) { self.advance(); }
             }
             self.expect(TokenKind::Semicolon)?;
-            let cond = self.parse_expr_no_postfix()?;
+            let cond = self.parse_pratt(0)?;
             self.expect(TokenKind::RParen)?;
             (vars, cond)
         } else {
-            (vec![], self.parse_expr_no_postfix().unwrap_or(Expr::UnitLit(Span::DUMMY)))
+            (vec![], self.parse_pratt(0).unwrap_or(Expr::UnitLit(Span::DUMMY)))
         };
         let body = self.parse_block()?;
         let end = body.span().end;
