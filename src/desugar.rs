@@ -97,12 +97,104 @@ fn desugar_expr(expr: &Expr) -> Expr {
             }
         }
 
-        // if/else → match on Bool
+        // if/else (borrow or regular) → match on Bool
         Expr::If(i) => {
+            // If borrow if: desugar to tuple-returning if first
+            if !i.if_borrow.is_empty() {
+                let union_vars = {
+                    let mut v = i.if_borrow.clone();
+                    if let Some(ref eb) = i.else_borrow {
+                        for ev in eb { if !v.iter().any(|x| x.name == ev.name) { v.push(ev.clone()); } }
+                    }
+                    v
+                };
+                // Build tuple expression `(v1, v2, ...)`
+                let build_tuple = |vars: &[Ident]| -> Expr {
+                    Expr::TupleLit(TupleLit {
+                        span: Span::DUMMY,
+                        elements: vars.iter().map(|v| Expr::Var(v.clone())).collect(),
+                    })
+                };
+                // Append tuple to a block's final_expr
+                let wrap_branch = |branch: &Expr, vars: &[Ident]| -> Expr {
+                    match branch {
+                        Expr::Block(b) => {
+                            let mut b = b.clone();
+                            b.final_expr = Some(Box::new(build_tuple(vars)));
+                            Expr::Block(b)
+                        }
+                        other => {
+                            Expr::Block(BlockExpr {
+                                span: Span::DUMMY,
+                                stmts: vec![BlockStmt { span: Span::DUMMY, expr: other.clone(), def: None }],
+                                final_expr: Some(Box::new(build_tuple(vars))),
+                            })
+                        }
+                    }
+                };
+                let then_branch = desugar_expr(&wrap_branch(&i.then_branch, &union_vars));
+                let else_body = i.else_branch.as_deref().unwrap_or(&Expr::UnitLit(Span::DUMMY));
+                let else_branch = desugar_expr(&wrap_branch(else_body, &union_vars));
+                let condition = desugar_expr(&i.condition);
+                let if_expr = Expr::If(IfExpr {
+                    span: i.span, if_borrow: vec![], else_borrow: None,
+                    condition: Box::new(condition),
+                    then_branch: Box::new(then_branch),
+                    else_branch: Some(Box::new(else_branch)),
+                });
+                // Desugar inner if to match, then wrap in def (v1, v2) = if ...
+                let if_desugared = desugar_expr(&if_expr);
+                let tmp_name = Ident::new("%_ifbrw", Span::DUMMY);
+                let mut stmts: Vec<BlockStmt> = Vec::new();
+                // Flatten if it's already a block with one stmt (match)
+                match &if_desugared {
+                    Expr::Block(b) if b.stmts.is_empty() && b.final_expr.is_some() => {
+                        // Single-result block: bind to tmp
+                        stmts.push(BlockStmt {
+                            span: i.span,
+                            expr: b.final_expr.as_ref().unwrap().as_ref().clone(),
+                            def: Some(DefDecl {
+                                span: i.span, rec: false, name: tmp_name.clone(),
+                                destructure: None, ty: None,
+                                value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                            }),
+                        });
+                    }
+                    _ => {
+                        stmts.push(BlockStmt {
+                            span: i.span,
+                            expr: if_desugared.clone(),
+                            def: Some(DefDecl {
+                                span: i.span, rec: false, name: tmp_name.clone(),
+                                destructure: None, ty: None,
+                                value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                            }),
+                        });
+                    }
+                }
+                for (idx, v) in union_vars.iter().enumerate() {
+                    let field = Expr::Field(FieldExpr {
+                        span: i.span,
+                        object: Box::new(Expr::Var(tmp_name.clone())),
+                        field: Ident::new(format!("{}", idx), Span::DUMMY),
+                    });
+                    stmts.push(BlockStmt {
+                        span: i.span,
+                        expr: field,
+                        def: Some(DefDecl {
+                            span: i.span, rec: false, name: v.clone(),
+                            destructure: None, ty: None,
+                            value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                        }),
+                    });
+                }
+                return Expr::Block(BlockExpr { span: i.span, stmts, final_expr: None });
+            }
+
             let condition = desugar_expr(&i.condition);
             let then_branch = desugar_expr(&i.then_branch);
             let else_branch = desugar_expr(i.else_branch.as_deref().unwrap_or(&Expr::UnitLit(Span::DUMMY)));
-            Expr::Match(MatchExpr {
+            return Expr::Match(MatchExpr {
                 span: i.span,
                 scrutinee: Box::new(condition),
                 arms: vec![
@@ -123,7 +215,7 @@ fn desugar_expr(expr: &Expr) -> Expr {
                         body: else_branch,
                     },
                 ],
-            })
+            });
         }
 
         Expr::While(w) => desugar_expr(&desugar_while(w)),
@@ -575,7 +667,7 @@ fn desugar_while(w: &WhileExpr) -> Expr {
         BlockStmt { span: w.span, expr: (*w.body).clone(), def: None },
         BlockStmt { span: w.span, expr: self_call, def: None },
     ];
-    let if_expr = Expr::If(IfExpr { span: w.span, condition: w.condition.clone(), then_branch: Box::new(Expr::Block(BlockExpr { span: w.span, stmts: then_stmts, final_expr: None })), else_branch: Some(Box::new(Expr::UnitLit(Span::DUMMY))) });
+    let if_expr = Expr::If(IfExpr { span: w.span, if_borrow: vec![], else_borrow: None, condition: w.condition.clone(), then_branch: Box::new(Expr::Block(BlockExpr { span: w.span, stmts: then_stmts, final_expr: None })), else_branch: Some(Box::new(Expr::UnitLit(Span::DUMMY))) });
     Expr::Block(BlockExpr {
         span: w.span,
         stmts: vec![BlockStmt { span: w.span, expr: Expr::Fn(FnExpr { span: w.span, params: vec![], return_ty: None, body: Box::new(if_expr) }), def: Some(DefDecl { span: w.span, rec: true, name: lname.clone(), destructure: None,  ty: None, value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }) }) }],
@@ -878,7 +970,7 @@ fn substitute_var(expr: &Expr, from: &str, to: &str) -> Expr {
             final_expr: b.final_expr.as_ref().map(|e| Box::new(substitute_var(e, from, to))),
         }),
         Expr::If(i) => Expr::If(IfExpr {
-            span: i.span,
+            span: i.span, if_borrow: i.if_borrow.clone(), else_borrow: i.else_borrow.clone(),
             condition: Box::new(substitute_var(&i.condition, from, to)),
             then_branch: Box::new(substitute_var(&i.then_branch, from, to)),
             else_branch: i.else_branch.as_ref().map(|eb| Box::new(substitute_var(eb, from, to))),

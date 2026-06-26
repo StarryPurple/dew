@@ -683,16 +683,49 @@ impl<'a> Parser<'a> {
 
     fn parse_if(&mut self) -> Result<Expr, Span> {
         let start = self.advance().start; // if
-        let condition = self.parse_expr_no_postfix()?;
+        // Detect `if (&x, &y; cond)` borrow syntax
+        let (if_borrow, condition) = if self.check(TokenKind::LParen)
+            && self.peek_ahead(1) == Some(&TokenKind::Amp)
+        {
+            self.advance(); // (
+            let mut vars = Vec::new();
+            while self.eat(TokenKind::Amp) {
+                let name = self.expect_ident()?;
+                vars.push(name);
+                if !self.check(TokenKind::Semicolon) { self.expect(TokenKind::Comma)?; }
+            }
+            self.expect(TokenKind::Semicolon)?;
+            let cond = self.parse_expr_no_postfix()?;
+            self.expect(TokenKind::RParen)?;
+            (vars, cond)
+        } else {
+            (vec![], self.parse_expr_no_postfix()?)
+        };
         let then_branch = self.parse_block()?;
-        let else_branch = if self.eat(TokenKind::Else) {
-            if self.check(TokenKind::If) {
-                Some(self.parse_if()?)
+        // Parse else (may also have borrows: `else (&x) { }`)
+        let (else_borrow, else_branch) = if self.eat(TokenKind::Else) {
+            let else_brw = if self.check(TokenKind::LParen)
+                && self.peek_ahead(1) == Some(&TokenKind::Amp)
+            {
+                self.advance(); // (
+                let mut vars = Vec::new();
+                while self.eat(TokenKind::Amp) {
+                    let name = self.expect_ident()?;
+                    vars.push(name);
+                    if !self.check(TokenKind::RParen) { self.expect(TokenKind::Comma)?; }
+                }
+                self.expect(TokenKind::RParen)?;
+                Some(vars)
             } else {
-                Some(self.parse_block()?)
+                None
+            };
+            if self.check(TokenKind::If) {
+                (else_brw, Some(self.parse_if()?))
+            } else {
+                (else_brw, Some(self.parse_block()?))
             }
         } else {
-            None
+            (None, None)
         };
         let span = if let Some(ref eb) = else_branch {
             condition.span().merge(eb.span())
@@ -700,7 +733,8 @@ impl<'a> Parser<'a> {
             then_branch.span()
         };
         Ok(Expr::If(IfExpr {
-            span, condition: Box::new(condition),
+            span, if_borrow, else_borrow,
+            condition: Box::new(condition),
             then_branch: Box::new(then_branch),
             else_branch: else_branch.map(Box::new),
         }))

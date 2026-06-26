@@ -301,6 +301,10 @@ pub enum ExprArg {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IfExpr {
     pub span: Span,
+    /// Borrow variables declared on `if` branch: `(&x, &y; cond)`. Empty = no borrow.
+    pub if_borrow: Vec<Ident>,
+    /// Borrow variables declared on `else` branch. None = inherit from if_borrow.
+    pub else_borrow: Option<Vec<Ident>>,
     pub condition: Box<Expr>,
     pub then_branch: Box<Expr>,
     /// None when then_branch has type Unit (else defaults to Unit)
