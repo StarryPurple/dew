@@ -206,7 +206,9 @@ impl Ctx {
     /// emit it as an if-else chain and return true. The remaining statements `stmts[i+1..]`
     /// are emitted inside the else branch via `emit_stmts`, enabling recursive handling of
     /// nested jump chains (e.g., `if (a) { return e1; } if (b) { return e2; } e3`).
-    fn try_emit_jump_chain(&mut self, stmts: &[Stmt], i: usize, out: &mut String, indent: usize) -> bool {
+    /// If `tail` is non-empty, it is emitted at the end of the else block (for while-body
+    /// __Continue to be placed inside the else branch rather than after the if-else).
+    fn try_emit_jump_chain(&mut self, stmts: &[Stmt], i: usize, out: &mut String, indent: usize, tail: &str) -> bool {
         if i + 1 >= stmts.len() { return false; }
         let Stmt::If { cond, then_body, .. } = &stmts[i] else { return false; };
         let jump_pos = match then_body.iter().position(|s| matches!(s, Stmt::Return(_) | Stmt::Continue)) {
@@ -235,9 +237,18 @@ impl Ctx {
         if !remaining.is_empty() {
             out.push_str(&format!("{}}} else {{\n", pad));
             self.emit_stmts(&stmts[i+1..], out, indent + 1);
+            if !tail.is_empty() {
+                out.push_str(&format!("{}{}\n", "  ".repeat(indent + 1), tail));
+            }
             out.push_str(&format!("{}}}\n", pad));
         } else {
-            out.push_str(&format!("{}}}\n", pad));
+            if !tail.is_empty() {
+                out.push_str(&format!("{}}} else {{\n{}", pad, "  ".repeat(indent + 1)));
+                out.push_str(&format!("{}\n", tail));
+                out.push_str(&format!("{}}}\n", pad));
+            } else {
+                out.push_str(&format!("{}}}\n", pad));
+            }
         }
         true
     }
@@ -248,7 +259,7 @@ impl Ctx {
         // the if becomes the condition, return value is the then-branch, rest goes in else.
         let mut i = 0;
         while i < stmts.len() {
-            if self.try_emit_jump_chain(stmts, i, out, indent) {
+            if self.try_emit_jump_chain(stmts, i, out, indent, "") {
                 return;
             }
             let is_last = i == stmts.len() - 1;
@@ -299,17 +310,24 @@ impl Ctx {
                     self.current_while_borrow = carried.clone();
                     let bl: Vec<String> = carried.iter().map(|v| format!("&{}", v)).collect();
                     out.push_str(&format!("{}while ({}; {}) {{\n", pad, bl.join(", "), cs));
-                    // Emit body — use try_emit_jump_chain so if-continue produces if-else chains
+                    // Emit body — use try_emit_jump_chain so if-continue produces if-else chains.
+                    // The __Continue tail is passed into the jump chain so it lands inside the
+                    // else branch rather than after the if-else (avoids redundant double __Continue).
+                    let tv: Vec<String> = carried.iter().map(|v| v.clone()).collect();
+                    let continue_text = format!("__Continue(({}))", tv.join(", "));
                     let mut j = 0;
+                    let mut chain_fired = false;
                     while j < body.len() {
-                        if self.try_emit_jump_chain(body, j, out, indent + 1) {
+                        if self.try_emit_jump_chain(body, j, out, indent + 1, &continue_text) {
+                            chain_fired = true;
                             break;
                         }
                         self.emit_one_stmt(&body[j], out, indent + 1, false);
                         j += 1;
                     }
-                    let tv: Vec<String> = carried.iter().map(|v| v.clone()).collect();
-                    out.push_str(&format!("{}__Continue(({}))\n", "  ".repeat(indent + 1), tv.join(", ")));
+                    if !chain_fired {
+                        out.push_str(&format!("{}{}\n", "  ".repeat(indent + 1), continue_text));
+                    }
                     out.push_str(&format!("{}}};\n", pad));
                 } else {
                     out.push_str(&format!("{}while ({}) {{\n", pad, cs));
