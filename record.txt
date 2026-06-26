@@ -1,57 +1,54 @@
-[E003] error: type mismatch in function return: cannot unify Unit with Food (got Unit and Food) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:28:13
-  def Food_better = fn(self: Food, other: Food) -> Food {
-              ^
-[E003] error: type mismatch in array subscript: cannot unify Int with Array(t237, 0) (got Int and Array(t237, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:139:8
+[E003] error: type mismatch in array subscript: cannot unify Int with Array(t237, 0) (got Int and Array(t237, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:154:8
       def ff = node_pool[v].fa[i - 1];
          ^
-[E003] error: type mismatch in array subscript: cannot unify Int with Array(t265, 0) (got Int and Array(t265, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:147:28
+[E003] error: type mismatch in array subscript: cannot unify Int with Array(t265, 0) (got Int and Array(t265, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:163:28
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                              ^
-[E003] error: type mismatch in array subscript: cannot unify Int with Array(t269, 0) (got Int and Array(t269, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:148:8
+[E003] error: type mismatch in array subscript: cannot unify Int with Array(t269, 0) (got Int and Array(t269, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:164:8
       def to = node_pool[v].edges[i];
          ^
-[E003] error: type mismatch in array subscript: cannot unify Int with Array(t345, 0) (got Int and Array(t345, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:177:13
+[E003] error: type mismatch in array subscript: cannot unify Int with Array(t345, 0) (got Int and Array(t345, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:196:13
         if (&u, &v; node_pool[u].fa[(i as Int)] != node_pool[v].fa[(i as Int)]) {
               ^
-[E003] error: type mismatch in array subscript: cannot unify Int with Array(t348, 0) (got Int and Array(t348, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:177:44
+[E003] error: type mismatch in array subscript: cannot unify Int with Array(t348, 0) (got Int and Array(t348, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:196:44
         if (&u, &v; node_pool[u].fa[(i as Int)] != node_pool[v].fa[(i as Int)]) {
                                              ^
-[E003] error: type mismatch in array subscript: cannot unify Int with Array(t353, 0) (got Int and Array(t353, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:178:8
+[E003] error: type mismatch in array subscript: cannot unify Int with Array(t353, 0) (got Int and Array(t353, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:197:8
           &u = node_pool[u].fa[(i as Int)];
          ^
-[E003] error: type mismatch in array subscript: cannot unify Int with Array(t357, 0) (got Int and Array(t357, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:179:8
+[E003] error: type mismatch in array subscript: cannot unify Int with Array(t357, 0) (got Int and Array(t357, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:198:8
           &v = node_pool[v].fa[(i as Int)];
          ^
-[E003] error: type mismatch in array subscript: cannot unify Int with Array(t390, 0) (got Int and Array(t390, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:190:49
+[E003] error: type mismatch in array subscript: cannot unify Int with Array(t390, 0) (got Int and Array(t390, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:210:49
     while (&i, &node_pool, &seg_pool, &seg_cnt, &v; i < node_pool[v].edges_len) {
                                                   ^
-[E003] error: type mismatch in array subscript: cannot unify Int with Array(t394, 0) (got Int and Array(t394, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:191:8
+[E003] error: type mismatch in array subscript: cannot unify Int with Array(t394, 0) (got Int and Array(t394, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:211:8
       def to = node_pool[v].edges[i];
          ^
-[E003] error: type mismatch in array subscript: cannot unify Int with Array(t467, 0) (got Int and Array(t467, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:214:11
+[E003] error: type mismatch in array subscript: cannot unify Int with Array(t467, 0) (got Int and Array(t467, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:236:11
       Node_clear(&node_pool[i]);
             ^
-[E003] error: type mismatch in function call: cannot unify Array(SegT, 2000) with Int at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:215:23
+[E003] error: type mismatch in function call: cannot unify Array(SegT, 2000) with Int at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:237:23
       &node_pool[i].segment = build(&seg_pool, &seg_cnt, 1, (200 as Int));
                         ^
-[E003] error: type mismatch in array subscript: cannot unify Int with Array(t510, 0) (got Int and Array(t510, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:225:10
+[E003] error: type mismatch in array subscript: cannot unify Int with Array(t510, 0) (got Int and Array(t510, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:247:10
       Node_push(&node_pool[a], b);
            ^
-[W005] warning: pure function annotation violated: body calls IO but return type does not declare IO at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:219:7
+[W005] warning: pure function annotation violated: body calls IO but return type does not declare IO at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:241:7
     &i = 0;
         ^
-[E003] error: type mismatch in function call: cannot unify Array(Node, 201) with Int at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:239:7
+[E003] error: type mismatch in function call: cannot unify Array(Node, 201) with Int at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:261:7
       def f = lca(&node_pool, x, y);
         ^
-[E003] error: type mismatch in function call: cannot unify Array(SegT, 2000) with Int at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:240:1
+[E003] error: type mismatch in function call: cannot unify Array(SegT, 2000) with Int at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:262:1
       update(&seg_pool, &seg_cnt, node_pool[x].segment, z, 1);
   ^
-[W005] warning: pure function annotation violated: body calls IO but return type does not declare IO at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:231:7
+[W005] warning: pure function annotation violated: body calls IO but return type does not declare IO at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:253:7
     &i = 0;
         ^
-[E003] error: type mismatch in array subscript: cannot unify Int with Array(t633, 0) (got Int and Array(t633, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:252:1
+[E003] error: type mismatch in array subscript: cannot unify Int with Array(t633, 0) (got Int and Array(t633, 0)) at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:275:1
       node_pool[i].ans -> stdout;
   ^
-[W005] warning: pure function annotation violated: body calls IO but return type does not declare IO at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:250:7
+[W005] warning: pure function annotation violated: body calls IO but return type does not declare IO at RustShard-Compiler/test/comprehensive1/comprehensive1.dew:273:7
     &i = 1;
         ^

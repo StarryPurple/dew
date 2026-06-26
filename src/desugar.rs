@@ -674,13 +674,19 @@ fn desugar_while(w: &WhileExpr) -> Expr {
 
 fn desugar_while_borrow(w: &WhileExpr) -> Expr {
     let vars = &w.borrow_vars;
-    let vty = Type::Named(NamedType { span: Span::DUMMY, name: Ident::new("Int", Span::DUMMY), args: None });
+    // Use None for param types — the HM type checker infers them from the call site.
+    // Using Some(Int) was wrong for non-Int borrow vars like struct arrays.
     let params: Vec<FnParam> = vars.iter().map(|v| FnParam {
-        span: Span::DUMMY, name: v.clone(), ty: Some(vty.clone()), is_borrow: false,
+        span: Span::DUMMY, name: v.clone(), ty: None, is_borrow: false,
     }).collect();
 
-    // Build tuple type and value expressions
-    let tuple_ty = Type::Tuple(TupleType { span: Span::DUMMY, elements: vec![vty.clone(); vars.len()] });
+    // Tuple of borrow var types — used as type arg to __ControlFlow
+    let tuple_ty = Type::Tuple(TupleType { span: Span::DUMMY, elements: vec![Type::Wildcard(Span::DUMMY); vars.len()] });
+    let cf_ret_ty = Type::Named(NamedType {
+        span: Span::DUMMY,
+        name: Ident::new("__ControlFlow", Span::DUMMY),
+        args: Some(vec![TypeArg::Type(tuple_ty.clone())]),
+    });
     let build_tuple_expr = |exprs: Vec<Expr>| -> Expr {
         Expr::TupleLit(TupleLit { span: Span::DUMMY, elements: exprs })
     };
@@ -736,7 +742,7 @@ fn desugar_while_borrow(w: &WhileExpr) -> Expr {
         span: fix_span,
         loop_var: loop_name.clone(),
         body: Box::new(Expr::Fn(FnExpr {
-            span: fix_span, params, return_ty: Some(tuple_ty),
+            span: fix_span, params, return_ty: Some(cf_ret_ty),
             body: Box::new(fix_body),
         })),
     });
