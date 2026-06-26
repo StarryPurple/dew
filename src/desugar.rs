@@ -503,13 +503,7 @@ fn desugar_fn(f: &FnExpr) -> Expr {
     let new_body = if let Expr::Block(mut b) = body {
         let orig_final = b.final_expr.take()
             .map(|e| (*e).clone())
-            .unwrap_or_else(|| {
-                if borrow_params.len() == 1 {
-                    Expr::Var(f.params[borrow_params[0].0].name.clone())
-                } else {
-                    Expr::UnitLit(Span::DUMMY)
-                }
-            });
+            .unwrap_or_else(|| Expr::UnitLit(Span::DUMMY));
         // If the block already has statements (e.g., borrow mutations),
         // the result def binding must use a unique name to avoid
         // shadowing the borrow param's existing def binding.
@@ -638,20 +632,148 @@ fn expr_has_borrow(expr: &Expr) -> bool {
     }
 }
 
+/// Detect if an expression contains direct stdin/stdout IO calls.
+/// Used by desugar_while_borrow to annotate fix function return types with IO.
+fn expr_has_io(expr: &Expr) -> bool {
+    match expr {
+        // Direct stdin/stdout pipeline: x -> stdin, node_pool[i].ans -> stdout
+        Expr::Pipeline(p) => {
+            if let Expr::Var(ident) = &*p.func {
+                if ident.name == "stdout" || ident.name == "stdin" {
+                    return true;
+                }
+            }
+            expr_has_io(&p.value) || expr_has_io(&p.func)
+        }
+        // Direct stdin/stdout call: stdin(), stdout(x)
+        Expr::Call(c) => {
+            if let Expr::Var(ident) = &*c.func {
+                if ident.name == "stdout" || ident.name == "stdin" {
+                    return true;
+                }
+            }
+            c.args.iter().any(|a| match a {
+                ExprArg::Value(e) => expr_has_io(e),
+                ExprArg::Borrow(b) => b.rhs.as_ref().map_or(false, |rhs| match &**rhs {
+                    BorrowRhs::Assign(e) => expr_has_io(e),
+                    BorrowRhs::Update(updates) => updates.iter().any(|u| match u {
+                        UpdateField::NamedField { value, .. } => expr_has_io(value),
+                        UpdateField::ArrayIndex { value, .. } => expr_has_io(value),
+                        UpdateField::TupleIndex { value, .. } => expr_has_io(value),
+                    }),
+                }),
+            })
+        }
+        Expr::Block(b) => {
+            b.stmts.iter().any(|s| expr_has_io(&s.expr))
+            || b.final_expr.as_ref().map_or(false, |e| expr_has_io(e))
+        }
+        Expr::If(i) => {
+            expr_has_io(&i.condition)
+            || expr_has_io(&i.then_branch)
+            || i.else_branch.as_ref().map_or(false, |eb| expr_has_io(eb))
+        }
+        Expr::Match(m) => {
+            expr_has_io(&m.scrutinee)
+            || m.arms.iter().any(|a| expr_has_io(&a.body))
+        }
+        Expr::Binary(b) => expr_has_io(&b.left) || expr_has_io(&b.right),
+        Expr::Unary(u) => expr_has_io(&u.expr),
+        Expr::Field(f) => expr_has_io(&f.object),
+        Expr::StructLit(s) => s.fields.iter().filter_map(|f| f.value.as_ref()).any(expr_has_io),
+        Expr::TupleLit(t) => t.elements.iter().any(expr_has_io),
+        Expr::ArrayLit(a) => a.elements.iter().any(expr_has_io),
+        Expr::ArrayFill(a) => expr_has_io(&a.value),
+        Expr::Force(f) => expr_has_io(&f.expr),
+        Expr::Fix(f) => expr_has_io(&f.body),
+        Expr::Fn(f) => expr_has_io(&f.body),
+        Expr::Subscript(s) => expr_has_io(&s.array) || expr_has_io(&s.index),
+        Expr::Update(u) => expr_has_io(&u.base) || u.updates.iter().any(|f| match f {
+            UpdateField::NamedField { value, .. } => expr_has_io(value),
+            UpdateField::ArrayIndex { value, .. } => expr_has_io(value),
+            UpdateField::TupleIndex { value, .. } => expr_has_io(value),
+        }),
+        Expr::While(w) => expr_has_io(&w.condition) || expr_has_io(&w.body),
+        Expr::Loop(l) => expr_has_io(&l.body),
+        Expr::Borrow(b) => b.rhs.as_ref().map_or(false, |rhs| match &**rhs {
+            BorrowRhs::Assign(e) => expr_has_io(e),
+            BorrowRhs::Update(updates) => updates.iter().any(|u| match u {
+                UpdateField::NamedField { value, .. } => expr_has_io(value),
+                UpdateField::ArrayIndex { value, .. } => expr_has_io(value),
+                UpdateField::TupleIndex { value, .. } => expr_has_io(value),
+            }),
+        }),
+        _ => false,
+    }
+}
+
 /// Desugar a borrow statement: `&p = expr` → `def p = expr`
 /// `&p { fields }` → `def p = p { fields }`
 /// Desugar a borrow statement: `&p = expr` → `def p = expr`
 /// `&p { fields }` → `def p = p { fields }`
+/// Compound lvalue: `&p.f.g = val` → `def p = p { .f = p.f { .g = val } }`
 fn desugar_borrow_stmt(b: &BorrowExpr) -> Expr {
     let Some(ref rhs) = b.rhs else { return Expr::UnitLit(Span::DUMMY) };
     let rhs_expr = match &**rhs {
-        BorrowRhs::Assign(e) => desugar_expr(e),
+        BorrowRhs::Assign(e) => {
+            let rhs = desugar_expr(e);
+            if b.lvalue.path.is_empty() {
+                rhs
+            } else {
+                // Compound lvalue: walk path backwards from innermost to root,
+                // building nested updates at each level.
+                build_nested_assign(&b.lvalue, rhs)
+            }
+        }
         BorrowRhs::Update(updates) => {
             let root_expr = Expr::Var(b.lvalue.root.clone());
             build_nested_update(&b.lvalue, root_expr, updates)
         }
     };
     rhs_expr
+}
+
+/// Build nested struct/array updates for a borrow assignment with compound lvalue.
+/// For `&x.f.g = val`, returns `x { .f = x.f { .g = val } }`.
+/// Walks the lvalue path backwards, wrapping the inner value in an update
+/// at each level.
+fn build_nested_assign(lvalue: &LValue, rhs: Expr) -> Expr {
+    let root = Expr::Var(lvalue.root.clone());
+    let mut current = rhs;
+    for (i, accessor) in lvalue.path.iter().enumerate().rev() {
+        let mut target = root.clone();
+        for prev in lvalue.path.iter().take(i) {
+            target = match prev {
+                LValueAccessor::Field(name) => Expr::Field(FieldExpr {
+                    span: lvalue.span, object: Box::new(target), field: name.clone(),
+                }),
+                LValueAccessor::Index(idx) => Expr::Subscript(SubscriptExpr {
+                    span: lvalue.span, array: Box::new(target), index: Box::new(idx.clone()),
+                }),
+                LValueAccessor::TupleIndex(idx) => Expr::Field(FieldExpr {
+                    span: lvalue.span, object: Box::new(target),
+                    field: Ident::new(format!("{}", idx), Span::DUMMY),
+                }),
+            };
+        }
+        let update = match accessor {
+            LValueAccessor::Field(name) => UpdateField::NamedField {
+                span: lvalue.span, name: name.clone(), value: current,
+            },
+            LValueAccessor::Index(idx) => UpdateField::ArrayIndex {
+                span: lvalue.span, index: idx.clone(), value: current,
+            },
+            LValueAccessor::TupleIndex(idx) => UpdateField::TupleIndex {
+                span: lvalue.span, index: *idx, value: current,
+            },
+        };
+        current = Expr::Update(UpdateExpr {
+            span: lvalue.span,
+            base: Box::new(target),
+            updates: vec![update],
+        });
+    }
+    current
 }
 
 fn desugar_while(w: &WhileExpr) -> Expr {
@@ -687,6 +809,18 @@ fn desugar_while_borrow(w: &WhileExpr) -> Expr {
         name: Ident::new("__ControlFlow", Span::DUMMY),
         args: Some(vec![TypeArg::Type(tuple_ty.clone())]),
     });
+    // Detect IO in while body and annotate the fix function's return type accordingly.
+    // This prevents W005 false positives for compiler-generated fix functions.
+    let body_has_io = expr_has_io(&w.body);
+    let ret_ty: Type = if body_has_io {
+        Type::Named(NamedType {
+            span: Span::DUMMY,
+            name: Ident::new("IO", Span::DUMMY),
+            args: Some(vec![TypeArg::Type(cf_ret_ty.clone())]),
+        })
+    } else {
+        cf_ret_ty.clone()
+    };
     let build_tuple_expr = |exprs: Vec<Expr>| -> Expr {
         Expr::TupleLit(TupleLit { span: Span::DUMMY, elements: exprs })
     };
@@ -742,7 +876,7 @@ fn desugar_while_borrow(w: &WhileExpr) -> Expr {
         span: fix_span,
         loop_var: loop_name.clone(),
         body: Box::new(Expr::Fn(FnExpr {
-            span: fix_span, params, return_ty: Some(cf_ret_ty),
+            span: fix_span, params, return_ty: Some(ret_ty),
             body: Box::new(fix_body),
         })),
     });
@@ -940,21 +1074,6 @@ fn desugar_block(b: &BlockExpr) -> Expr {
                     value: rhs,
                 }),
             });
-            // Push dummy Var references for lvalue path variables.
-            // These keep outer-scope variables (like v in node_pool[v])
-            // alive for closure capture tracking (collect_free_vars),
-            // since the borrow desugar only preserves the RHS.
-            for accessor in &borrow.lvalue.path {
-                if let LValueAccessor::Index(idx_expr) = accessor {
-                    if let Expr::Var(ident) = idx_expr {
-                        stmts.push(BlockStmt {
-                            span: s.span,
-                            expr: Expr::Var(ident.clone()),
-                            def: None,
-                        });
-                    }
-                }
-            }
             continue;
         }
 
