@@ -236,7 +236,7 @@ impl Ctx {
         let remaining: Vec<&Stmt> = stmts[i+1..].iter().collect();
         if !remaining.is_empty() {
             out.push_str(&format!("{}}} else {{\n", pad));
-            self.emit_stmts(&stmts[i+1..], out, indent + 1);
+            self.emit_stmts_impl(&stmts[i+1..], out, indent + 1, !tail.is_empty());
             if !tail.is_empty() {
                 out.push_str(&format!("{}{}\n", "  ".repeat(indent + 1), tail));
             }
@@ -254,16 +254,20 @@ impl Ctx {
     }
 
     fn emit_stmts(&mut self, stmts: &[Stmt], out: &mut String, indent: usize) {
+        self.emit_stmts_impl(stmts, out, indent, false)
+    }
+
+    /// Like emit_stmts but when `force_last_semicolon` is true, the last
+    /// expression statement always gets a `;` (used when a tail follows).
+    fn emit_stmts_impl(&mut self, stmts: &[Stmt], out: &mut String, indent: usize, force_last_semicolon: bool) {
         let pad = "  ".repeat(indent);
-        // Handle return chains: when an `if (c) { .. return e; }` is followed by more stmts,
-        // the if becomes the condition, return value is the then-branch, rest goes in else.
         let mut i = 0;
         while i < stmts.len() {
             if self.try_emit_jump_chain(stmts, i, out, indent, "") {
                 return;
             }
             let is_last = i == stmts.len() - 1;
-            let is_tail_expr = is_last && (matches!(&stmts[i], Stmt::Expr(_)) || matches!(&stmts[i], Stmt::If { .. }));
+            let is_tail_expr = !force_last_semicolon && is_last && (matches!(&stmts[i], Stmt::Expr(_)) || matches!(&stmts[i], Stmt::If { .. }));
             self.emit_one_stmt(&stmts[i], out, indent, is_tail_expr);
             i += 1;
         }
