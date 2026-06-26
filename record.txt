@@ -1,2233 +1,2233 @@
-[E002] error: expected Comma, found LParen at line 122, col 30
+[E002] error: expected Comma, found LParen at line 94, col 30
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                ^
-[E002] error: expected RBrace, found LParen at line 122, col 30
+[E002] error: expected RBrace, found LParen at line 94, col 30
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                ^
-[E002] error: expected RBrace, found LParen at line 122, col 30
+[E002] error: expected RBrace, found LParen at line 94, col 30
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                ^
-[E002] error: expected declaration, found Some(Comma) at line 122, col 57
+[E002] error: expected declaration, found Some(Comma) at line 94, col 57
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                                           ^
-[E002] error: expected declaration, found Some(Ident("res")) at line 122, col 59
+[E002] error: expected declaration, found Some(Ident("res")) at line 94, col 59
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                                             ^
-[E002] error: expected declaration, found Some(RParen) at line 122, col 62
+[E002] error: expected declaration, found Some(RParen) at line 94, col 62
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                                                ^
-[E002] error: expected declaration, found Some(Semicolon) at line 122, col 63
+[E002] error: expected declaration, found Some(Semicolon) at line 94, col 63
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                                                 ^
-[E002] error: expected declaration, found Some(RBrace) at line 123, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 95, col 1
     };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 123, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 95, col 1
     };
   ^
-[E002] error: expected declaration, found Some(If) at line 124, col 1
+[E002] error: expected declaration, found Some(If) at line 96, col 1
     if (&res; seg_pool[idx].rc != 0) {
   ^
-[E002] error: expected declaration, found Some(LParen) at line 124, col 1
+[E002] error: expected declaration, found Some(LParen) at line 96, col 1
     if (&res; seg_pool[idx].rc != 0) {
   ^
-[E002] error: expected declaration, found Some(Amp) at line 124, col 1
+[E002] error: expected declaration, found Some(Amp) at line 96, col 1
     if (&res; seg_pool[idx].rc != 0) {
   ^
-[E002] error: expected declaration, found Some(Ident("res")) at line 124, col 2
+[E002] error: expected declaration, found Some(Ident("res")) at line 96, col 2
     if (&res; seg_pool[idx].rc != 0) {
    ^
-[E002] error: expected declaration, found Some(Semicolon) at line 124, col 5
+[E002] error: expected declaration, found Some(Semicolon) at line 96, col 5
     if (&res; seg_pool[idx].rc != 0) {
       ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 124, col 7
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 96, col 7
     if (&res; seg_pool[idx].rc != 0) {
         ^
-[E002] error: expected declaration, found Some(LBracket) at line 124, col 15
+[E002] error: expected declaration, found Some(LBracket) at line 96, col 15
     if (&res; seg_pool[idx].rc != 0) {
                 ^
-[E002] error: expected declaration, found Some(Ident("idx")) at line 124, col 16
+[E002] error: expected declaration, found Some(Ident("idx")) at line 96, col 16
     if (&res; seg_pool[idx].rc != 0) {
                  ^
-[E002] error: expected declaration, found Some(RBracket) at line 124, col 19
+[E002] error: expected declaration, found Some(RBracket) at line 96, col 19
     if (&res; seg_pool[idx].rc != 0) {
                     ^
-[E002] error: expected declaration, found Some(Dot) at line 124, col 20
+[E002] error: expected declaration, found Some(Dot) at line 96, col 20
     if (&res; seg_pool[idx].rc != 0) {
                      ^
-[E002] error: expected declaration, found Some(Ident("rc")) at line 124, col 21
+[E002] error: expected declaration, found Some(Ident("rc")) at line 96, col 21
     if (&res; seg_pool[idx].rc != 0) {
                       ^
-[E002] error: expected declaration, found Some(Ne) at line 124, col 24
+[E002] error: expected declaration, found Some(Ne) at line 96, col 24
     if (&res; seg_pool[idx].rc != 0) {
                          ^
-[E002] error: expected declaration, found Some(IntLit(0)) at line 124, col 27
+[E002] error: expected declaration, found Some(IntLit(0)) at line 96, col 27
     if (&res; seg_pool[idx].rc != 0) {
                             ^
-[E002] error: expected declaration, found Some(RParen) at line 124, col 28
+[E002] error: expected declaration, found Some(RParen) at line 96, col 28
     if (&res; seg_pool[idx].rc != 0) {
                              ^
-[E002] error: expected declaration, found Some(LBrace) at line 124, col 30
+[E002] error: expected declaration, found Some(LBrace) at line 96, col 30
     if (&res; seg_pool[idx].rc != 0) {
                                ^
-[E002] error: expected declaration, found Some(Amp) at line 125, col 1
+[E002] error: expected declaration, found Some(Amp) at line 97, col 1
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
   ^
-[E002] error: expected declaration, found Some(Ident("res")) at line 125, col 1
+[E002] error: expected declaration, found Some(Ident("res")) at line 97, col 1
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
   ^
-[E002] error: expected declaration, found Some(Eq) at line 125, col 4
+[E002] error: expected declaration, found Some(Eq) at line 97, col 4
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
      ^
-[E002] error: expected declaration, found Some(Ident("Food_better")) at line 125, col 6
+[E002] error: expected declaration, found Some(Ident("Food_better")) at line 97, col 6
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
        ^
-[E002] error: expected declaration, found Some(LParen) at line 125, col 17
+[E002] error: expected declaration, found Some(LParen) at line 97, col 17
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                   ^
-[E002] error: expected declaration, found Some(Amp) at line 125, col 18
+[E002] error: expected declaration, found Some(Amp) at line 97, col 18
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                    ^
-[E002] error: expected declaration, found Some(Ident("SegT_rc_val")) at line 125, col 19
+[E002] error: expected declaration, found Some(Ident("SegT_rc_val")) at line 97, col 19
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                     ^
-[E002] error: expected declaration, found Some(LParen) at line 125, col 30
+[E002] error: expected declaration, found Some(LParen) at line 97, col 30
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                ^
-[E002] error: expected declaration, found Some(Amp) at line 125, col 31
+[E002] error: expected declaration, found Some(Amp) at line 97, col 31
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                 ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 125, col 32
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 97, col 32
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                  ^
-[E002] error: expected declaration, found Some(LBracket) at line 125, col 40
+[E002] error: expected declaration, found Some(LBracket) at line 97, col 40
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                          ^
-[E002] error: expected declaration, found Some(Ident("idx")) at line 125, col 41
+[E002] error: expected declaration, found Some(Ident("idx")) at line 97, col 41
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                           ^
-[E002] error: expected declaration, found Some(RBracket) at line 125, col 44
+[E002] error: expected declaration, found Some(RBracket) at line 97, col 44
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                              ^
-[E002] error: expected declaration, found Some(Comma) at line 125, col 45
+[E002] error: expected declaration, found Some(Comma) at line 97, col 45
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                               ^
-[E002] error: expected declaration, found Some(Amp) at line 125, col 47
+[E002] error: expected declaration, found Some(Amp) at line 97, col 47
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                                 ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 125, col 48
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 97, col 48
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                                  ^
-[E002] error: expected declaration, found Some(RParen) at line 125, col 56
+[E002] error: expected declaration, found Some(RParen) at line 97, col 56
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                                          ^
-[E002] error: expected declaration, found Some(Comma) at line 125, col 57
+[E002] error: expected declaration, found Some(Comma) at line 97, col 57
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                                           ^
-[E002] error: expected declaration, found Some(Ident("res")) at line 125, col 59
+[E002] error: expected declaration, found Some(Ident("res")) at line 97, col 59
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                                             ^
-[E002] error: expected declaration, found Some(RParen) at line 125, col 62
+[E002] error: expected declaration, found Some(RParen) at line 97, col 62
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                                                ^
-[E002] error: expected declaration, found Some(Semicolon) at line 125, col 63
+[E002] error: expected declaration, found Some(Semicolon) at line 97, col 63
       &res = Food_better(&SegT_rc_val(&seg_pool[idx], &seg_pool), res);
                                                                 ^
-[E002] error: expected declaration, found Some(RBrace) at line 126, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 98, col 1
     };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 126, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 98, col 1
     };
   ^
-[E002] error: expected declaration, found Some(Amp) at line 127, col 1
+[E002] error: expected declaration, found Some(Amp) at line 99, col 1
     &seg_pool[idx].val = res;
   ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 127, col 1
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 99, col 1
     &seg_pool[idx].val = res;
   ^
-[E002] error: expected declaration, found Some(LBracket) at line 127, col 6
+[E002] error: expected declaration, found Some(LBracket) at line 99, col 6
     &seg_pool[idx].val = res;
        ^
-[E002] error: expected declaration, found Some(Ident("idx")) at line 127, col 7
+[E002] error: expected declaration, found Some(Ident("idx")) at line 99, col 7
     &seg_pool[idx].val = res;
         ^
-[E002] error: expected declaration, found Some(RBracket) at line 127, col 10
+[E002] error: expected declaration, found Some(RBracket) at line 99, col 10
     &seg_pool[idx].val = res;
            ^
-[E002] error: expected declaration, found Some(Dot) at line 127, col 11
+[E002] error: expected declaration, found Some(Dot) at line 99, col 11
     &seg_pool[idx].val = res;
             ^
-[E002] error: expected declaration, found Some(Ident("val")) at line 127, col 12
+[E002] error: expected declaration, found Some(Ident("val")) at line 99, col 12
     &seg_pool[idx].val = res;
              ^
-[E002] error: expected declaration, found Some(Eq) at line 127, col 16
+[E002] error: expected declaration, found Some(Eq) at line 99, col 16
     &seg_pool[idx].val = res;
                  ^
-[E002] error: expected declaration, found Some(Ident("res")) at line 127, col 18
+[E002] error: expected declaration, found Some(Ident("res")) at line 99, col 18
     &seg_pool[idx].val = res;
                    ^
-[E002] error: expected declaration, found Some(Semicolon) at line 127, col 21
+[E002] error: expected declaration, found Some(Semicolon) at line 99, col 21
     &seg_pool[idx].val = res;
                       ^
-[E002] error: expected declaration, found Some(RBrace) at line 128, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 100, col 1
   }
   ^
-[E002] error: expected Comma, found LParen at line 143, col 32
+[E002] error: expected Comma, found LParen at line 115, col 32
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                  ^
-[E002] error: expected RBrace, found LParen at line 143, col 32
+[E002] error: expected RBrace, found LParen at line 115, col 32
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                  ^
-[E002] error: expected RBrace, found LParen at line 143, col 32
+[E002] error: expected RBrace, found LParen at line 115, col 32
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                  ^
-[E002] error: expected RBrace, found LParen at line 143, col 32
+[E002] error: expected RBrace, found LParen at line 115, col 32
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                  ^
-[E002] error: expected declaration, found Some(Comma) at line 143, col 57
+[E002] error: expected declaration, found Some(Comma) at line 115, col 57
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                                           ^
-[E002] error: expected declaration, found Some(Ident("res")) at line 143, col 59
+[E002] error: expected declaration, found Some(Ident("res")) at line 115, col 59
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                                             ^
-[E002] error: expected declaration, found Some(RParen) at line 143, col 62
+[E002] error: expected declaration, found Some(RParen) at line 115, col 62
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                                                ^
-[E002] error: expected declaration, found Some(Semicolon) at line 143, col 63
+[E002] error: expected declaration, found Some(Semicolon) at line 115, col 63
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                                                 ^
-[E002] error: expected declaration, found Some(RBrace) at line 144, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 116, col 1
       };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 144, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 116, col 1
       };
   ^
-[E002] error: expected declaration, found Some(If) at line 145, col 1
+[E002] error: expected declaration, found Some(If) at line 117, col 1
       if (&res; seg_pool[u].rc != 0) {
   ^
-[E002] error: expected declaration, found Some(LParen) at line 145, col 2
+[E002] error: expected declaration, found Some(LParen) at line 117, col 2
       if (&res; seg_pool[u].rc != 0) {
    ^
-[E002] error: expected declaration, found Some(Amp) at line 145, col 3
+[E002] error: expected declaration, found Some(Amp) at line 117, col 3
       if (&res; seg_pool[u].rc != 0) {
     ^
-[E002] error: expected declaration, found Some(Ident("res")) at line 145, col 4
+[E002] error: expected declaration, found Some(Ident("res")) at line 117, col 4
       if (&res; seg_pool[u].rc != 0) {
      ^
-[E002] error: expected declaration, found Some(Semicolon) at line 145, col 7
+[E002] error: expected declaration, found Some(Semicolon) at line 117, col 7
       if (&res; seg_pool[u].rc != 0) {
         ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 145, col 9
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 117, col 9
       if (&res; seg_pool[u].rc != 0) {
           ^
-[E002] error: expected declaration, found Some(LBracket) at line 145, col 17
+[E002] error: expected declaration, found Some(LBracket) at line 117, col 17
       if (&res; seg_pool[u].rc != 0) {
                   ^
-[E002] error: expected declaration, found Some(Ident("u")) at line 145, col 18
+[E002] error: expected declaration, found Some(Ident("u")) at line 117, col 18
       if (&res; seg_pool[u].rc != 0) {
                    ^
-[E002] error: expected declaration, found Some(RBracket) at line 145, col 19
+[E002] error: expected declaration, found Some(RBracket) at line 117, col 19
       if (&res; seg_pool[u].rc != 0) {
                     ^
-[E002] error: expected declaration, found Some(Dot) at line 145, col 20
+[E002] error: expected declaration, found Some(Dot) at line 117, col 20
       if (&res; seg_pool[u].rc != 0) {
                      ^
-[E002] error: expected declaration, found Some(Ident("rc")) at line 145, col 21
+[E002] error: expected declaration, found Some(Ident("rc")) at line 117, col 21
       if (&res; seg_pool[u].rc != 0) {
                       ^
-[E002] error: expected declaration, found Some(Ne) at line 145, col 24
+[E002] error: expected declaration, found Some(Ne) at line 117, col 24
       if (&res; seg_pool[u].rc != 0) {
                          ^
-[E002] error: expected declaration, found Some(IntLit(0)) at line 145, col 27
+[E002] error: expected declaration, found Some(IntLit(0)) at line 117, col 27
       if (&res; seg_pool[u].rc != 0) {
                             ^
-[E002] error: expected declaration, found Some(RParen) at line 145, col 28
+[E002] error: expected declaration, found Some(RParen) at line 117, col 28
       if (&res; seg_pool[u].rc != 0) {
                              ^
-[E002] error: expected declaration, found Some(LBrace) at line 145, col 30
+[E002] error: expected declaration, found Some(LBrace) at line 117, col 30
       if (&res; seg_pool[u].rc != 0) {
                                ^
-[E002] error: expected declaration, found Some(Amp) at line 146, col 1
+[E002] error: expected declaration, found Some(Amp) at line 118, col 1
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
   ^
-[E002] error: expected declaration, found Some(Ident("res")) at line 146, col 2
+[E002] error: expected declaration, found Some(Ident("res")) at line 118, col 2
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
    ^
-[E002] error: expected declaration, found Some(Eq) at line 146, col 6
+[E002] error: expected declaration, found Some(Eq) at line 118, col 6
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
        ^
-[E002] error: expected declaration, found Some(Ident("Food_better")) at line 146, col 8
+[E002] error: expected declaration, found Some(Ident("Food_better")) at line 118, col 8
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
          ^
-[E002] error: expected declaration, found Some(LParen) at line 146, col 19
+[E002] error: expected declaration, found Some(LParen) at line 118, col 19
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                     ^
-[E002] error: expected declaration, found Some(Amp) at line 146, col 20
+[E002] error: expected declaration, found Some(Amp) at line 118, col 20
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                      ^
-[E002] error: expected declaration, found Some(Ident("SegT_rc_val")) at line 146, col 21
+[E002] error: expected declaration, found Some(Ident("SegT_rc_val")) at line 118, col 21
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                       ^
-[E002] error: expected declaration, found Some(LParen) at line 146, col 32
+[E002] error: expected declaration, found Some(LParen) at line 118, col 32
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                  ^
-[E002] error: expected declaration, found Some(Amp) at line 146, col 33
+[E002] error: expected declaration, found Some(Amp) at line 118, col 33
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                   ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 146, col 34
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 118, col 34
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                    ^
-[E002] error: expected declaration, found Some(LBracket) at line 146, col 42
+[E002] error: expected declaration, found Some(LBracket) at line 118, col 42
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                            ^
-[E002] error: expected declaration, found Some(Ident("u")) at line 146, col 43
+[E002] error: expected declaration, found Some(Ident("u")) at line 118, col 43
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                             ^
-[E002] error: expected declaration, found Some(RBracket) at line 146, col 44
+[E002] error: expected declaration, found Some(RBracket) at line 118, col 44
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                              ^
-[E002] error: expected declaration, found Some(Comma) at line 146, col 45
+[E002] error: expected declaration, found Some(Comma) at line 118, col 45
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                               ^
-[E002] error: expected declaration, found Some(Amp) at line 146, col 47
+[E002] error: expected declaration, found Some(Amp) at line 118, col 47
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                                 ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 146, col 48
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 118, col 48
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                                  ^
-[E002] error: expected declaration, found Some(RParen) at line 146, col 56
+[E002] error: expected declaration, found Some(RParen) at line 118, col 56
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                                          ^
-[E002] error: expected declaration, found Some(Comma) at line 146, col 57
+[E002] error: expected declaration, found Some(Comma) at line 118, col 57
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                                           ^
-[E002] error: expected declaration, found Some(Ident("res")) at line 146, col 59
+[E002] error: expected declaration, found Some(Ident("res")) at line 118, col 59
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                                             ^
-[E002] error: expected declaration, found Some(RParen) at line 146, col 62
+[E002] error: expected declaration, found Some(RParen) at line 118, col 62
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                                                ^
-[E002] error: expected declaration, found Some(Semicolon) at line 146, col 63
+[E002] error: expected declaration, found Some(Semicolon) at line 118, col 63
         &res = Food_better(&SegT_rc_val(&seg_pool[u], &seg_pool), res);
                                                                 ^
-[E002] error: expected declaration, found Some(RBrace) at line 147, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 119, col 1
       };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 147, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 119, col 1
       };
   ^
-[E002] error: expected declaration, found Some(Amp) at line 148, col 1
+[E002] error: expected declaration, found Some(Amp) at line 120, col 1
       &seg_pool[u].val = res;
   ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 148, col 1
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 120, col 1
       &seg_pool[u].val = res;
   ^
-[E002] error: expected declaration, found Some(LBracket) at line 148, col 8
+[E002] error: expected declaration, found Some(LBracket) at line 120, col 8
       &seg_pool[u].val = res;
          ^
-[E002] error: expected declaration, found Some(Ident("u")) at line 148, col 9
+[E002] error: expected declaration, found Some(Ident("u")) at line 120, col 9
       &seg_pool[u].val = res;
           ^
-[E002] error: expected declaration, found Some(RBracket) at line 148, col 10
+[E002] error: expected declaration, found Some(RBracket) at line 120, col 10
       &seg_pool[u].val = res;
            ^
-[E002] error: expected declaration, found Some(Dot) at line 148, col 11
+[E002] error: expected declaration, found Some(Dot) at line 120, col 11
       &seg_pool[u].val = res;
             ^
-[E002] error: expected declaration, found Some(Ident("val")) at line 148, col 12
+[E002] error: expected declaration, found Some(Ident("val")) at line 120, col 12
       &seg_pool[u].val = res;
              ^
-[E002] error: expected declaration, found Some(Eq) at line 148, col 16
+[E002] error: expected declaration, found Some(Eq) at line 120, col 16
       &seg_pool[u].val = res;
                  ^
-[E002] error: expected declaration, found Some(Ident("res")) at line 148, col 18
+[E002] error: expected declaration, found Some(Ident("res")) at line 120, col 18
       &seg_pool[u].val = res;
                    ^
-[E002] error: expected declaration, found Some(Semicolon) at line 148, col 21
+[E002] error: expected declaration, found Some(Semicolon) at line 120, col 21
       &seg_pool[u].val = res;
                       ^
-[E002] error: expected declaration, found Some(Ident("u")) at line 149, col 1
+[E002] error: expected declaration, found Some(Ident("u")) at line 121, col 1
       u;
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 149, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 121, col 1
       u;
   ^
-[E002] error: expected declaration, found Some(RBrace) at line 150, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 122, col 1
     };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 150, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 122, col 1
     };
   ^
-[E002] error: expected declaration, found Some(RBrace) at line 151, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 123, col 1
   }
   ^
-[E002] error: unexpected token at line 155, col 29
+[E002] error: unexpected token at line 127, col 29
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                               ^
-[E002] error: expected RBrace, found Dot at line 155, col 29
+[E002] error: expected RBrace, found Dot at line 127, col 29
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                               ^
-[E002] error: expected RBrace, found Dot at line 155, col 29
+[E002] error: expected RBrace, found Dot at line 127, col 29
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                               ^
-[E002] error: expected identifier at line 155, col 30
+[E002] error: expected identifier at line 127, col 30
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                                ^
-[E002] error: expected declaration, found Some(Dot) at line 155, col 30
+[E002] error: expected declaration, found Some(Dot) at line 127, col 30
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                                ^
-[E002] error: expected declaration, found Some(Dot) at line 155, col 31
+[E002] error: expected declaration, found Some(Dot) at line 127, col 31
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                                 ^
-[E002] error: expected declaration, found Some(RBrace) at line 155, col 33
+[E002] error: expected declaration, found Some(RBrace) at line 127, col 33
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                                   ^
-[E002] error: expected declaration, found Some(Else) at line 155, col 35
+[E002] error: expected declaration, found Some(Else) at line 127, col 35
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                                     ^
-[E002] error: expected declaration, found Some(LBrace) at line 155, col 40
+[E002] error: expected declaration, found Some(LBrace) at line 127, col 40
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                                          ^
-[E002] error: expected declaration, found Some(Dot) at line 155, col 42
+[E002] error: expected declaration, found Some(Dot) at line 127, col 42
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                                            ^
-[E002] error: expected declaration, found Some(Dot) at line 155, col 43
+[E002] error: expected declaration, found Some(Dot) at line 127, col 43
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                                             ^
-[E002] error: expected declaration, found Some(Dot) at line 155, col 44
+[E002] error: expected declaration, found Some(Dot) at line 127, col 44
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                                              ^
-[E002] error: expected declaration, found Some(RBrace) at line 155, col 46
+[E002] error: expected declaration, found Some(RBrace) at line 127, col 46
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                                                ^
-[E002] error: expected declaration, found Some(Semicolon) at line 155, col 47
+[E002] error: expected declaration, found Some(Semicolon) at line 127, col 47
     &node_pool[v].d = if (f == 0) { ... } else { ... };
                                                 ^
-[E002] error: expected declaration, found Some(While) at line 157, col 1
+[E002] error: expected declaration, found Some(While) at line 129, col 1
     while (&node_pool, &i; i <= 10) {
   ^
-[E002] error: expected declaration, found Some(LParen) at line 157, col 3
+[E002] error: expected declaration, found Some(LParen) at line 129, col 3
     while (&node_pool, &i; i <= 10) {
     ^
-[E002] error: expected declaration, found Some(Amp) at line 157, col 4
+[E002] error: expected declaration, found Some(Amp) at line 129, col 4
     while (&node_pool, &i; i <= 10) {
      ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 157, col 5
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 129, col 5
     while (&node_pool, &i; i <= 10) {
       ^
-[E002] error: expected declaration, found Some(Comma) at line 157, col 14
+[E002] error: expected declaration, found Some(Comma) at line 129, col 14
     while (&node_pool, &i; i <= 10) {
                ^
-[E002] error: expected declaration, found Some(Amp) at line 157, col 16
+[E002] error: expected declaration, found Some(Amp) at line 129, col 16
     while (&node_pool, &i; i <= 10) {
                  ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 157, col 17
+[E002] error: expected declaration, found Some(Ident("i")) at line 129, col 17
     while (&node_pool, &i; i <= 10) {
                   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 157, col 18
+[E002] error: expected declaration, found Some(Semicolon) at line 129, col 18
     while (&node_pool, &i; i <= 10) {
                    ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 157, col 20
+[E002] error: expected declaration, found Some(Ident("i")) at line 129, col 20
     while (&node_pool, &i; i <= 10) {
                      ^
-[E002] error: expected declaration, found Some(Le) at line 157, col 22
+[E002] error: expected declaration, found Some(Le) at line 129, col 22
     while (&node_pool, &i; i <= 10) {
                        ^
-[E002] error: expected declaration, found Some(IntLit(10)) at line 157, col 25
+[E002] error: expected declaration, found Some(IntLit(10)) at line 129, col 25
     while (&node_pool, &i; i <= 10) {
                           ^
-[E002] error: expected declaration, found Some(RParen) at line 157, col 27
+[E002] error: expected declaration, found Some(RParen) at line 129, col 27
     while (&node_pool, &i; i <= 10) {
                             ^
-[E002] error: expected declaration, found Some(LBrace) at line 157, col 29
+[E002] error: expected declaration, found Some(LBrace) at line 129, col 29
     while (&node_pool, &i; i <= 10) {
                               ^
-[E002] error: expected declaration, found Some(If) at line 159, col 1
+[E002] error: expected declaration, found Some(If) at line 131, col 1
       if (&node_pool; ff != 0) {
   ^
-[E002] error: expected declaration, found Some(LParen) at line 159, col 2
+[E002] error: expected declaration, found Some(LParen) at line 131, col 2
       if (&node_pool; ff != 0) {
    ^
-[E002] error: expected declaration, found Some(Amp) at line 159, col 3
+[E002] error: expected declaration, found Some(Amp) at line 131, col 3
       if (&node_pool; ff != 0) {
     ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 159, col 4
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 131, col 4
       if (&node_pool; ff != 0) {
      ^
-[E002] error: expected declaration, found Some(Semicolon) at line 159, col 13
+[E002] error: expected declaration, found Some(Semicolon) at line 131, col 13
       if (&node_pool; ff != 0) {
               ^
-[E002] error: expected declaration, found Some(Ident("ff")) at line 159, col 15
+[E002] error: expected declaration, found Some(Ident("ff")) at line 131, col 15
       if (&node_pool; ff != 0) {
                 ^
-[E002] error: expected declaration, found Some(Ne) at line 159, col 18
+[E002] error: expected declaration, found Some(Ne) at line 131, col 18
       if (&node_pool; ff != 0) {
                    ^
-[E002] error: expected declaration, found Some(IntLit(0)) at line 159, col 21
+[E002] error: expected declaration, found Some(IntLit(0)) at line 131, col 21
       if (&node_pool; ff != 0) {
                       ^
-[E002] error: expected declaration, found Some(RParen) at line 159, col 22
+[E002] error: expected declaration, found Some(RParen) at line 131, col 22
       if (&node_pool; ff != 0) {
                        ^
-[E002] error: expected declaration, found Some(LBrace) at line 159, col 24
+[E002] error: expected declaration, found Some(LBrace) at line 131, col 24
       if (&node_pool; ff != 0) {
                          ^
-[E002] error: expected declaration, found Some(Amp) at line 160, col 1
+[E002] error: expected declaration, found Some(Amp) at line 132, col 1
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
   ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 160, col 2
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 132, col 2
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
    ^
-[E002] error: expected declaration, found Some(LBracket) at line 160, col 11
+[E002] error: expected declaration, found Some(LBracket) at line 132, col 11
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
             ^
-[E002] error: expected declaration, found Some(Ident("v")) at line 160, col 12
+[E002] error: expected declaration, found Some(Ident("v")) at line 132, col 12
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
              ^
-[E002] error: expected declaration, found Some(RBracket) at line 160, col 13
+[E002] error: expected declaration, found Some(RBracket) at line 132, col 13
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
               ^
-[E002] error: expected declaration, found Some(Dot) at line 160, col 14
+[E002] error: expected declaration, found Some(Dot) at line 132, col 14
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                ^
-[E002] error: expected declaration, found Some(Ident("fa")) at line 160, col 15
+[E002] error: expected declaration, found Some(Ident("fa")) at line 132, col 15
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                 ^
-[E002] error: expected declaration, found Some(LBracket) at line 160, col 17
+[E002] error: expected declaration, found Some(LBracket) at line 132, col 17
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                   ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 160, col 18
+[E002] error: expected declaration, found Some(Ident("i")) at line 132, col 18
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                    ^
-[E002] error: expected declaration, found Some(RBracket) at line 160, col 19
+[E002] error: expected declaration, found Some(RBracket) at line 132, col 19
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                     ^
-[E002] error: expected declaration, found Some(Eq) at line 160, col 21
+[E002] error: expected declaration, found Some(Eq) at line 132, col 21
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                       ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 160, col 23
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 132, col 23
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                         ^
-[E002] error: expected declaration, found Some(LBracket) at line 160, col 32
+[E002] error: expected declaration, found Some(LBracket) at line 132, col 32
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                                  ^
-[E002] error: expected declaration, found Some(Ident("ff")) at line 160, col 33
+[E002] error: expected declaration, found Some(Ident("ff")) at line 132, col 33
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                                   ^
-[E002] error: expected declaration, found Some(RBracket) at line 160, col 35
+[E002] error: expected declaration, found Some(RBracket) at line 132, col 35
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                                     ^
-[E002] error: expected declaration, found Some(Dot) at line 160, col 36
+[E002] error: expected declaration, found Some(Dot) at line 132, col 36
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                                      ^
-[E002] error: expected declaration, found Some(Ident("fa")) at line 160, col 37
+[E002] error: expected declaration, found Some(Ident("fa")) at line 132, col 37
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                                       ^
-[E002] error: expected declaration, found Some(LBracket) at line 160, col 39
+[E002] error: expected declaration, found Some(LBracket) at line 132, col 39
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                                         ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 160, col 40
+[E002] error: expected declaration, found Some(Ident("i")) at line 132, col 40
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                                          ^
-[E002] error: expected declaration, found Some(Minus) at line 160, col 42
+[E002] error: expected declaration, found Some(Minus) at line 132, col 42
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                                            ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 160, col 44
+[E002] error: expected declaration, found Some(IntLit(1)) at line 132, col 44
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                                              ^
-[E002] error: expected declaration, found Some(RBracket) at line 160, col 45
+[E002] error: expected declaration, found Some(RBracket) at line 132, col 45
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                                               ^
-[E002] error: expected declaration, found Some(Semicolon) at line 160, col 46
+[E002] error: expected declaration, found Some(Semicolon) at line 132, col 46
         &node_pool[v].fa[i] = node_pool[ff].fa[i - 1];
                                                ^
-[E002] error: expected declaration, found Some(RBrace) at line 161, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 133, col 1
       };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 161, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 133, col 1
       };
   ^
-[E002] error: expected declaration, found Some(Amp) at line 162, col 1
+[E002] error: expected declaration, found Some(Amp) at line 134, col 1
       &i = i + 1;
   ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 162, col 1
+[E002] error: expected declaration, found Some(Ident("i")) at line 134, col 1
       &i = i + 1;
   ^
-[E002] error: expected declaration, found Some(Eq) at line 162, col 2
+[E002] error: expected declaration, found Some(Eq) at line 134, col 2
       &i = i + 1;
    ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 162, col 4
+[E002] error: expected declaration, found Some(Ident("i")) at line 134, col 4
       &i = i + 1;
      ^
-[E002] error: expected declaration, found Some(Plus) at line 162, col 6
+[E002] error: expected declaration, found Some(Plus) at line 134, col 6
       &i = i + 1;
        ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 162, col 8
+[E002] error: expected declaration, found Some(IntLit(1)) at line 134, col 8
       &i = i + 1;
          ^
-[E002] error: expected declaration, found Some(Semicolon) at line 162, col 9
+[E002] error: expected declaration, found Some(Semicolon) at line 134, col 9
       &i = i + 1;
           ^
-[E002] error: expected declaration, found Some(Ident("Continue")) at line 163, col 1
+[E002] error: expected declaration, found Some(Ident("Continue")) at line 135, col 1
     Continue((node_pool, i))
   ^
-[E002] error: expected declaration, found Some(LParen) at line 163, col 5
+[E002] error: expected declaration, found Some(LParen) at line 135, col 5
     Continue((node_pool, i))
       ^
-[E002] error: expected declaration, found Some(LParen) at line 163, col 6
+[E002] error: expected declaration, found Some(LParen) at line 135, col 6
     Continue((node_pool, i))
        ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 163, col 7
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 135, col 7
     Continue((node_pool, i))
         ^
-[E002] error: expected declaration, found Some(Comma) at line 163, col 16
+[E002] error: expected declaration, found Some(Comma) at line 135, col 16
     Continue((node_pool, i))
                  ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 163, col 18
+[E002] error: expected declaration, found Some(Ident("i")) at line 135, col 18
     Continue((node_pool, i))
                    ^
-[E002] error: expected declaration, found Some(RParen) at line 163, col 19
+[E002] error: expected declaration, found Some(RParen) at line 135, col 19
     Continue((node_pool, i))
                     ^
-[E002] error: expected declaration, found Some(RParen) at line 163, col 20
+[E002] error: expected declaration, found Some(RParen) at line 135, col 20
     Continue((node_pool, i))
                      ^
-[E002] error: expected declaration, found Some(RBrace) at line 164, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 136, col 1
     };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 164, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 136, col 1
     };
   ^
-[E002] error: expected declaration, found Some(Amp) at line 165, col 1
+[E002] error: expected declaration, found Some(Amp) at line 137, col 1
     &i = 0;
   ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 165, col 1
+[E002] error: expected declaration, found Some(Ident("i")) at line 137, col 1
     &i = 0;
   ^
-[E002] error: expected declaration, found Some(Eq) at line 165, col 1
+[E002] error: expected declaration, found Some(Eq) at line 137, col 1
     &i = 0;
   ^
-[E002] error: expected declaration, found Some(IntLit(0)) at line 165, col 2
+[E002] error: expected declaration, found Some(IntLit(0)) at line 137, col 2
     &i = 0;
    ^
-[E002] error: expected declaration, found Some(Semicolon) at line 165, col 3
+[E002] error: expected declaration, found Some(Semicolon) at line 137, col 3
     &i = 0;
     ^
-[E002] error: expected declaration, found Some(While) at line 166, col 1
+[E002] error: expected declaration, found Some(While) at line 138, col 1
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
   ^
-[E002] error: expected declaration, found Some(LParen) at line 166, col 3
+[E002] error: expected declaration, found Some(LParen) at line 138, col 3
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
     ^
-[E002] error: expected declaration, found Some(Amp) at line 166, col 4
+[E002] error: expected declaration, found Some(Amp) at line 138, col 4
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
      ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 166, col 5
+[E002] error: expected declaration, found Some(Ident("i")) at line 138, col 5
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
       ^
-[E002] error: expected declaration, found Some(Comma) at line 166, col 6
+[E002] error: expected declaration, found Some(Comma) at line 138, col 6
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
        ^
-[E002] error: expected declaration, found Some(Amp) at line 166, col 8
+[E002] error: expected declaration, found Some(Amp) at line 138, col 8
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
          ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 166, col 9
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 138, col 9
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
           ^
-[E002] error: expected declaration, found Some(Comma) at line 166, col 18
+[E002] error: expected declaration, found Some(Comma) at line 138, col 18
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                    ^
-[E002] error: expected declaration, found Some(Amp) at line 166, col 20
+[E002] error: expected declaration, found Some(Amp) at line 138, col 20
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                      ^
-[E002] error: expected declaration, found Some(Ident("v")) at line 166, col 21
+[E002] error: expected declaration, found Some(Ident("v")) at line 138, col 21
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                       ^
-[E002] error: expected declaration, found Some(Semicolon) at line 166, col 22
+[E002] error: expected declaration, found Some(Semicolon) at line 138, col 22
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                        ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 166, col 24
+[E002] error: expected declaration, found Some(Ident("i")) at line 138, col 24
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                          ^
-[E002] error: expected declaration, found Some(Lt) at line 166, col 26
+[E002] error: expected declaration, found Some(Lt) at line 138, col 26
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                            ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 166, col 28
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 138, col 28
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                              ^
-[E002] error: expected declaration, found Some(LBracket) at line 166, col 37
+[E002] error: expected declaration, found Some(LBracket) at line 138, col 37
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                                       ^
-[E002] error: expected declaration, found Some(Ident("v")) at line 166, col 38
+[E002] error: expected declaration, found Some(Ident("v")) at line 138, col 38
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                                        ^
-[E002] error: expected declaration, found Some(RBracket) at line 166, col 39
+[E002] error: expected declaration, found Some(RBracket) at line 138, col 39
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                                         ^
-[E002] error: expected declaration, found Some(Dot) at line 166, col 40
+[E002] error: expected declaration, found Some(Dot) at line 138, col 40
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                                          ^
-[E002] error: expected declaration, found Some(Ident("edges_len")) at line 166, col 41
+[E002] error: expected declaration, found Some(Ident("edges_len")) at line 138, col 41
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                                           ^
-[E002] error: expected declaration, found Some(RParen) at line 166, col 50
+[E002] error: expected declaration, found Some(RParen) at line 138, col 50
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                                                    ^
-[E002] error: expected declaration, found Some(LBrace) at line 166, col 52
+[E002] error: expected declaration, found Some(LBrace) at line 138, col 52
     while (&i, &node_pool, &v; i < node_pool[v].edges_len) {
                                                      ^
-[E002] error: expected declaration, found Some(Amp) at line 168, col 1
+[E002] error: expected declaration, found Some(Amp) at line 140, col 1
       &i = i + 1;
   ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 168, col 1
+[E002] error: expected declaration, found Some(Ident("i")) at line 140, col 1
       &i = i + 1;
   ^
-[E002] error: expected declaration, found Some(Eq) at line 168, col 2
+[E002] error: expected declaration, found Some(Eq) at line 140, col 2
       &i = i + 1;
    ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 168, col 4
+[E002] error: expected declaration, found Some(Ident("i")) at line 140, col 4
       &i = i + 1;
      ^
-[E002] error: expected declaration, found Some(Plus) at line 168, col 6
+[E002] error: expected declaration, found Some(Plus) at line 140, col 6
       &i = i + 1;
        ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 168, col 8
+[E002] error: expected declaration, found Some(IntLit(1)) at line 140, col 8
       &i = i + 1;
          ^
-[E002] error: expected declaration, found Some(Semicolon) at line 168, col 9
+[E002] error: expected declaration, found Some(Semicolon) at line 140, col 9
       &i = i + 1;
           ^
-[E002] error: expected declaration, found Some(If) at line 169, col 1
+[E002] error: expected declaration, found Some(If) at line 141, col 1
       if (to == f) {
   ^
-[E002] error: expected declaration, found Some(LParen) at line 169, col 2
+[E002] error: expected declaration, found Some(LParen) at line 141, col 2
       if (to == f) {
    ^
-[E002] error: expected declaration, found Some(Ident("to")) at line 169, col 3
+[E002] error: expected declaration, found Some(Ident("to")) at line 141, col 3
       if (to == f) {
     ^
-[E002] error: expected declaration, found Some(EqEq) at line 169, col 6
+[E002] error: expected declaration, found Some(EqEq) at line 141, col 6
       if (to == f) {
        ^
-[E002] error: expected declaration, found Some(Ident("f")) at line 169, col 9
+[E002] error: expected declaration, found Some(Ident("f")) at line 141, col 9
       if (to == f) {
           ^
-[E002] error: expected declaration, found Some(RParen) at line 169, col 10
+[E002] error: expected declaration, found Some(RParen) at line 141, col 10
       if (to == f) {
            ^
-[E002] error: expected declaration, found Some(LBrace) at line 169, col 12
+[E002] error: expected declaration, found Some(LBrace) at line 141, col 12
       if (to == f) {
              ^
-[E002] error: expected declaration, found Some(RBrace) at line 170, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 142, col 1
       };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 170, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 142, col 1
       };
   ^
-[E002] error: expected declaration, found Some(Ident("prepare")) at line 171, col 1
+[E002] error: expected declaration, found Some(Ident("prepare")) at line 143, col 1
       prepare(&node_pool, to, v)
   ^
-[E002] error: expected declaration, found Some(LParen) at line 171, col 6
+[E002] error: expected declaration, found Some(LParen) at line 143, col 6
       prepare(&node_pool, to, v)
        ^
-[E002] error: expected declaration, found Some(Amp) at line 171, col 7
+[E002] error: expected declaration, found Some(Amp) at line 143, col 7
       prepare(&node_pool, to, v)
         ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 171, col 8
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 143, col 8
       prepare(&node_pool, to, v)
          ^
-[E002] error: expected declaration, found Some(Comma) at line 171, col 17
+[E002] error: expected declaration, found Some(Comma) at line 143, col 17
       prepare(&node_pool, to, v)
                   ^
-[E002] error: expected declaration, found Some(Ident("to")) at line 171, col 19
+[E002] error: expected declaration, found Some(Ident("to")) at line 143, col 19
       prepare(&node_pool, to, v)
                     ^
-[E002] error: expected declaration, found Some(Comma) at line 171, col 21
+[E002] error: expected declaration, found Some(Comma) at line 143, col 21
       prepare(&node_pool, to, v)
                       ^
-[E002] error: expected declaration, found Some(Ident("v")) at line 171, col 23
+[E002] error: expected declaration, found Some(Ident("v")) at line 143, col 23
       prepare(&node_pool, to, v)
                         ^
-[E002] error: expected declaration, found Some(RParen) at line 171, col 24
+[E002] error: expected declaration, found Some(RParen) at line 143, col 24
       prepare(&node_pool, to, v)
                          ^
-[E002] error: expected declaration, found Some(Ident("Continue")) at line 172, col 1
+[E002] error: expected declaration, found Some(Ident("Continue")) at line 144, col 1
     Continue((i, node_pool, v))
   ^
-[E002] error: expected declaration, found Some(LParen) at line 172, col 5
+[E002] error: expected declaration, found Some(LParen) at line 144, col 5
     Continue((i, node_pool, v))
       ^
-[E002] error: expected declaration, found Some(LParen) at line 172, col 6
+[E002] error: expected declaration, found Some(LParen) at line 144, col 6
     Continue((i, node_pool, v))
        ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 172, col 7
+[E002] error: expected declaration, found Some(Ident("i")) at line 144, col 7
     Continue((i, node_pool, v))
         ^
-[E002] error: expected declaration, found Some(Comma) at line 172, col 8
+[E002] error: expected declaration, found Some(Comma) at line 144, col 8
     Continue((i, node_pool, v))
          ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 172, col 10
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 144, col 10
     Continue((i, node_pool, v))
            ^
-[E002] error: expected declaration, found Some(Comma) at line 172, col 19
+[E002] error: expected declaration, found Some(Comma) at line 144, col 19
     Continue((i, node_pool, v))
                     ^
-[E002] error: expected declaration, found Some(Ident("v")) at line 172, col 21
+[E002] error: expected declaration, found Some(Ident("v")) at line 144, col 21
     Continue((i, node_pool, v))
                       ^
-[E002] error: expected declaration, found Some(RParen) at line 172, col 22
+[E002] error: expected declaration, found Some(RParen) at line 144, col 22
     Continue((i, node_pool, v))
                        ^
-[E002] error: expected declaration, found Some(RParen) at line 172, col 23
+[E002] error: expected declaration, found Some(RParen) at line 144, col 23
     Continue((i, node_pool, v))
                         ^
-[E002] error: expected declaration, found Some(RBrace) at line 173, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 145, col 1
     };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 173, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 145, col 1
     };
   ^
-[E002] error: expected declaration, found Some(RBrace) at line 174, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 146, col 1
   }
   ^
-[E002] error: expected RBrace, found Ident("Continue") at line 215, col 1
+[E002] error: expected RBrace, found Ident("Continue") at line 187, col 1
     Continue((i, node_pool, seg_pool, seg_cnt, v))
   ^
-[E002] error: expected RBrace, found Ident("Continue") at line 215, col 1
+[E002] error: expected RBrace, found Ident("Continue") at line 187, col 1
     Continue((i, node_pool, seg_pool, seg_cnt, v))
   ^
-[E002] error: expected declaration, found Some(Ident("Continue")) at line 215, col 1
+[E002] error: expected declaration, found Some(Ident("Continue")) at line 187, col 1
     Continue((i, node_pool, seg_pool, seg_cnt, v))
   ^
-[E002] error: expected declaration, found Some(LParen) at line 215, col 5
+[E002] error: expected declaration, found Some(LParen) at line 187, col 5
     Continue((i, node_pool, seg_pool, seg_cnt, v))
       ^
-[E002] error: expected declaration, found Some(LParen) at line 215, col 6
+[E002] error: expected declaration, found Some(LParen) at line 187, col 6
     Continue((i, node_pool, seg_pool, seg_cnt, v))
        ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 215, col 7
+[E002] error: expected declaration, found Some(Ident("i")) at line 187, col 7
     Continue((i, node_pool, seg_pool, seg_cnt, v))
         ^
-[E002] error: expected declaration, found Some(Comma) at line 215, col 8
+[E002] error: expected declaration, found Some(Comma) at line 187, col 8
     Continue((i, node_pool, seg_pool, seg_cnt, v))
          ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 215, col 10
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 187, col 10
     Continue((i, node_pool, seg_pool, seg_cnt, v))
            ^
-[E002] error: expected declaration, found Some(Comma) at line 215, col 19
+[E002] error: expected declaration, found Some(Comma) at line 187, col 19
     Continue((i, node_pool, seg_pool, seg_cnt, v))
                     ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 215, col 21
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 187, col 21
     Continue((i, node_pool, seg_pool, seg_cnt, v))
                       ^
-[E002] error: expected declaration, found Some(Comma) at line 215, col 29
+[E002] error: expected declaration, found Some(Comma) at line 187, col 29
     Continue((i, node_pool, seg_pool, seg_cnt, v))
                               ^
-[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 215, col 31
+[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 187, col 31
     Continue((i, node_pool, seg_pool, seg_cnt, v))
                                 ^
-[E002] error: expected declaration, found Some(Comma) at line 215, col 38
+[E002] error: expected declaration, found Some(Comma) at line 187, col 38
     Continue((i, node_pool, seg_pool, seg_cnt, v))
                                        ^
-[E002] error: expected declaration, found Some(Ident("v")) at line 215, col 40
+[E002] error: expected declaration, found Some(Ident("v")) at line 187, col 40
     Continue((i, node_pool, seg_pool, seg_cnt, v))
                                          ^
-[E002] error: expected declaration, found Some(RParen) at line 215, col 41
+[E002] error: expected declaration, found Some(RParen) at line 187, col 41
     Continue((i, node_pool, seg_pool, seg_cnt, v))
                                           ^
-[E002] error: expected declaration, found Some(RParen) at line 215, col 42
+[E002] error: expected declaration, found Some(RParen) at line 187, col 42
     Continue((i, node_pool, seg_pool, seg_cnt, v))
                                            ^
-[E002] error: expected declaration, found Some(RBrace) at line 216, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 188, col 1
     };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 216, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 188, col 1
     };
   ^
-[E002] error: expected declaration, found Some(Amp) at line 217, col 1
+[E002] error: expected declaration, found Some(Amp) at line 189, col 1
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
   ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 217, col 1
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 189, col 1
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
   ^
-[E002] error: expected declaration, found Some(LBracket) at line 217, col 7
+[E002] error: expected declaration, found Some(LBracket) at line 189, col 7
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
         ^
-[E002] error: expected declaration, found Some(Ident("v")) at line 217, col 8
+[E002] error: expected declaration, found Some(Ident("v")) at line 189, col 8
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
          ^
-[E002] error: expected declaration, found Some(RBracket) at line 217, col 9
+[E002] error: expected declaration, found Some(RBracket) at line 189, col 9
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
           ^
-[E002] error: expected declaration, found Some(Dot) at line 217, col 10
+[E002] error: expected declaration, found Some(Dot) at line 189, col 10
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
            ^
-[E002] error: expected declaration, found Some(Ident("ans")) at line 217, col 11
+[E002] error: expected declaration, found Some(Ident("ans")) at line 189, col 11
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
             ^
-[E002] error: expected declaration, found Some(Eq) at line 217, col 15
+[E002] error: expected declaration, found Some(Eq) at line 189, col 15
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                 ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 217, col 17
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 189, col 17
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                   ^
-[E002] error: expected declaration, found Some(LBracket) at line 217, col 25
+[E002] error: expected declaration, found Some(LBracket) at line 189, col 25
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                           ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 217, col 26
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 189, col 26
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                            ^
-[E002] error: expected declaration, found Some(LBracket) at line 217, col 35
+[E002] error: expected declaration, found Some(LBracket) at line 189, col 35
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                                     ^
-[E002] error: expected declaration, found Some(Ident("v")) at line 217, col 36
+[E002] error: expected declaration, found Some(Ident("v")) at line 189, col 36
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                                      ^
-[E002] error: expected declaration, found Some(RBracket) at line 217, col 37
+[E002] error: expected declaration, found Some(RBracket) at line 189, col 37
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                                       ^
-[E002] error: expected declaration, found Some(Dot) at line 217, col 38
+[E002] error: expected declaration, found Some(Dot) at line 189, col 38
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                                        ^
-[E002] error: expected declaration, found Some(Ident("segment")) at line 217, col 39
+[E002] error: expected declaration, found Some(Ident("segment")) at line 189, col 39
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                                         ^
-[E002] error: expected declaration, found Some(RBracket) at line 217, col 46
+[E002] error: expected declaration, found Some(RBracket) at line 189, col 46
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                                                ^
-[E002] error: expected declaration, found Some(Dot) at line 217, col 47
+[E002] error: expected declaration, found Some(Dot) at line 189, col 47
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                                                 ^
-[E002] error: expected declaration, found Some(Ident("val")) at line 217, col 48
+[E002] error: expected declaration, found Some(Ident("val")) at line 189, col 48
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                                                  ^
-[E002] error: expected declaration, found Some(Dot) at line 217, col 51
+[E002] error: expected declaration, found Some(Dot) at line 189, col 51
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                                                     ^
-[E002] error: expected declaration, found Some(Ident("ty")) at line 217, col 52
+[E002] error: expected declaration, found Some(Ident("ty")) at line 189, col 52
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                                                      ^
-[E002] error: expected declaration, found Some(Semicolon) at line 217, col 54
+[E002] error: expected declaration, found Some(Semicolon) at line 189, col 54
     &node_pool[v].ans = seg_pool[node_pool[v].segment].val.ty;
                                                        ^
-[E002] error: expected declaration, found Some(If) at line 218, col 1
+[E002] error: expected declaration, found Some(If) at line 190, col 1
     if (&node_pool; f != 0) {
   ^
-[E002] error: expected declaration, found Some(LParen) at line 218, col 1
+[E002] error: expected declaration, found Some(LParen) at line 190, col 1
     if (&node_pool; f != 0) {
   ^
-[E002] error: expected declaration, found Some(Amp) at line 218, col 1
+[E002] error: expected declaration, found Some(Amp) at line 190, col 1
     if (&node_pool; f != 0) {
   ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 218, col 2
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 190, col 2
     if (&node_pool; f != 0) {
    ^
-[E002] error: expected declaration, found Some(Semicolon) at line 218, col 11
+[E002] error: expected declaration, found Some(Semicolon) at line 190, col 11
     if (&node_pool; f != 0) {
             ^
-[E002] error: expected declaration, found Some(Ident("f")) at line 218, col 13
+[E002] error: expected declaration, found Some(Ident("f")) at line 190, col 13
     if (&node_pool; f != 0) {
               ^
-[E002] error: expected declaration, found Some(Ne) at line 218, col 15
+[E002] error: expected declaration, found Some(Ne) at line 190, col 15
     if (&node_pool; f != 0) {
                 ^
-[E002] error: expected declaration, found Some(IntLit(0)) at line 218, col 18
+[E002] error: expected declaration, found Some(IntLit(0)) at line 190, col 18
     if (&node_pool; f != 0) {
                    ^
-[E002] error: expected declaration, found Some(RParen) at line 218, col 19
+[E002] error: expected declaration, found Some(RParen) at line 190, col 19
     if (&node_pool; f != 0) {
                     ^
-[E002] error: expected declaration, found Some(LBrace) at line 218, col 21
+[E002] error: expected declaration, found Some(LBrace) at line 190, col 21
     if (&node_pool; f != 0) {
                       ^
-[E002] error: expected declaration, found Some(Amp) at line 219, col 1
+[E002] error: expected declaration, found Some(Amp) at line 191, col 1
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
   ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 219, col 1
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 191, col 1
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
   ^
-[E002] error: expected declaration, found Some(LBracket) at line 219, col 9
+[E002] error: expected declaration, found Some(LBracket) at line 191, col 9
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
           ^
-[E002] error: expected declaration, found Some(Ident("f")) at line 219, col 10
+[E002] error: expected declaration, found Some(Ident("f")) at line 191, col 10
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
            ^
-[E002] error: expected declaration, found Some(RBracket) at line 219, col 11
+[E002] error: expected declaration, found Some(RBracket) at line 191, col 11
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
             ^
-[E002] error: expected declaration, found Some(Dot) at line 219, col 12
+[E002] error: expected declaration, found Some(Dot) at line 191, col 12
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
              ^
-[E002] error: expected declaration, found Some(Ident("segment")) at line 219, col 13
+[E002] error: expected declaration, found Some(Ident("segment")) at line 191, col 13
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
               ^
-[E002] error: expected declaration, found Some(Eq) at line 219, col 21
+[E002] error: expected declaration, found Some(Eq) at line 191, col 21
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                       ^
-[E002] error: expected declaration, found Some(Ident("merge")) at line 219, col 23
+[E002] error: expected declaration, found Some(Ident("merge")) at line 191, col 23
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                         ^
-[E002] error: expected declaration, found Some(LParen) at line 219, col 28
+[E002] error: expected declaration, found Some(LParen) at line 191, col 28
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                              ^
-[E002] error: expected declaration, found Some(Amp) at line 219, col 29
+[E002] error: expected declaration, found Some(Amp) at line 191, col 29
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                               ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 219, col 30
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 191, col 30
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                ^
-[E002] error: expected declaration, found Some(Comma) at line 219, col 38
+[E002] error: expected declaration, found Some(Comma) at line 191, col 38
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                        ^
-[E002] error: expected declaration, found Some(Amp) at line 219, col 40
+[E002] error: expected declaration, found Some(Amp) at line 191, col 40
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                          ^
-[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 219, col 41
+[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 191, col 41
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                           ^
-[E002] error: expected declaration, found Some(Comma) at line 219, col 48
+[E002] error: expected declaration, found Some(Comma) at line 191, col 48
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                  ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 219, col 50
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 191, col 50
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                    ^
-[E002] error: expected declaration, found Some(LBracket) at line 219, col 59
+[E002] error: expected declaration, found Some(LBracket) at line 191, col 59
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                             ^
-[E002] error: expected declaration, found Some(Ident("f")) at line 219, col 60
+[E002] error: expected declaration, found Some(Ident("f")) at line 191, col 60
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                              ^
-[E002] error: expected declaration, found Some(RBracket) at line 219, col 61
+[E002] error: expected declaration, found Some(RBracket) at line 191, col 61
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                               ^
-[E002] error: expected declaration, found Some(Dot) at line 219, col 62
+[E002] error: expected declaration, found Some(Dot) at line 191, col 62
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                                ^
-[E002] error: expected declaration, found Some(Ident("segment")) at line 219, col 63
+[E002] error: expected declaration, found Some(Ident("segment")) at line 191, col 63
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                                 ^
-[E002] error: expected declaration, found Some(Comma) at line 219, col 70
+[E002] error: expected declaration, found Some(Comma) at line 191, col 70
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                                        ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 219, col 72
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 191, col 72
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                                          ^
-[E002] error: expected declaration, found Some(LBracket) at line 219, col 81
+[E002] error: expected declaration, found Some(LBracket) at line 191, col 81
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                                                   ^
-[E002] error: expected declaration, found Some(Ident("v")) at line 219, col 82
+[E002] error: expected declaration, found Some(Ident("v")) at line 191, col 82
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                                                    ^
-[E002] error: expected declaration, found Some(RBracket) at line 219, col 83
+[E002] error: expected declaration, found Some(RBracket) at line 191, col 83
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                                                     ^
-[E002] error: expected declaration, found Some(Dot) at line 219, col 84
+[E002] error: expected declaration, found Some(Dot) at line 191, col 84
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                                                      ^
-[E002] error: expected declaration, found Some(Ident("segment")) at line 219, col 85
+[E002] error: expected declaration, found Some(Ident("segment")) at line 191, col 85
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                                                       ^
-[E002] error: expected declaration, found Some(RParen) at line 219, col 92
+[E002] error: expected declaration, found Some(RParen) at line 191, col 92
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                                                              ^
-[E002] error: expected declaration, found Some(Semicolon) at line 219, col 93
+[E002] error: expected declaration, found Some(Semicolon) at line 191, col 93
       &node_pool[f].segment = merge(&seg_pool, &seg_cnt, node_pool[f].segment, node_pool[v].segment);
                                                                                               ^
+[E002] error: expected declaration, found Some(RBrace) at line 192, col 1
+    };
+  ^
+[E002] error: expected declaration, found Some(Semicolon) at line 192, col 1
+    };
+  ^
+[E002] error: expected declaration, found Some(RBrace) at line 193, col 1
+  }
+  ^
+[E002] error: unexpected token at line 206, col 29
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                              ^
+[E002] error: expected Comma, found AndAnd at line 206, col 29
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                              ^
+[E002] error: expected RBrace, found Comma at line 206, col 39
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                        ^
+[E002] error: expected RBrace, found Comma at line 206, col 39
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                        ^
+[E002] error: expected declaration, found Some(Comma) at line 206, col 39
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                        ^
+[E002] error: expected declaration, found Some(AndAnd) at line 206, col 41
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                          ^
+[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 206, col 43
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                            ^
+[E002] error: expected declaration, found Some(Comma) at line 206, col 50
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                                   ^
+[E002] error: expected declaration, found Some(IntLit(1)) at line 206, col 52
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                                     ^
+[E002] error: expected declaration, found Some(Comma) at line 206, col 53
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                                      ^
+[E002] error: expected declaration, found Some(LParen) at line 206, col 55
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                                        ^
+[E002] error: expected declaration, found Some(IntLit(200)) at line 206, col 56
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                                         ^
+[E002] error: expected declaration, found Some(As) at line 206, col 60
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                                             ^
+[E002] error: expected declaration, found Some(Ident("Int")) at line 206, col 63
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                                                ^
+[E002] error: expected declaration, found Some(RParen) at line 206, col 66
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                                                   ^
+[E002] error: expected declaration, found Some(RParen) at line 206, col 67
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                                                    ^
+[E002] error: expected declaration, found Some(Semicolon) at line 206, col 68
+      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
+                                                                     ^
+[E002] error: expected declaration, found Some(Amp) at line 207, col 1
+      &i = i + 1;
+  ^
+[E002] error: expected declaration, found Some(Ident("i")) at line 207, col 1
+      &i = i + 1;
+  ^
+[E002] error: expected declaration, found Some(Eq) at line 207, col 2
+      &i = i + 1;
+   ^
+[E002] error: expected declaration, found Some(Ident("i")) at line 207, col 4
+      &i = i + 1;
+     ^
+[E002] error: expected declaration, found Some(Plus) at line 207, col 6
+      &i = i + 1;
+       ^
+[E002] error: expected declaration, found Some(IntLit(1)) at line 207, col 8
+      &i = i + 1;
+         ^
+[E002] error: expected declaration, found Some(Semicolon) at line 207, col 9
+      &i = i + 1;
+          ^
+[E002] error: expected declaration, found Some(Ident("Continue")) at line 208, col 1
+    Continue((node_pool, i))
+  ^
+[E002] error: expected declaration, found Some(LParen) at line 208, col 5
+    Continue((node_pool, i))
+      ^
+[E002] error: expected declaration, found Some(LParen) at line 208, col 6
+    Continue((node_pool, i))
+       ^
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 208, col 7
+    Continue((node_pool, i))
+        ^
+[E002] error: expected declaration, found Some(Comma) at line 208, col 16
+    Continue((node_pool, i))
+                 ^
+[E002] error: expected declaration, found Some(Ident("i")) at line 208, col 18
+    Continue((node_pool, i))
+                   ^
+[E002] error: expected declaration, found Some(RParen) at line 208, col 19
+    Continue((node_pool, i))
+                    ^
+[E002] error: expected declaration, found Some(RParen) at line 208, col 20
+    Continue((node_pool, i))
+                     ^
+[E002] error: expected declaration, found Some(RBrace) at line 209, col 1
+    };
+  ^
+[E002] error: expected declaration, found Some(Semicolon) at line 209, col 1
+    };
+  ^
+[E002] error: expected declaration, found Some(Amp) at line 210, col 1
+    &i = 0;
+  ^
+[E002] error: expected declaration, found Some(Ident("i")) at line 210, col 1
+    &i = 0;
+  ^
+[E002] error: expected declaration, found Some(Eq) at line 210, col 1
+    &i = 0;
+  ^
+[E002] error: expected declaration, found Some(IntLit(0)) at line 210, col 2
+    &i = 0;
+   ^
+[E002] error: expected declaration, found Some(Semicolon) at line 210, col 3
+    &i = 0;
+    ^
+[E002] error: expected declaration, found Some(While) at line 211, col 1
+    while (&node_pool, &i; i < n - 1) {
+  ^
+[E002] error: expected declaration, found Some(LParen) at line 211, col 3
+    while (&node_pool, &i; i < n - 1) {
+    ^
+[E002] error: expected declaration, found Some(Amp) at line 211, col 4
+    while (&node_pool, &i; i < n - 1) {
+     ^
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 211, col 5
+    while (&node_pool, &i; i < n - 1) {
+      ^
+[E002] error: expected declaration, found Some(Comma) at line 211, col 14
+    while (&node_pool, &i; i < n - 1) {
+               ^
+[E002] error: expected declaration, found Some(Amp) at line 211, col 16
+    while (&node_pool, &i; i < n - 1) {
+                 ^
+[E002] error: expected declaration, found Some(Ident("i")) at line 211, col 17
+    while (&node_pool, &i; i < n - 1) {
+                  ^
+[E002] error: expected declaration, found Some(Semicolon) at line 211, col 18
+    while (&node_pool, &i; i < n - 1) {
+                   ^
+[E002] error: expected declaration, found Some(Ident("i")) at line 211, col 20
+    while (&node_pool, &i; i < n - 1) {
+                     ^
+[E002] error: expected declaration, found Some(Lt) at line 211, col 22
+    while (&node_pool, &i; i < n - 1) {
+                       ^
+[E002] error: expected declaration, found Some(Ident("n")) at line 211, col 24
+    while (&node_pool, &i; i < n - 1) {
+                         ^
+[E002] error: expected declaration, found Some(Minus) at line 211, col 26
+    while (&node_pool, &i; i < n - 1) {
+                           ^
+[E002] error: expected declaration, found Some(IntLit(1)) at line 211, col 28
+    while (&node_pool, &i; i < n - 1) {
+                             ^
+[E002] error: expected declaration, found Some(RParen) at line 211, col 29
+    while (&node_pool, &i; i < n - 1) {
+                              ^
+[E002] error: expected declaration, found Some(LBrace) at line 211, col 31
+    while (&node_pool, &i; i < n - 1) {
+                                ^
+[E002] error: expected declaration, found Some(Amp) at line 213, col 1
+      &a -> stdin;
+  ^
+[E002] error: expected declaration, found Some(Ident("a")) at line 213, col 1
+      &a -> stdin;
+  ^
+[E002] error: expected declaration, found Some(Arrow) at line 213, col 2
+      &a -> stdin;
+   ^
+[E002] error: expected declaration, found Some(Ident("stdin")) at line 213, col 5
+      &a -> stdin;
+      ^
+[E002] error: expected declaration, found Some(Semicolon) at line 213, col 10
+      &a -> stdin;
+           ^
+[E002] error: expected declaration, found Some(Amp) at line 215, col 1
+      &b -> stdin;
+  ^
+[E002] error: expected declaration, found Some(Ident("b")) at line 215, col 1
+      &b -> stdin;
+  ^
+[E002] error: expected declaration, found Some(Arrow) at line 215, col 2
+      &b -> stdin;
+   ^
+[E002] error: expected declaration, found Some(Ident("stdin")) at line 215, col 5
+      &b -> stdin;
+      ^
+[E002] error: expected declaration, found Some(Semicolon) at line 215, col 10
+      &b -> stdin;
+           ^
+[E002] error: expected declaration, found Some(Ident("Node_push")) at line 216, col 1
+      Node_push(&node_pool[a], b);
+  ^
+[E002] error: expected declaration, found Some(LParen) at line 216, col 8
+      Node_push(&node_pool[a], b);
+         ^
+[E002] error: expected declaration, found Some(Amp) at line 216, col 9
+      Node_push(&node_pool[a], b);
+          ^
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 216, col 10
+      Node_push(&node_pool[a], b);
+           ^
+[E002] error: expected declaration, found Some(LBracket) at line 216, col 19
+      Node_push(&node_pool[a], b);
+                    ^
+[E002] error: expected declaration, found Some(Ident("a")) at line 216, col 20
+      Node_push(&node_pool[a], b);
+                     ^
+[E002] error: expected declaration, found Some(RBracket) at line 216, col 21
+      Node_push(&node_pool[a], b);
+                      ^
+[E002] error: expected declaration, found Some(Comma) at line 216, col 22
+      Node_push(&node_pool[a], b);
+                       ^
+[E002] error: expected declaration, found Some(Ident("b")) at line 216, col 24
+      Node_push(&node_pool[a], b);
+                         ^
+[E002] error: expected declaration, found Some(RParen) at line 216, col 25
+      Node_push(&node_pool[a], b);
+                          ^
+[E002] error: expected declaration, found Some(Semicolon) at line 216, col 26
+      Node_push(&node_pool[a], b);
+                           ^
+[E002] error: expected declaration, found Some(Ident("Node_push")) at line 217, col 1
+      Node_push(&node_pool[b], a);
+  ^
+[E002] error: expected declaration, found Some(LParen) at line 217, col 8
+      Node_push(&node_pool[b], a);
+         ^
+[E002] error: expected declaration, found Some(Amp) at line 217, col 9
+      Node_push(&node_pool[b], a);
+          ^
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 217, col 10
+      Node_push(&node_pool[b], a);
+           ^
+[E002] error: expected declaration, found Some(LBracket) at line 217, col 19
+      Node_push(&node_pool[b], a);
+                    ^
+[E002] error: expected declaration, found Some(Ident("b")) at line 217, col 20
+      Node_push(&node_pool[b], a);
+                     ^
+[E002] error: expected declaration, found Some(RBracket) at line 217, col 21
+      Node_push(&node_pool[b], a);
+                      ^
+[E002] error: expected declaration, found Some(Comma) at line 217, col 22
+      Node_push(&node_pool[b], a);
+                       ^
+[E002] error: expected declaration, found Some(Ident("a")) at line 217, col 24
+      Node_push(&node_pool[b], a);
+                         ^
+[E002] error: expected declaration, found Some(RParen) at line 217, col 25
+      Node_push(&node_pool[b], a);
+                          ^
+[E002] error: expected declaration, found Some(Semicolon) at line 217, col 26
+      Node_push(&node_pool[b], a);
+                           ^
+[E002] error: expected declaration, found Some(Amp) at line 218, col 1
+      &i = i + 1;
+  ^
+[E002] error: expected declaration, found Some(Ident("i")) at line 218, col 1
+      &i = i + 1;
+  ^
+[E002] error: expected declaration, found Some(Eq) at line 218, col 2
+      &i = i + 1;
+   ^
+[E002] error: expected declaration, found Some(Ident("i")) at line 218, col 4
+      &i = i + 1;
+     ^
+[E002] error: expected declaration, found Some(Plus) at line 218, col 6
+      &i = i + 1;
+       ^
+[E002] error: expected declaration, found Some(IntLit(1)) at line 218, col 8
+      &i = i + 1;
+         ^
+[E002] error: expected declaration, found Some(Semicolon) at line 218, col 9
+      &i = i + 1;
+          ^
+[E002] error: expected declaration, found Some(Ident("Continue")) at line 219, col 1
+    Continue((node_pool, i))
+  ^
+[E002] error: expected declaration, found Some(LParen) at line 219, col 5
+    Continue((node_pool, i))
+      ^
+[E002] error: expected declaration, found Some(LParen) at line 219, col 6
+    Continue((node_pool, i))
+       ^
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 219, col 7
+    Continue((node_pool, i))
+        ^
+[E002] error: expected declaration, found Some(Comma) at line 219, col 16
+    Continue((node_pool, i))
+                 ^
+[E002] error: expected declaration, found Some(Ident("i")) at line 219, col 18
+    Continue((node_pool, i))
+                   ^
+[E002] error: expected declaration, found Some(RParen) at line 219, col 19
+    Continue((node_pool, i))
+                    ^
+[E002] error: expected declaration, found Some(RParen) at line 219, col 20
+    Continue((node_pool, i))
+                     ^
 [E002] error: expected declaration, found Some(RBrace) at line 220, col 1
     };
   ^
 [E002] error: expected declaration, found Some(Semicolon) at line 220, col 1
     };
   ^
-[E002] error: expected declaration, found Some(RBrace) at line 221, col 1
-  }
-  ^
-[E002] error: unexpected token at line 234, col 29
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                              ^
-[E002] error: expected Comma, found AndAnd at line 234, col 29
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                              ^
-[E002] error: expected RBrace, found Comma at line 234, col 39
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                        ^
-[E002] error: expected RBrace, found Comma at line 234, col 39
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                        ^
-[E002] error: expected declaration, found Some(Comma) at line 234, col 39
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                        ^
-[E002] error: expected declaration, found Some(AndAnd) at line 234, col 41
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                          ^
-[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 234, col 43
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                            ^
-[E002] error: expected declaration, found Some(Comma) at line 234, col 50
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                                   ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 234, col 52
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                                     ^
-[E002] error: expected declaration, found Some(Comma) at line 234, col 53
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                                      ^
-[E002] error: expected declaration, found Some(LParen) at line 234, col 55
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                                        ^
-[E002] error: expected declaration, found Some(IntLit(200)) at line 234, col 56
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                                         ^
-[E002] error: expected declaration, found Some(As) at line 234, col 60
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                                             ^
-[E002] error: expected declaration, found Some(Ident("Int")) at line 234, col 63
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                                                ^
-[E002] error: expected declaration, found Some(RParen) at line 234, col 66
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                                                   ^
-[E002] error: expected declaration, found Some(RParen) at line 234, col 67
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                                                    ^
-[E002] error: expected declaration, found Some(Semicolon) at line 234, col 68
-      &node_pool[i].segment = build(&&seg_pool, &&seg_cnt, 1, (200 as Int));
-                                                                     ^
-[E002] error: expected declaration, found Some(Amp) at line 235, col 1
-      &i = i + 1;
-  ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 235, col 1
-      &i = i + 1;
-  ^
-[E002] error: expected declaration, found Some(Eq) at line 235, col 2
-      &i = i + 1;
-   ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 235, col 4
-      &i = i + 1;
-     ^
-[E002] error: expected declaration, found Some(Plus) at line 235, col 6
-      &i = i + 1;
-       ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 235, col 8
-      &i = i + 1;
-         ^
-[E002] error: expected declaration, found Some(Semicolon) at line 235, col 9
-      &i = i + 1;
-          ^
-[E002] error: expected declaration, found Some(Ident("Continue")) at line 236, col 1
-    Continue((node_pool, i))
-  ^
-[E002] error: expected declaration, found Some(LParen) at line 236, col 5
-    Continue((node_pool, i))
-      ^
-[E002] error: expected declaration, found Some(LParen) at line 236, col 6
-    Continue((node_pool, i))
-       ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 236, col 7
-    Continue((node_pool, i))
-        ^
-[E002] error: expected declaration, found Some(Comma) at line 236, col 16
-    Continue((node_pool, i))
-                 ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 236, col 18
-    Continue((node_pool, i))
-                   ^
-[E002] error: expected declaration, found Some(RParen) at line 236, col 19
-    Continue((node_pool, i))
-                    ^
-[E002] error: expected declaration, found Some(RParen) at line 236, col 20
-    Continue((node_pool, i))
-                     ^
-[E002] error: expected declaration, found Some(RBrace) at line 237, col 1
-    };
-  ^
-[E002] error: expected declaration, found Some(Semicolon) at line 237, col 1
-    };
-  ^
-[E002] error: expected declaration, found Some(Amp) at line 238, col 1
-    &i = 0;
-  ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 238, col 1
-    &i = 0;
-  ^
-[E002] error: expected declaration, found Some(Eq) at line 238, col 1
-    &i = 0;
-  ^
-[E002] error: expected declaration, found Some(IntLit(0)) at line 238, col 2
-    &i = 0;
-   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 238, col 3
-    &i = 0;
-    ^
-[E002] error: expected declaration, found Some(While) at line 239, col 1
-    while (&node_pool, &i; i < n - 1) {
-  ^
-[E002] error: expected declaration, found Some(LParen) at line 239, col 3
-    while (&node_pool, &i; i < n - 1) {
-    ^
-[E002] error: expected declaration, found Some(Amp) at line 239, col 4
-    while (&node_pool, &i; i < n - 1) {
-     ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 239, col 5
-    while (&node_pool, &i; i < n - 1) {
-      ^
-[E002] error: expected declaration, found Some(Comma) at line 239, col 14
-    while (&node_pool, &i; i < n - 1) {
-               ^
-[E002] error: expected declaration, found Some(Amp) at line 239, col 16
-    while (&node_pool, &i; i < n - 1) {
-                 ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 239, col 17
-    while (&node_pool, &i; i < n - 1) {
-                  ^
-[E002] error: expected declaration, found Some(Semicolon) at line 239, col 18
-    while (&node_pool, &i; i < n - 1) {
-                   ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 239, col 20
-    while (&node_pool, &i; i < n - 1) {
-                     ^
-[E002] error: expected declaration, found Some(Lt) at line 239, col 22
-    while (&node_pool, &i; i < n - 1) {
-                       ^
-[E002] error: expected declaration, found Some(Ident("n")) at line 239, col 24
-    while (&node_pool, &i; i < n - 1) {
-                         ^
-[E002] error: expected declaration, found Some(Minus) at line 239, col 26
-    while (&node_pool, &i; i < n - 1) {
-                           ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 239, col 28
-    while (&node_pool, &i; i < n - 1) {
-                             ^
-[E002] error: expected declaration, found Some(RParen) at line 239, col 29
-    while (&node_pool, &i; i < n - 1) {
-                              ^
-[E002] error: expected declaration, found Some(LBrace) at line 239, col 31
-    while (&node_pool, &i; i < n - 1) {
-                                ^
-[E002] error: expected declaration, found Some(Amp) at line 241, col 1
-      &a -> stdin;
-  ^
-[E002] error: expected declaration, found Some(Ident("a")) at line 241, col 1
-      &a -> stdin;
-  ^
-[E002] error: expected declaration, found Some(Arrow) at line 241, col 2
-      &a -> stdin;
-   ^
-[E002] error: expected declaration, found Some(Ident("stdin")) at line 241, col 5
-      &a -> stdin;
-      ^
-[E002] error: expected declaration, found Some(Semicolon) at line 241, col 10
-      &a -> stdin;
-           ^
-[E002] error: expected declaration, found Some(Amp) at line 243, col 1
-      &b -> stdin;
-  ^
-[E002] error: expected declaration, found Some(Ident("b")) at line 243, col 1
-      &b -> stdin;
-  ^
-[E002] error: expected declaration, found Some(Arrow) at line 243, col 2
-      &b -> stdin;
-   ^
-[E002] error: expected declaration, found Some(Ident("stdin")) at line 243, col 5
-      &b -> stdin;
-      ^
-[E002] error: expected declaration, found Some(Semicolon) at line 243, col 10
-      &b -> stdin;
-           ^
-[E002] error: expected declaration, found Some(Ident("Node_push")) at line 244, col 1
-      Node_push(&node_pool[a], b);
-  ^
-[E002] error: expected declaration, found Some(LParen) at line 244, col 8
-      Node_push(&node_pool[a], b);
-         ^
-[E002] error: expected declaration, found Some(Amp) at line 244, col 9
-      Node_push(&node_pool[a], b);
-          ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 244, col 10
-      Node_push(&node_pool[a], b);
-           ^
-[E002] error: expected declaration, found Some(LBracket) at line 244, col 19
-      Node_push(&node_pool[a], b);
-                    ^
-[E002] error: expected declaration, found Some(Ident("a")) at line 244, col 20
-      Node_push(&node_pool[a], b);
-                     ^
-[E002] error: expected declaration, found Some(RBracket) at line 244, col 21
-      Node_push(&node_pool[a], b);
-                      ^
-[E002] error: expected declaration, found Some(Comma) at line 244, col 22
-      Node_push(&node_pool[a], b);
-                       ^
-[E002] error: expected declaration, found Some(Ident("b")) at line 244, col 24
-      Node_push(&node_pool[a], b);
-                         ^
-[E002] error: expected declaration, found Some(RParen) at line 244, col 25
-      Node_push(&node_pool[a], b);
-                          ^
-[E002] error: expected declaration, found Some(Semicolon) at line 244, col 26
-      Node_push(&node_pool[a], b);
-                           ^
-[E002] error: expected declaration, found Some(Ident("Node_push")) at line 245, col 1
-      Node_push(&node_pool[b], a);
-  ^
-[E002] error: expected declaration, found Some(LParen) at line 245, col 8
-      Node_push(&node_pool[b], a);
-         ^
-[E002] error: expected declaration, found Some(Amp) at line 245, col 9
-      Node_push(&node_pool[b], a);
-          ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 245, col 10
-      Node_push(&node_pool[b], a);
-           ^
-[E002] error: expected declaration, found Some(LBracket) at line 245, col 19
-      Node_push(&node_pool[b], a);
-                    ^
-[E002] error: expected declaration, found Some(Ident("b")) at line 245, col 20
-      Node_push(&node_pool[b], a);
-                     ^
-[E002] error: expected declaration, found Some(RBracket) at line 245, col 21
-      Node_push(&node_pool[b], a);
-                      ^
-[E002] error: expected declaration, found Some(Comma) at line 245, col 22
-      Node_push(&node_pool[b], a);
-                       ^
-[E002] error: expected declaration, found Some(Ident("a")) at line 245, col 24
-      Node_push(&node_pool[b], a);
-                         ^
-[E002] error: expected declaration, found Some(RParen) at line 245, col 25
-      Node_push(&node_pool[b], a);
-                          ^
-[E002] error: expected declaration, found Some(Semicolon) at line 245, col 26
-      Node_push(&node_pool[b], a);
-                           ^
-[E002] error: expected declaration, found Some(Amp) at line 246, col 1
-      &i = i + 1;
-  ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 246, col 1
-      &i = i + 1;
-  ^
-[E002] error: expected declaration, found Some(Eq) at line 246, col 2
-      &i = i + 1;
-   ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 246, col 4
-      &i = i + 1;
-     ^
-[E002] error: expected declaration, found Some(Plus) at line 246, col 6
-      &i = i + 1;
-       ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 246, col 8
-      &i = i + 1;
-         ^
-[E002] error: expected declaration, found Some(Semicolon) at line 246, col 9
-      &i = i + 1;
-          ^
-[E002] error: expected declaration, found Some(Ident("Continue")) at line 247, col 1
-    Continue((node_pool, i))
-  ^
-[E002] error: expected declaration, found Some(LParen) at line 247, col 5
-    Continue((node_pool, i))
-      ^
-[E002] error: expected declaration, found Some(LParen) at line 247, col 6
-    Continue((node_pool, i))
-       ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 247, col 7
-    Continue((node_pool, i))
-        ^
-[E002] error: expected declaration, found Some(Comma) at line 247, col 16
-    Continue((node_pool, i))
-                 ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 247, col 18
-    Continue((node_pool, i))
-                   ^
-[E002] error: expected declaration, found Some(RParen) at line 247, col 19
-    Continue((node_pool, i))
-                    ^
-[E002] error: expected declaration, found Some(RParen) at line 247, col 20
-    Continue((node_pool, i))
-                     ^
-[E002] error: expected declaration, found Some(RBrace) at line 248, col 1
-    };
-  ^
-[E002] error: expected declaration, found Some(Semicolon) at line 248, col 1
-    };
-  ^
-[E002] error: expected declaration, found Some(Ident("prepare")) at line 249, col 1
+[E002] error: expected declaration, found Some(Ident("prepare")) at line 221, col 1
     prepare(&&node_pool, 1, 0);
   ^
-[E002] error: expected declaration, found Some(LParen) at line 249, col 4
+[E002] error: expected declaration, found Some(LParen) at line 221, col 4
     prepare(&&node_pool, 1, 0);
      ^
-[E002] error: expected declaration, found Some(AndAnd) at line 249, col 5
+[E002] error: expected declaration, found Some(AndAnd) at line 221, col 5
     prepare(&&node_pool, 1, 0);
       ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 249, col 7
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 221, col 7
     prepare(&&node_pool, 1, 0);
         ^
-[E002] error: expected declaration, found Some(Comma) at line 249, col 16
+[E002] error: expected declaration, found Some(Comma) at line 221, col 16
     prepare(&&node_pool, 1, 0);
                  ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 249, col 18
+[E002] error: expected declaration, found Some(IntLit(1)) at line 221, col 18
     prepare(&&node_pool, 1, 0);
                    ^
-[E002] error: expected declaration, found Some(Comma) at line 249, col 19
+[E002] error: expected declaration, found Some(Comma) at line 221, col 19
     prepare(&&node_pool, 1, 0);
                     ^
-[E002] error: expected declaration, found Some(IntLit(0)) at line 249, col 21
+[E002] error: expected declaration, found Some(IntLit(0)) at line 221, col 21
     prepare(&&node_pool, 1, 0);
                       ^
-[E002] error: expected declaration, found Some(RParen) at line 249, col 22
+[E002] error: expected declaration, found Some(RParen) at line 221, col 22
     prepare(&&node_pool, 1, 0);
                        ^
-[E002] error: expected declaration, found Some(Semicolon) at line 249, col 23
+[E002] error: expected declaration, found Some(Semicolon) at line 221, col 23
     prepare(&&node_pool, 1, 0);
                         ^
-[E002] error: expected declaration, found Some(Amp) at line 250, col 1
+[E002] error: expected declaration, found Some(Amp) at line 222, col 1
     &i = 0;
   ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 250, col 1
+[E002] error: expected declaration, found Some(Ident("i")) at line 222, col 1
     &i = 0;
   ^
-[E002] error: expected declaration, found Some(Eq) at line 250, col 1
+[E002] error: expected declaration, found Some(Eq) at line 222, col 1
     &i = 0;
   ^
-[E002] error: expected declaration, found Some(IntLit(0)) at line 250, col 2
+[E002] error: expected declaration, found Some(IntLit(0)) at line 222, col 2
     &i = 0;
    ^
-[E002] error: expected declaration, found Some(Semicolon) at line 250, col 3
+[E002] error: expected declaration, found Some(Semicolon) at line 222, col 3
     &i = 0;
     ^
-[E002] error: expected declaration, found Some(While) at line 251, col 1
+[E002] error: expected declaration, found Some(While) at line 223, col 1
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
   ^
-[E002] error: expected declaration, found Some(LParen) at line 251, col 3
+[E002] error: expected declaration, found Some(LParen) at line 223, col 3
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
     ^
-[E002] error: expected declaration, found Some(Amp) at line 251, col 4
+[E002] error: expected declaration, found Some(Amp) at line 223, col 4
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
      ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 251, col 5
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 223, col 5
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
       ^
-[E002] error: expected declaration, found Some(Comma) at line 251, col 13
+[E002] error: expected declaration, found Some(Comma) at line 223, col 13
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
               ^
-[E002] error: expected declaration, found Some(Amp) at line 251, col 15
+[E002] error: expected declaration, found Some(Amp) at line 223, col 15
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                 ^
-[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 251, col 16
+[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 223, col 16
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                  ^
-[E002] error: expected declaration, found Some(Comma) at line 251, col 23
+[E002] error: expected declaration, found Some(Comma) at line 223, col 23
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                         ^
-[E002] error: expected declaration, found Some(Amp) at line 251, col 25
+[E002] error: expected declaration, found Some(Amp) at line 223, col 25
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                           ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 251, col 26
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 223, col 26
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                            ^
-[E002] error: expected declaration, found Some(Comma) at line 251, col 35
+[E002] error: expected declaration, found Some(Comma) at line 223, col 35
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                                     ^
-[E002] error: expected declaration, found Some(Amp) at line 251, col 37
+[E002] error: expected declaration, found Some(Amp) at line 223, col 37
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                                       ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 251, col 38
+[E002] error: expected declaration, found Some(Ident("i")) at line 223, col 38
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                                        ^
-[E002] error: expected declaration, found Some(Semicolon) at line 251, col 39
+[E002] error: expected declaration, found Some(Semicolon) at line 223, col 39
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                                         ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 251, col 41
+[E002] error: expected declaration, found Some(Ident("i")) at line 223, col 41
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                                           ^
-[E002] error: expected declaration, found Some(Lt) at line 251, col 43
+[E002] error: expected declaration, found Some(Lt) at line 223, col 43
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                                             ^
-[E002] error: expected declaration, found Some(Ident("m")) at line 251, col 45
+[E002] error: expected declaration, found Some(Ident("m")) at line 223, col 45
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                                               ^
-[E002] error: expected declaration, found Some(RParen) at line 251, col 46
+[E002] error: expected declaration, found Some(RParen) at line 223, col 46
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                                                ^
-[E002] error: expected declaration, found Some(LBrace) at line 251, col 48
+[E002] error: expected declaration, found Some(LBrace) at line 223, col 48
     while (&seg_pool, &seg_cnt, &node_pool, &i; i < m) {
                                                  ^
-[E002] error: expected declaration, found Some(Amp) at line 253, col 1
+[E002] error: expected declaration, found Some(Amp) at line 225, col 1
       &x -> stdin;
   ^
-[E002] error: expected declaration, found Some(Ident("x")) at line 253, col 1
+[E002] error: expected declaration, found Some(Ident("x")) at line 225, col 1
       &x -> stdin;
   ^
-[E002] error: expected declaration, found Some(Arrow) at line 253, col 2
+[E002] error: expected declaration, found Some(Arrow) at line 225, col 2
       &x -> stdin;
    ^
-[E002] error: expected declaration, found Some(Ident("stdin")) at line 253, col 5
+[E002] error: expected declaration, found Some(Ident("stdin")) at line 225, col 5
       &x -> stdin;
       ^
-[E002] error: expected declaration, found Some(Semicolon) at line 253, col 10
+[E002] error: expected declaration, found Some(Semicolon) at line 225, col 10
       &x -> stdin;
            ^
-[E002] error: expected declaration, found Some(Amp) at line 255, col 1
+[E002] error: expected declaration, found Some(Amp) at line 227, col 1
       &y -> stdin;
   ^
-[E002] error: expected declaration, found Some(Ident("y")) at line 255, col 1
+[E002] error: expected declaration, found Some(Ident("y")) at line 227, col 1
       &y -> stdin;
   ^
-[E002] error: expected declaration, found Some(Arrow) at line 255, col 2
+[E002] error: expected declaration, found Some(Arrow) at line 227, col 2
       &y -> stdin;
    ^
-[E002] error: expected declaration, found Some(Ident("stdin")) at line 255, col 5
+[E002] error: expected declaration, found Some(Ident("stdin")) at line 227, col 5
       &y -> stdin;
       ^
-[E002] error: expected declaration, found Some(Semicolon) at line 255, col 10
+[E002] error: expected declaration, found Some(Semicolon) at line 227, col 10
       &y -> stdin;
            ^
-[E002] error: expected declaration, found Some(Amp) at line 257, col 1
+[E002] error: expected declaration, found Some(Amp) at line 229, col 1
       &z -> stdin;
   ^
-[E002] error: expected declaration, found Some(Ident("z")) at line 257, col 1
+[E002] error: expected declaration, found Some(Ident("z")) at line 229, col 1
       &z -> stdin;
   ^
-[E002] error: expected declaration, found Some(Arrow) at line 257, col 2
+[E002] error: expected declaration, found Some(Arrow) at line 229, col 2
       &z -> stdin;
    ^
-[E002] error: expected declaration, found Some(Ident("stdin")) at line 257, col 5
+[E002] error: expected declaration, found Some(Ident("stdin")) at line 229, col 5
       &z -> stdin;
       ^
-[E002] error: expected declaration, found Some(Semicolon) at line 257, col 10
+[E002] error: expected declaration, found Some(Semicolon) at line 229, col 10
       &z -> stdin;
            ^
-[E002] error: unexpected token at line 258, col 11
+[E002] error: unexpected token at line 230, col 11
       def f = lca(&&node_pool, x, y);
             ^
-[E002] error: expected Comma, found AndAnd at line 258, col 11
+[E002] error: expected Comma, found AndAnd at line 230, col 11
       def f = lca(&&node_pool, x, y);
             ^
-[E002] error: expected declaration, found Some(AndAnd) at line 258, col 11
+[E002] error: expected declaration, found Some(AndAnd) at line 230, col 11
       def f = lca(&&node_pool, x, y);
             ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 258, col 13
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 230, col 13
       def f = lca(&&node_pool, x, y);
               ^
-[E002] error: expected declaration, found Some(Comma) at line 258, col 22
+[E002] error: expected declaration, found Some(Comma) at line 230, col 22
       def f = lca(&&node_pool, x, y);
                        ^
-[E002] error: expected declaration, found Some(Ident("x")) at line 258, col 24
+[E002] error: expected declaration, found Some(Ident("x")) at line 230, col 24
       def f = lca(&&node_pool, x, y);
                          ^
-[E002] error: expected declaration, found Some(Comma) at line 258, col 25
+[E002] error: expected declaration, found Some(Comma) at line 230, col 25
       def f = lca(&&node_pool, x, y);
                           ^
-[E002] error: expected declaration, found Some(Ident("y")) at line 258, col 27
+[E002] error: expected declaration, found Some(Ident("y")) at line 230, col 27
       def f = lca(&&node_pool, x, y);
                             ^
-[E002] error: expected declaration, found Some(RParen) at line 258, col 28
+[E002] error: expected declaration, found Some(RParen) at line 230, col 28
       def f = lca(&&node_pool, x, y);
                              ^
-[E002] error: expected declaration, found Some(Semicolon) at line 258, col 29
+[E002] error: expected declaration, found Some(Semicolon) at line 230, col 29
       def f = lca(&&node_pool, x, y);
                               ^
-[E002] error: expected declaration, found Some(Ident("update")) at line 259, col 1
+[E002] error: expected declaration, found Some(Ident("update")) at line 231, col 1
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
   ^
-[E002] error: expected declaration, found Some(LParen) at line 259, col 5
+[E002] error: expected declaration, found Some(LParen) at line 231, col 5
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
       ^
-[E002] error: expected declaration, found Some(AndAnd) at line 259, col 6
+[E002] error: expected declaration, found Some(AndAnd) at line 231, col 6
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
        ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 259, col 8
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 231, col 8
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
          ^
-[E002] error: expected declaration, found Some(Comma) at line 259, col 16
+[E002] error: expected declaration, found Some(Comma) at line 231, col 16
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                  ^
-[E002] error: expected declaration, found Some(AndAnd) at line 259, col 18
+[E002] error: expected declaration, found Some(AndAnd) at line 231, col 18
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                    ^
-[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 259, col 20
+[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 231, col 20
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                      ^
-[E002] error: expected declaration, found Some(Comma) at line 259, col 27
+[E002] error: expected declaration, found Some(Comma) at line 231, col 27
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                             ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 259, col 29
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 231, col 29
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                               ^
-[E002] error: expected declaration, found Some(LBracket) at line 259, col 38
+[E002] error: expected declaration, found Some(LBracket) at line 231, col 38
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                                        ^
-[E002] error: expected declaration, found Some(Ident("x")) at line 259, col 39
+[E002] error: expected declaration, found Some(Ident("x")) at line 231, col 39
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                                         ^
-[E002] error: expected declaration, found Some(RBracket) at line 259, col 40
+[E002] error: expected declaration, found Some(RBracket) at line 231, col 40
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                                          ^
-[E002] error: expected declaration, found Some(Dot) at line 259, col 41
+[E002] error: expected declaration, found Some(Dot) at line 231, col 41
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                                           ^
-[E002] error: expected declaration, found Some(Ident("segment")) at line 259, col 42
+[E002] error: expected declaration, found Some(Ident("segment")) at line 231, col 42
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                                            ^
-[E002] error: expected declaration, found Some(Comma) at line 259, col 49
+[E002] error: expected declaration, found Some(Comma) at line 231, col 49
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                                                   ^
-[E002] error: expected declaration, found Some(Ident("z")) at line 259, col 51
+[E002] error: expected declaration, found Some(Ident("z")) at line 231, col 51
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                                                     ^
-[E002] error: expected declaration, found Some(Comma) at line 259, col 52
+[E002] error: expected declaration, found Some(Comma) at line 231, col 52
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                                                      ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 259, col 54
+[E002] error: expected declaration, found Some(IntLit(1)) at line 231, col 54
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                                                        ^
-[E002] error: expected declaration, found Some(RParen) at line 259, col 55
+[E002] error: expected declaration, found Some(RParen) at line 231, col 55
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                                                         ^
-[E002] error: expected declaration, found Some(Semicolon) at line 259, col 56
+[E002] error: expected declaration, found Some(Semicolon) at line 231, col 56
       update(&&seg_pool, &&seg_cnt, node_pool[x].segment, z, 1);
                                                          ^
-[E002] error: expected declaration, found Some(Ident("update")) at line 260, col 1
+[E002] error: expected declaration, found Some(Ident("update")) at line 232, col 1
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
   ^
-[E002] error: expected declaration, found Some(LParen) at line 260, col 5
+[E002] error: expected declaration, found Some(LParen) at line 232, col 5
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
       ^
-[E002] error: expected declaration, found Some(AndAnd) at line 260, col 6
+[E002] error: expected declaration, found Some(AndAnd) at line 232, col 6
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
        ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 260, col 8
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 232, col 8
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
          ^
-[E002] error: expected declaration, found Some(Comma) at line 260, col 16
+[E002] error: expected declaration, found Some(Comma) at line 232, col 16
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                  ^
-[E002] error: expected declaration, found Some(AndAnd) at line 260, col 18
+[E002] error: expected declaration, found Some(AndAnd) at line 232, col 18
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                    ^
-[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 260, col 20
+[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 232, col 20
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                      ^
-[E002] error: expected declaration, found Some(Comma) at line 260, col 27
+[E002] error: expected declaration, found Some(Comma) at line 232, col 27
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                             ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 260, col 29
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 232, col 29
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                               ^
-[E002] error: expected declaration, found Some(LBracket) at line 260, col 38
+[E002] error: expected declaration, found Some(LBracket) at line 232, col 38
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                                        ^
-[E002] error: expected declaration, found Some(Ident("y")) at line 260, col 39
+[E002] error: expected declaration, found Some(Ident("y")) at line 232, col 39
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                                         ^
-[E002] error: expected declaration, found Some(RBracket) at line 260, col 40
+[E002] error: expected declaration, found Some(RBracket) at line 232, col 40
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                                          ^
-[E002] error: expected declaration, found Some(Dot) at line 260, col 41
+[E002] error: expected declaration, found Some(Dot) at line 232, col 41
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                                           ^
-[E002] error: expected declaration, found Some(Ident("segment")) at line 260, col 42
+[E002] error: expected declaration, found Some(Ident("segment")) at line 232, col 42
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                                            ^
-[E002] error: expected declaration, found Some(Comma) at line 260, col 49
+[E002] error: expected declaration, found Some(Comma) at line 232, col 49
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                                                   ^
-[E002] error: expected declaration, found Some(Ident("z")) at line 260, col 51
+[E002] error: expected declaration, found Some(Ident("z")) at line 232, col 51
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                                                     ^
-[E002] error: expected declaration, found Some(Comma) at line 260, col 52
+[E002] error: expected declaration, found Some(Comma) at line 232, col 52
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                                                      ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 260, col 54
+[E002] error: expected declaration, found Some(IntLit(1)) at line 232, col 54
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                                                        ^
-[E002] error: expected declaration, found Some(RParen) at line 260, col 55
+[E002] error: expected declaration, found Some(RParen) at line 232, col 55
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                                                         ^
-[E002] error: expected declaration, found Some(Semicolon) at line 260, col 56
+[E002] error: expected declaration, found Some(Semicolon) at line 232, col 56
       update(&&seg_pool, &&seg_cnt, node_pool[y].segment, z, 1);
                                                          ^
-[E002] error: expected declaration, found Some(Ident("update")) at line 261, col 1
+[E002] error: expected declaration, found Some(Ident("update")) at line 233, col 1
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
   ^
-[E002] error: expected declaration, found Some(LParen) at line 261, col 5
+[E002] error: expected declaration, found Some(LParen) at line 233, col 5
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
       ^
-[E002] error: expected declaration, found Some(AndAnd) at line 261, col 6
+[E002] error: expected declaration, found Some(AndAnd) at line 233, col 6
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
        ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 261, col 8
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 233, col 8
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
          ^
-[E002] error: expected declaration, found Some(Comma) at line 261, col 16
+[E002] error: expected declaration, found Some(Comma) at line 233, col 16
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                  ^
-[E002] error: expected declaration, found Some(AndAnd) at line 261, col 18
+[E002] error: expected declaration, found Some(AndAnd) at line 233, col 18
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                    ^
-[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 261, col 20
+[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 233, col 20
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                      ^
-[E002] error: expected declaration, found Some(Comma) at line 261, col 27
+[E002] error: expected declaration, found Some(Comma) at line 233, col 27
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                             ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 261, col 29
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 233, col 29
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                               ^
-[E002] error: expected declaration, found Some(LBracket) at line 261, col 38
+[E002] error: expected declaration, found Some(LBracket) at line 233, col 38
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                                        ^
-[E002] error: expected declaration, found Some(Ident("f")) at line 261, col 39
+[E002] error: expected declaration, found Some(Ident("f")) at line 233, col 39
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                                         ^
-[E002] error: expected declaration, found Some(RBracket) at line 261, col 40
+[E002] error: expected declaration, found Some(RBracket) at line 233, col 40
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                                          ^
-[E002] error: expected declaration, found Some(Dot) at line 261, col 41
+[E002] error: expected declaration, found Some(Dot) at line 233, col 41
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                                           ^
-[E002] error: expected declaration, found Some(Ident("segment")) at line 261, col 42
+[E002] error: expected declaration, found Some(Ident("segment")) at line 233, col 42
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                                            ^
-[E002] error: expected declaration, found Some(Comma) at line 261, col 49
+[E002] error: expected declaration, found Some(Comma) at line 233, col 49
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                                                   ^
-[E002] error: expected declaration, found Some(Ident("z")) at line 261, col 51
+[E002] error: expected declaration, found Some(Ident("z")) at line 233, col 51
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                                                     ^
-[E002] error: expected declaration, found Some(Comma) at line 261, col 52
+[E002] error: expected declaration, found Some(Comma) at line 233, col 52
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                                                      ^
-[E002] error: expected declaration, found Some(Minus) at line 261, col 54
+[E002] error: expected declaration, found Some(Minus) at line 233, col 54
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                                                        ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 261, col 55
+[E002] error: expected declaration, found Some(IntLit(1)) at line 233, col 55
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                                                         ^
-[E002] error: expected declaration, found Some(RParen) at line 261, col 56
+[E002] error: expected declaration, found Some(RParen) at line 233, col 56
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                                                          ^
-[E002] error: expected declaration, found Some(Semicolon) at line 261, col 57
+[E002] error: expected declaration, found Some(Semicolon) at line 233, col 57
       update(&&seg_pool, &&seg_cnt, node_pool[f].segment, z, -1);
                                                           ^
-[E002] error: expected declaration, found Some(If) at line 262, col 1
+[E002] error: expected declaration, found Some(If) at line 234, col 1
       if (node_pool[f].fa[0] != 0) {
   ^
-[E002] error: expected declaration, found Some(LParen) at line 262, col 2
+[E002] error: expected declaration, found Some(LParen) at line 234, col 2
       if (node_pool[f].fa[0] != 0) {
    ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 262, col 3
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 234, col 3
       if (node_pool[f].fa[0] != 0) {
     ^
-[E002] error: expected declaration, found Some(LBracket) at line 262, col 12
+[E002] error: expected declaration, found Some(LBracket) at line 234, col 12
       if (node_pool[f].fa[0] != 0) {
              ^
-[E002] error: expected declaration, found Some(Ident("f")) at line 262, col 13
+[E002] error: expected declaration, found Some(Ident("f")) at line 234, col 13
       if (node_pool[f].fa[0] != 0) {
               ^
-[E002] error: expected declaration, found Some(RBracket) at line 262, col 14
+[E002] error: expected declaration, found Some(RBracket) at line 234, col 14
       if (node_pool[f].fa[0] != 0) {
                ^
-[E002] error: expected declaration, found Some(Dot) at line 262, col 15
+[E002] error: expected declaration, found Some(Dot) at line 234, col 15
       if (node_pool[f].fa[0] != 0) {
                 ^
-[E002] error: expected declaration, found Some(Ident("fa")) at line 262, col 16
+[E002] error: expected declaration, found Some(Ident("fa")) at line 234, col 16
       if (node_pool[f].fa[0] != 0) {
                  ^
-[E002] error: expected declaration, found Some(LBracket) at line 262, col 18
+[E002] error: expected declaration, found Some(LBracket) at line 234, col 18
       if (node_pool[f].fa[0] != 0) {
                    ^
-[E002] error: expected declaration, found Some(IntLit(0)) at line 262, col 19
+[E002] error: expected declaration, found Some(IntLit(0)) at line 234, col 19
       if (node_pool[f].fa[0] != 0) {
                     ^
-[E002] error: expected declaration, found Some(RBracket) at line 262, col 20
+[E002] error: expected declaration, found Some(RBracket) at line 234, col 20
       if (node_pool[f].fa[0] != 0) {
                      ^
-[E002] error: expected declaration, found Some(Ne) at line 262, col 22
+[E002] error: expected declaration, found Some(Ne) at line 234, col 22
       if (node_pool[f].fa[0] != 0) {
                        ^
-[E002] error: expected declaration, found Some(IntLit(0)) at line 262, col 25
+[E002] error: expected declaration, found Some(IntLit(0)) at line 234, col 25
       if (node_pool[f].fa[0] != 0) {
                           ^
-[E002] error: expected declaration, found Some(RParen) at line 262, col 26
+[E002] error: expected declaration, found Some(RParen) at line 234, col 26
       if (node_pool[f].fa[0] != 0) {
                            ^
-[E002] error: expected declaration, found Some(LBrace) at line 262, col 28
+[E002] error: expected declaration, found Some(LBrace) at line 234, col 28
       if (node_pool[f].fa[0] != 0) {
                              ^
-[E002] error: expected declaration, found Some(Ident("update")) at line 263, col 1
+[E002] error: expected declaration, found Some(Ident("update")) at line 235, col 1
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
   ^
-[E002] error: expected declaration, found Some(LParen) at line 263, col 7
+[E002] error: expected declaration, found Some(LParen) at line 235, col 7
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
         ^
-[E002] error: expected declaration, found Some(AndAnd) at line 263, col 8
+[E002] error: expected declaration, found Some(AndAnd) at line 235, col 8
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
          ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 263, col 10
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 235, col 10
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
            ^
-[E002] error: expected declaration, found Some(Comma) at line 263, col 18
+[E002] error: expected declaration, found Some(Comma) at line 235, col 18
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                    ^
-[E002] error: expected declaration, found Some(AndAnd) at line 263, col 20
+[E002] error: expected declaration, found Some(AndAnd) at line 235, col 20
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                      ^
-[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 263, col 22
+[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 235, col 22
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                        ^
-[E002] error: expected declaration, found Some(Comma) at line 263, col 29
+[E002] error: expected declaration, found Some(Comma) at line 235, col 29
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                               ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 263, col 31
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 235, col 31
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                 ^
-[E002] error: expected declaration, found Some(LBracket) at line 263, col 40
+[E002] error: expected declaration, found Some(LBracket) at line 235, col 40
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                          ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 263, col 41
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 235, col 41
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                           ^
-[E002] error: expected declaration, found Some(LBracket) at line 263, col 50
+[E002] error: expected declaration, found Some(LBracket) at line 235, col 50
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                    ^
-[E002] error: expected declaration, found Some(Ident("f")) at line 263, col 51
+[E002] error: expected declaration, found Some(Ident("f")) at line 235, col 51
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                     ^
-[E002] error: expected declaration, found Some(RBracket) at line 263, col 52
+[E002] error: expected declaration, found Some(RBracket) at line 235, col 52
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                      ^
-[E002] error: expected declaration, found Some(Dot) at line 263, col 53
+[E002] error: expected declaration, found Some(Dot) at line 235, col 53
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                       ^
-[E002] error: expected declaration, found Some(Ident("fa")) at line 263, col 54
+[E002] error: expected declaration, found Some(Ident("fa")) at line 235, col 54
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                        ^
-[E002] error: expected declaration, found Some(LBracket) at line 263, col 56
+[E002] error: expected declaration, found Some(LBracket) at line 235, col 56
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                          ^
-[E002] error: expected declaration, found Some(IntLit(0)) at line 263, col 57
+[E002] error: expected declaration, found Some(IntLit(0)) at line 235, col 57
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                           ^
-[E002] error: expected declaration, found Some(RBracket) at line 263, col 58
+[E002] error: expected declaration, found Some(RBracket) at line 235, col 58
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                            ^
-[E002] error: expected declaration, found Some(RBracket) at line 263, col 59
+[E002] error: expected declaration, found Some(RBracket) at line 235, col 59
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                             ^
-[E002] error: expected declaration, found Some(Dot) at line 263, col 60
+[E002] error: expected declaration, found Some(Dot) at line 235, col 60
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                              ^
-[E002] error: expected declaration, found Some(Ident("segment")) at line 263, col 61
+[E002] error: expected declaration, found Some(Ident("segment")) at line 235, col 61
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                               ^
-[E002] error: expected declaration, found Some(Comma) at line 263, col 68
+[E002] error: expected declaration, found Some(Comma) at line 235, col 68
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                                      ^
-[E002] error: expected declaration, found Some(Ident("z")) at line 263, col 70
+[E002] error: expected declaration, found Some(Ident("z")) at line 235, col 70
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                                        ^
-[E002] error: expected declaration, found Some(Comma) at line 263, col 71
+[E002] error: expected declaration, found Some(Comma) at line 235, col 71
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                                         ^
-[E002] error: expected declaration, found Some(Minus) at line 263, col 73
+[E002] error: expected declaration, found Some(Minus) at line 235, col 73
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                                           ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 263, col 74
+[E002] error: expected declaration, found Some(IntLit(1)) at line 235, col 74
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                                            ^
-[E002] error: expected declaration, found Some(RParen) at line 263, col 75
+[E002] error: expected declaration, found Some(RParen) at line 235, col 75
         update(&&seg_pool, &&seg_cnt, node_pool[node_pool[f].fa[0]].segment, z, -1)
                                                                             ^
-[E002] error: expected declaration, found Some(RBrace) at line 264, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 236, col 1
       };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 264, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 236, col 1
       };
   ^
-[E002] error: expected declaration, found Some(Amp) at line 265, col 1
+[E002] error: expected declaration, found Some(Amp) at line 237, col 1
       &i = i + 1;
   ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 265, col 1
+[E002] error: expected declaration, found Some(Ident("i")) at line 237, col 1
       &i = i + 1;
   ^
-[E002] error: expected declaration, found Some(Eq) at line 265, col 2
+[E002] error: expected declaration, found Some(Eq) at line 237, col 2
       &i = i + 1;
    ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 265, col 4
+[E002] error: expected declaration, found Some(Ident("i")) at line 237, col 4
       &i = i + 1;
      ^
-[E002] error: expected declaration, found Some(Plus) at line 265, col 6
+[E002] error: expected declaration, found Some(Plus) at line 237, col 6
       &i = i + 1;
        ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 265, col 8
+[E002] error: expected declaration, found Some(IntLit(1)) at line 237, col 8
       &i = i + 1;
          ^
-[E002] error: expected declaration, found Some(Semicolon) at line 265, col 9
+[E002] error: expected declaration, found Some(Semicolon) at line 237, col 9
       &i = i + 1;
           ^
-[E002] error: expected declaration, found Some(Ident("Continue")) at line 266, col 1
+[E002] error: expected declaration, found Some(Ident("Continue")) at line 238, col 1
     Continue((seg_pool, seg_cnt, node_pool, i))
   ^
-[E002] error: expected declaration, found Some(LParen) at line 266, col 5
+[E002] error: expected declaration, found Some(LParen) at line 238, col 5
     Continue((seg_pool, seg_cnt, node_pool, i))
       ^
-[E002] error: expected declaration, found Some(LParen) at line 266, col 6
+[E002] error: expected declaration, found Some(LParen) at line 238, col 6
     Continue((seg_pool, seg_cnt, node_pool, i))
        ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 266, col 7
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 238, col 7
     Continue((seg_pool, seg_cnt, node_pool, i))
         ^
-[E002] error: expected declaration, found Some(Comma) at line 266, col 15
+[E002] error: expected declaration, found Some(Comma) at line 238, col 15
     Continue((seg_pool, seg_cnt, node_pool, i))
                 ^
-[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 266, col 17
+[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 238, col 17
     Continue((seg_pool, seg_cnt, node_pool, i))
                   ^
-[E002] error: expected declaration, found Some(Comma) at line 266, col 24
+[E002] error: expected declaration, found Some(Comma) at line 238, col 24
     Continue((seg_pool, seg_cnt, node_pool, i))
                          ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 266, col 26
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 238, col 26
     Continue((seg_pool, seg_cnt, node_pool, i))
                            ^
-[E002] error: expected declaration, found Some(Comma) at line 266, col 35
+[E002] error: expected declaration, found Some(Comma) at line 238, col 35
     Continue((seg_pool, seg_cnt, node_pool, i))
                                     ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 266, col 37
+[E002] error: expected declaration, found Some(Ident("i")) at line 238, col 37
     Continue((seg_pool, seg_cnt, node_pool, i))
                                       ^
-[E002] error: expected declaration, found Some(RParen) at line 266, col 38
+[E002] error: expected declaration, found Some(RParen) at line 238, col 38
     Continue((seg_pool, seg_cnt, node_pool, i))
                                        ^
-[E002] error: expected declaration, found Some(RParen) at line 266, col 39
+[E002] error: expected declaration, found Some(RParen) at line 238, col 39
     Continue((seg_pool, seg_cnt, node_pool, i))
                                         ^
-[E002] error: expected declaration, found Some(RBrace) at line 267, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 239, col 1
     };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 267, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 239, col 1
     };
   ^
-[E002] error: expected declaration, found Some(Ident("dfs")) at line 268, col 1
+[E002] error: expected declaration, found Some(Ident("dfs")) at line 240, col 1
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
   ^
-[E002] error: expected declaration, found Some(LParen) at line 268, col 1
+[E002] error: expected declaration, found Some(LParen) at line 240, col 1
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
   ^
-[E002] error: expected declaration, found Some(AndAnd) at line 268, col 1
+[E002] error: expected declaration, found Some(AndAnd) at line 240, col 1
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
   ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 268, col 3
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 240, col 3
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
     ^
-[E002] error: expected declaration, found Some(Comma) at line 268, col 12
+[E002] error: expected declaration, found Some(Comma) at line 240, col 12
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
              ^
-[E002] error: expected declaration, found Some(AndAnd) at line 268, col 14
+[E002] error: expected declaration, found Some(AndAnd) at line 240, col 14
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
                ^
-[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 268, col 16
+[E002] error: expected declaration, found Some(Ident("seg_pool")) at line 240, col 16
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
                  ^
-[E002] error: expected declaration, found Some(Comma) at line 268, col 24
+[E002] error: expected declaration, found Some(Comma) at line 240, col 24
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
                          ^
-[E002] error: expected declaration, found Some(AndAnd) at line 268, col 26
+[E002] error: expected declaration, found Some(AndAnd) at line 240, col 26
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
                            ^
-[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 268, col 28
+[E002] error: expected declaration, found Some(Ident("seg_cnt")) at line 240, col 28
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
                              ^
-[E002] error: expected declaration, found Some(Comma) at line 268, col 35
+[E002] error: expected declaration, found Some(Comma) at line 240, col 35
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
                                     ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 268, col 37
+[E002] error: expected declaration, found Some(IntLit(1)) at line 240, col 37
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
                                       ^
-[E002] error: expected declaration, found Some(Comma) at line 268, col 38
+[E002] error: expected declaration, found Some(Comma) at line 240, col 38
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
                                        ^
-[E002] error: expected declaration, found Some(IntLit(0)) at line 268, col 40
+[E002] error: expected declaration, found Some(IntLit(0)) at line 240, col 40
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
                                          ^
-[E002] error: expected declaration, found Some(RParen) at line 268, col 41
+[E002] error: expected declaration, found Some(RParen) at line 240, col 41
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
                                           ^
-[E002] error: expected declaration, found Some(Semicolon) at line 268, col 42
+[E002] error: expected declaration, found Some(Semicolon) at line 240, col 42
     dfs(&&node_pool, &&seg_pool, &&seg_cnt, 1, 0);
                                            ^
-[E002] error: expected declaration, found Some(Amp) at line 269, col 1
+[E002] error: expected declaration, found Some(Amp) at line 241, col 1
     &i = 1;
   ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 269, col 1
+[E002] error: expected declaration, found Some(Ident("i")) at line 241, col 1
     &i = 1;
   ^
-[E002] error: expected declaration, found Some(Eq) at line 269, col 1
+[E002] error: expected declaration, found Some(Eq) at line 241, col 1
     &i = 1;
   ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 269, col 2
+[E002] error: expected declaration, found Some(IntLit(1)) at line 241, col 2
     &i = 1;
    ^
-[E002] error: expected declaration, found Some(Semicolon) at line 269, col 3
+[E002] error: expected declaration, found Some(Semicolon) at line 241, col 3
     &i = 1;
     ^
-[E002] error: expected declaration, found Some(While) at line 270, col 1
+[E002] error: expected declaration, found Some(While) at line 242, col 1
     while (&node_pool, &i; i <= n) {
   ^
-[E002] error: expected declaration, found Some(LParen) at line 270, col 3
+[E002] error: expected declaration, found Some(LParen) at line 242, col 3
     while (&node_pool, &i; i <= n) {
     ^
-[E002] error: expected declaration, found Some(Amp) at line 270, col 4
+[E002] error: expected declaration, found Some(Amp) at line 242, col 4
     while (&node_pool, &i; i <= n) {
      ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 270, col 5
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 242, col 5
     while (&node_pool, &i; i <= n) {
       ^
-[E002] error: expected declaration, found Some(Comma) at line 270, col 14
+[E002] error: expected declaration, found Some(Comma) at line 242, col 14
     while (&node_pool, &i; i <= n) {
                ^
-[E002] error: expected declaration, found Some(Amp) at line 270, col 16
+[E002] error: expected declaration, found Some(Amp) at line 242, col 16
     while (&node_pool, &i; i <= n) {
                  ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 270, col 17
+[E002] error: expected declaration, found Some(Ident("i")) at line 242, col 17
     while (&node_pool, &i; i <= n) {
                   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 270, col 18
+[E002] error: expected declaration, found Some(Semicolon) at line 242, col 18
     while (&node_pool, &i; i <= n) {
                    ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 270, col 20
+[E002] error: expected declaration, found Some(Ident("i")) at line 242, col 20
     while (&node_pool, &i; i <= n) {
                      ^
-[E002] error: expected declaration, found Some(Le) at line 270, col 22
+[E002] error: expected declaration, found Some(Le) at line 242, col 22
     while (&node_pool, &i; i <= n) {
                        ^
-[E002] error: expected declaration, found Some(Ident("n")) at line 270, col 25
+[E002] error: expected declaration, found Some(Ident("n")) at line 242, col 25
     while (&node_pool, &i; i <= n) {
                           ^
-[E002] error: expected declaration, found Some(RParen) at line 270, col 26
+[E002] error: expected declaration, found Some(RParen) at line 242, col 26
     while (&node_pool, &i; i <= n) {
                            ^
-[E002] error: expected declaration, found Some(LBrace) at line 270, col 28
+[E002] error: expected declaration, found Some(LBrace) at line 242, col 28
     while (&node_pool, &i; i <= n) {
                              ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 271, col 1
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 243, col 1
       node_pool[i].ans -> stdout;
   ^
-[E002] error: expected declaration, found Some(LBracket) at line 271, col 8
+[E002] error: expected declaration, found Some(LBracket) at line 243, col 8
       node_pool[i].ans -> stdout;
          ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 271, col 9
+[E002] error: expected declaration, found Some(Ident("i")) at line 243, col 9
       node_pool[i].ans -> stdout;
           ^
-[E002] error: expected declaration, found Some(RBracket) at line 271, col 10
+[E002] error: expected declaration, found Some(RBracket) at line 243, col 10
       node_pool[i].ans -> stdout;
            ^
-[E002] error: expected declaration, found Some(Dot) at line 271, col 11
+[E002] error: expected declaration, found Some(Dot) at line 243, col 11
       node_pool[i].ans -> stdout;
             ^
-[E002] error: expected declaration, found Some(Ident("ans")) at line 271, col 12
+[E002] error: expected declaration, found Some(Ident("ans")) at line 243, col 12
       node_pool[i].ans -> stdout;
              ^
-[E002] error: expected declaration, found Some(Arrow) at line 271, col 16
+[E002] error: expected declaration, found Some(Arrow) at line 243, col 16
       node_pool[i].ans -> stdout;
                  ^
-[E002] error: expected declaration, found Some(Ident("stdout")) at line 271, col 19
+[E002] error: expected declaration, found Some(Ident("stdout")) at line 243, col 19
       node_pool[i].ans -> stdout;
                     ^
-[E002] error: expected declaration, found Some(Semicolon) at line 271, col 25
+[E002] error: expected declaration, found Some(Semicolon) at line 243, col 25
       node_pool[i].ans -> stdout;
                           ^
-[E002] error: expected declaration, found Some(Amp) at line 272, col 1
+[E002] error: expected declaration, found Some(Amp) at line 244, col 1
       &i = i + 1;
   ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 272, col 1
+[E002] error: expected declaration, found Some(Ident("i")) at line 244, col 1
       &i = i + 1;
   ^
-[E002] error: expected declaration, found Some(Eq) at line 272, col 2
+[E002] error: expected declaration, found Some(Eq) at line 244, col 2
       &i = i + 1;
    ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 272, col 4
+[E002] error: expected declaration, found Some(Ident("i")) at line 244, col 4
       &i = i + 1;
      ^
-[E002] error: expected declaration, found Some(Plus) at line 272, col 6
+[E002] error: expected declaration, found Some(Plus) at line 244, col 6
       &i = i + 1;
        ^
-[E002] error: expected declaration, found Some(IntLit(1)) at line 272, col 8
+[E002] error: expected declaration, found Some(IntLit(1)) at line 244, col 8
       &i = i + 1;
          ^
-[E002] error: expected declaration, found Some(Semicolon) at line 272, col 9
+[E002] error: expected declaration, found Some(Semicolon) at line 244, col 9
       &i = i + 1;
           ^
-[E002] error: expected declaration, found Some(Ident("Continue")) at line 273, col 1
+[E002] error: expected declaration, found Some(Ident("Continue")) at line 245, col 1
     Continue((node_pool, i))
   ^
-[E002] error: expected declaration, found Some(LParen) at line 273, col 5
+[E002] error: expected declaration, found Some(LParen) at line 245, col 5
     Continue((node_pool, i))
       ^
-[E002] error: expected declaration, found Some(LParen) at line 273, col 6
+[E002] error: expected declaration, found Some(LParen) at line 245, col 6
     Continue((node_pool, i))
        ^
-[E002] error: expected declaration, found Some(Ident("node_pool")) at line 273, col 7
+[E002] error: expected declaration, found Some(Ident("node_pool")) at line 245, col 7
     Continue((node_pool, i))
         ^
-[E002] error: expected declaration, found Some(Comma) at line 273, col 16
+[E002] error: expected declaration, found Some(Comma) at line 245, col 16
     Continue((node_pool, i))
                  ^
-[E002] error: expected declaration, found Some(Ident("i")) at line 273, col 18
+[E002] error: expected declaration, found Some(Ident("i")) at line 245, col 18
     Continue((node_pool, i))
                    ^
-[E002] error: expected declaration, found Some(RParen) at line 273, col 19
+[E002] error: expected declaration, found Some(RParen) at line 245, col 19
     Continue((node_pool, i))
                     ^
-[E002] error: expected declaration, found Some(RParen) at line 273, col 20
+[E002] error: expected declaration, found Some(RParen) at line 245, col 20
     Continue((node_pool, i))
                      ^
-[E002] error: expected declaration, found Some(RBrace) at line 274, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 246, col 1
     };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 274, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 246, col 1
     };
   ^
-[E002] error: expected declaration, found Some(RBrace) at line 275, col 1
+[E002] error: expected declaration, found Some(RBrace) at line 247, col 1
   };
   ^
-[E002] error: expected declaration, found Some(Semicolon) at line 275, col 1
+[E002] error: expected declaration, found Some(Semicolon) at line 247, col 1
   };
   ^
-[E007] error: unbound variable 'seg_pool' at line 122, col 32
+[E007] error: unbound variable 'seg_pool' at line 94, col 32
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                  ^
-[E007] error: unbound variable 'idx' at line 122, col 41
+[E007] error: unbound variable 'idx' at line 94, col 41
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                           ^
-[E007] error: unbound variable 'seg_pool' at line 122, col 48
+[E007] error: unbound variable 'seg_pool' at line 94, col 48
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                                  ^
-[E007] error: unbound variable 'seg_pool' at line 122, col 32
+[E007] error: unbound variable 'seg_pool' at line 94, col 32
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                  ^
-[E007] error: unbound variable 'seg_pool' at line 143, col 34
+[E007] error: unbound variable 'seg_pool' at line 115, col 34
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                    ^
-[E007] error: unbound variable 'u' at line 143, col 43
+[E007] error: unbound variable 'u' at line 115, col 43
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                             ^
-[E007] error: unbound variable 'seg_pool' at line 143, col 48
+[E007] error: unbound variable 'seg_pool' at line 115, col 48
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                                  ^
-[E007] error: unbound variable 'seg_pool' at line 143, col 34
+[E007] error: unbound variable 'seg_pool' at line 115, col 34
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                    ^
-[E007] error: unbound variable 'node_pool' at line 158, col 8
+[E007] error: unbound variable 'node_pool' at line 130, col 8
       def ff = node_pool[v].fa[i - 1];
          ^
-[E007] error: unbound variable 'v' at line 158, col 18
+[E007] error: unbound variable 'v' at line 130, col 18
       def ff = node_pool[v].fa[i - 1];
                    ^
-[E007] error: unbound variable 'node_pool' at line 167, col 8
+[E007] error: unbound variable 'node_pool' at line 139, col 8
       def to = node_pool[v].edges[i];
          ^
-[E007] error: unbound variable 'v' at line 167, col 18
+[E007] error: unbound variable 'v' at line 139, col 18
       def to = node_pool[v].edges[i];
                    ^
-[E007] error: unbound variable 'Continue' at line 189, col 1
+[E007] error: unbound variable 'Continue' at line 161, col 1
     Continue((u, i))
   ^
-[E007] error: unbound variable 'Continue' at line 201, col 1
+[E007] error: unbound variable 'Continue' at line 173, col 1
       Continue((u, v, i))
   ^
-[E003] error: type mismatch in function return: cannot unify Unit with Food (got Unit and Food) at byte 921
+[E003] error: type mismatch in function return: cannot unify Unit with Food (got Unit and Food) at byte 235
   def Food_better = fn(&self: Food, other: Food) -> Food {
               ^
-[E007] error: unbound variable 'seg_pool' at line 122, col 32
+[E007] error: unbound variable 'seg_pool' at line 94, col 32
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                  ^
-[E007] error: unbound variable 'idx' at line 122, col 41
+[E007] error: unbound variable 'idx' at line 94, col 41
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                           ^
-[E003] error: type mismatch in array index: cannot unify Unit with Int (expected Int, got Unit) at byte 2742
+[E003] error: type mismatch in array index: cannot unify Unit with Int (expected Int, got Unit) at byte 2056
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                  ^
-[E003] error: type mismatch in array subscript: cannot unify Unit with Array(t69, 0) (got Unit and Array(t69, 0)) at byte 2742
+[E003] error: type mismatch in array subscript: cannot unify Unit with Array(t69, 0) (got Unit and Array(t69, 0)) at byte 2056
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                  ^
-[E007] error: unbound variable 'seg_pool' at line 122, col 48
+[E007] error: unbound variable 'seg_pool' at line 94, col 48
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                                  ^
-[E003] error: type mismatch in function call: cannot unify Int with Unit at byte 1938
+[E003] error: type mismatch in function call: cannot unify Int with Unit at byte 1252
   def update = fn(&seg_pool: [SegT; 2000], &seg_cnt: Int, idx: Int, pos: Int, delta: Int) {
          ^
-[E007] error: unbound variable 'seg_pool' at line 143, col 34
+[E007] error: unbound variable 'seg_pool' at line 115, col 34
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                    ^
-[E007] error: unbound variable 'u' at line 143, col 43
+[E007] error: unbound variable 'u' at line 115, col 43
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                             ^
-[E003] error: type mismatch in array index: cannot unify Unit with Int (expected Int, got Unit) at byte 3471
+[E003] error: type mismatch in array index: cannot unify Unit with Int (expected Int, got Unit) at byte 2785
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                    ^
-[E003] error: type mismatch in array subscript: cannot unify Unit with Array(t76, 0) (got Unit and Array(t76, 0)) at byte 3471
+[E003] error: type mismatch in array subscript: cannot unify Unit with Array(t76, 0) (got Unit and Array(t76, 0)) at byte 2785
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                    ^
-[E007] error: unbound variable 'seg_pool' at line 143, col 48
+[E007] error: unbound variable 'seg_pool' at line 115, col 48
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                                  ^
-[E003] error: type mismatch in function call: cannot unify Int with Unit at byte 2935
+[E003] error: type mismatch in function call: cannot unify Int with Unit at byte 2249
   def merge = fn(&seg_pool: [SegT; 2000], &seg_cnt: Int, u: Int, v: Int) -> Int {
         ^
-[E007] error: unbound variable 'node_pool' at line 158, col 8
+[E007] error: unbound variable 'node_pool' at line 130, col 8
       def ff = node_pool[v].fa[i - 1];
          ^
-[E007] error: unbound variable 'v' at line 158, col 18
+[E007] error: unbound variable 'v' at line 130, col 18
       def ff = node_pool[v].fa[i - 1];
                    ^
-[E003] error: type mismatch in array index: cannot unify Unit with Int (expected Int, got Unit) at line 158, col 8
+[E003] error: type mismatch in array index: cannot unify Unit with Int (expected Int, got Unit) at line 130, col 8
       def ff = node_pool[v].fa[i - 1];
          ^
-[E003] error: type mismatch in array subscript: cannot unify Unit with Array(t81, 0) (got Unit and Array(t81, 0)) at line 158, col 8
+[E003] error: type mismatch in array subscript: cannot unify Unit with Array(t81, 0) (got Unit and Array(t81, 0)) at line 130, col 8
       def ff = node_pool[v].fa[i - 1];
          ^
-[E007] error: unbound variable 'node_pool' at line 167, col 8
+[E007] error: unbound variable 'node_pool' at line 139, col 8
       def to = node_pool[v].edges[i];
          ^
-[E007] error: unbound variable 'v' at line 167, col 18
+[E007] error: unbound variable 'v' at line 139, col 18
       def to = node_pool[v].edges[i];
                    ^
-[E003] error: type mismatch in array index: cannot unify Unit with Int (expected Int, got Unit) at line 167, col 8
+[E003] error: type mismatch in array index: cannot unify Unit with Int (expected Int, got Unit) at line 139, col 8
       def to = node_pool[v].edges[i];
          ^
-[E003] error: type mismatch in array subscript: cannot unify Unit with Array(t84, 0) (got Unit and Array(t84, 0)) at line 167, col 8
+[E003] error: type mismatch in array subscript: cannot unify Unit with Array(t84, 0) (got Unit and Array(t84, 0)) at line 139, col 8
       def to = node_pool[v].edges[i];
          ^
-[E007] error: unbound variable 'Continue' at line 189, col 1
+[E007] error: unbound variable 'Continue' at line 161, col 1
     Continue((u, i))
   ^
-[E003] error: type mismatch in function call: cannot unify Unit with ((t115, t117) -> t118) at line 189, col 1
+[E003] error: type mismatch in function call: cannot unify Unit with ((t115, t117) -> t118) at line 161, col 1
     Continue((u, i))
   ^
-[E007] error: unbound variable 'Continue' at line 201, col 1
+[E007] error: unbound variable 'Continue' at line 173, col 1
       Continue((u, v, i))
   ^
-[E003] error: type mismatch in function call: cannot unify Unit with ((t153, t155, t157) -> t158) at line 201, col 1
+[E003] error: type mismatch in function call: cannot unify Unit with ((t153, t155, t157) -> t158) at line 173, col 1
       Continue((u, v, i))
   ^
 [W003] warning: main has no IO side effects — program produces no visible output
-[E007] error: unresolved variable 'idx' in IR gen at line 122, col 41
+[E007] error: unresolved variable 'idx' in IR gen at line 94, col 41
       &res = Food_better(&SegT_lc_val(&seg_pool[idx], &seg_pool), res);
                                           ^
-[E007] error: unresolved variable 'u' in IR gen at line 143, col 43
+[E007] error: unresolved variable 'u' in IR gen at line 115, col 43
         &res = Food_better(&SegT_lc_val(&seg_pool[u], &seg_pool), res);
                                             ^
-[E007] error: unresolved variable 'node_pool' in IR gen at line 158, col 8
+[E007] error: unresolved variable 'node_pool' in IR gen at line 130, col 8
       def ff = node_pool[v].fa[i - 1];
          ^
-[E007] error: unresolved variable 'v' in IR gen at line 158, col 18
+[E007] error: unresolved variable 'v' in IR gen at line 130, col 18
       def ff = node_pool[v].fa[i - 1];
                    ^
-[E007] error: unresolved variable 'node_pool' in IR gen at line 167, col 8
+[E007] error: unresolved variable 'node_pool' in IR gen at line 139, col 8
       def to = node_pool[v].edges[i];
          ^
-[E007] error: unresolved variable 'v' in IR gen at line 167, col 18
+[E007] error: unresolved variable 'v' in IR gen at line 139, col 18
       def to = node_pool[v].edges[i];
                    ^

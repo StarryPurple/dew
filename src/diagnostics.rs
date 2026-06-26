@@ -22,6 +22,13 @@
 
 use crate::ast::Span;
 
+/// A source file registered with the diagnostic system.
+#[derive(Debug, Clone)]
+pub struct SourceFile {
+    pub path: String,
+    pub source: String,
+}
+
 /// Severity of a diagnostic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -40,15 +47,24 @@ pub struct Diagnostic {
 }
 
 /// Collects diagnostics during compilation.
-/// Errors prevent code generation; warnings do not.
 #[derive(Debug, Default)]
 pub struct DiagnosticCollector {
     diagnostics: Vec<Diagnostic>,
+    pub source_files: Vec<SourceFile>,
+    /// When the combined source (stdlib + user) is used for lookups, this stores
+    /// the number of lines in the stdlib prefix so we can display user-relative line numbers.
+    pub stdlib_lines: usize,
 }
 
 impl DiagnosticCollector {
     pub fn new() -> Self {
-        Self { diagnostics: Vec::new() }
+        Self { diagnostics: Vec::new(), source_files: Vec::new(), stdlib_lines: 0 }
+    }
+
+    pub fn register_source(&mut self, path: String, source: String) -> usize {
+        let idx = self.source_files.len();
+        self.source_files.push(SourceFile { path, source });
+        idx
     }
 
     /// Report an error. Compilation should stop after error collection.
@@ -124,8 +140,10 @@ impl DiagnosticCollector {
         }
     }
 
-    /// Print all diagnostics to stderr in a human-readable format.
-    pub fn emit_all(&self, source: &str) {
+    /// Print all diagnostics to stderr.
+    /// Line numbers are adjusted by `stdlib_lines` so they point to the user's original file.
+    pub fn emit_all(&self, combined_source: &str) {
+        let display_path = self.source_files.first().map(|sf| &sf.path[..]).unwrap_or("<input>");
         for diag in &self.diagnostics {
             let label = match diag.severity {
                 Severity::Error => "error",
@@ -133,40 +151,25 @@ impl DiagnosticCollector {
             };
             eprint!("[{}] {}: {}", diag.code, label, diag.message);
             if let Some(span) = &diag.span {
-                if span.line > 0 && source.lines().count() > span.line {
-                    eprint!(" at line {}, col {}", span.line + 1, span.col.saturating_sub(
-                        source.lines().take(span.line).collect::<Vec<_>>().join("\n").len()
-                        + if span.line > 0 { 1 } else { 0 }
-                    ) + 1);
-                } else if span.col > 0 && span.col <= source.len() {
-                    eprint!(" at byte {}", span.col);
+                let (actual_line, actual_col) = if span.line > 0 && combined_source.lines().count() > span.line {
+                    let line_start = combined_source.lines().take(span.line).collect::<Vec<_>>().join("\n").len() + 1;
+                    (span.line, span.col.saturating_sub(line_start))
+                } else if span.col > 0 && span.col <= combined_source.len() {
+                    let ln = combined_source[..span.col].matches('\n').count();
+                    let ls = combined_source[..span.col].rfind('\n').map(|p| p + 1).unwrap_or(0);
+                    (ln, span.col - ls)
+                } else { (0, 0) };
+                if actual_line > 0 {
+                    let user_line = actual_line + 1 - self.stdlib_lines.min(actual_line + 1);
+                    eprint!(" at {}:{}:{}", display_path, user_line, actual_col + 1);
                 }
-                // Show the source line
-                let (actual_line, actual_col_in_line) = if span.line > 0 && source.lines().count() > span.line {
-                    let line_start = source.lines().take(span.line).collect::<Vec<_>>().join("\n").len() + 1;
-                    let col_in_line = span.col.saturating_sub(line_start);
-                    (span.line, col_in_line)
-                } else if span.col > 0 && span.col <= source.len() {
-                    // Compute actual line from byte offset
-                    let line_num = source[..span.col].matches('\n').count();
-                    let line_start = source[..span.col].rfind('\n').map(|p| p + 1).unwrap_or(0);
-                    (line_num, span.col - line_start)
-                } else {
-                    (0, 0)
-                };
-                if let Some(line) = source.lines().nth(actual_line) {
-                    let char_col = if actual_col_in_line <= line.len() {
-                        line[..actual_col_in_line].chars().count()
-                    } else {
-                        line.len()
-                    };
+                if let Some(line) = combined_source.lines().nth(actual_line) {
+                    let cc = if actual_col <= line.len() { line[..actual_col].chars().count() } else { line.len() };
                     eprint!("\n  {}", line);
-                    eprint!("\n  {}^", " ".repeat(char_col.min(120)));
+                    eprint!("\n  {}^", " ".repeat(cc.min(120)));
                 }
             }
-            if let Some(help) = &diag.help {
-                eprint!("\n  help: {}", help);
-            }
+            if let Some(help) = &diag.help { eprint!("\n  help: {}", help); }
             eprintln!();
         }
     }

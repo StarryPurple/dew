@@ -58,24 +58,51 @@ fn run(args: &[String]) -> Result<i32, String> {
     }
 }
 
-fn run_file(path: &str, emit_text: bool, emit_json: bool, emit_llvm: bool, use_llvm: bool) -> Result<i32, String> {
-    let stdlib = load_stdlib()?;
-    let user_src = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path, e))?;
-    // Count stdlib lines and bytes for span adjustment
-    let stdlib_lines = if stdlib.is_empty() { 0 } else { stdlib.matches('\n').count() + 1 };
-    let stdlib_bytes = stdlib.len() + 1; // +1 for the \n separator
-    let src = format!("{}\n{}", stdlib, user_src);
-    let (module, mut diag) = compile(&src)?;
+/// Full compilation pipeline: lex, parse, expand imports, desugar, type-check, IR gen.
+/// Uses the given DiagnosticCollector (which may have source files pre-registered).
+fn compile_with_diag(src: &str, diag: &mut DiagnosticCollector) -> Result<dew::ir::module::Module, String> {
+    let mut lexer = Lexer::new(src);
+    let tokens = lexer.lex_all();
+    let mut parser = Parser::new(tokens, diag, &src);
+    let prog = parser.parse_program();
+    let prog = expand_imports(prog, diag)?;
+    let prog = desugar_program(&prog, diag);
+    let mut resolver = NameResolver::new(diag);
+    resolver.resolve(&prog);
+    let mut tc = TypeChecker::new(diag);
+    tc.check(&prog);
+    strictness::analyze(&prog);
+    let irgen = IrGenerator::new(diag);
+    let module = irgen.generate(&prog);
+    Ok(module)
+}
 
-    // Shift spans so they point to the original user file, not the combined source
-    diag.shift_origin(stdlib_lines, stdlib_bytes);
+/// Convenience wrapper that creates its own DiagnosticCollector.
+fn compile(src: &str) -> Result<(dew::ir::module::Module, DiagnosticCollector), String> {
+    let mut diag = DiagnosticCollector::new();
+    let module = compile_with_diag(src, &mut diag)?;
+    Ok((module, diag))
+}
+
+fn run_file(path: &str, emit_text: bool, emit_json: bool, emit_llvm: bool, use_llvm: bool) -> Result<i32, String> {
+    let user_src = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path, e))?;
+    let mut diag = DiagnosticCollector::new();
+    // Register both source files so error display can look up the right one
+    diag.register_source(path.to_string(), user_src.clone());
+    let stdlib = load_stdlib()?;
+    if !stdlib.is_empty() {
+        diag.register_source("<stdlib>".into(), stdlib.clone());
+    }
+    let combined = if stdlib.is_empty() { user_src.clone() } else { format!("{}\n{}", stdlib, user_src) };
+    diag.stdlib_lines = if stdlib.is_empty() { 0 } else { stdlib.matches('\n').count() + 1 };
+    let module = compile_with_diag(&combined, &mut diag)?;
 
     if diag.has_errors() {
-        diag.emit_all(&user_src);
+        diag.emit_all(&combined);
         return Ok(1);
     }
     if diag.has_warnings() {
-        diag.emit_all(&user_src);
+        diag.emit_all(&combined);
     }
 
     if emit_json {
@@ -267,21 +294,5 @@ fn expand_decls(
     Ok(())
 }
 
-fn compile(src: &str) -> Result<(dew::ir::module::Module, DiagnosticCollector), String> {
-    let mut lexer = Lexer::new(src);
-    let tokens = lexer.lex_all();
-    let mut diag = DiagnosticCollector::new();
-    let mut parser = Parser::new(tokens, &mut diag, src);
-    let prog = parser.parse_program();
-    let prog = expand_imports(prog, &mut diag)?;
-    let prog = desugar_program(&prog, &mut diag);
-    let mut resolver = NameResolver::new(&mut diag);
-    resolver.resolve(&prog);
-    let mut tc = TypeChecker::new(&mut diag);
-    tc.check(&prog);
-    strictness::analyze(&prog);
-    let irgen = IrGenerator::new(&mut diag);
-    let module = irgen.generate(&prog);
-    Ok((module, diag))
-}
+
 
