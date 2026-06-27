@@ -32,6 +32,7 @@ pub struct IrGenerator<'a> {
     param_array_elem_types: std::collections::HashMap<usize, IrType>,
     fn_param_regs: std::collections::HashMap<String, usize>,
     reg_type: std::collections::HashMap<usize, IrType>,
+    enum_instance_types: std::collections::HashMap<usize, Vec<IrType>>,
 }
 
 impl<'a> IrGenerator<'a> {
@@ -55,6 +56,7 @@ impl<'a> IrGenerator<'a> {
             param_array_elem_types: std::collections::HashMap::new(),
             fn_param_regs: std::collections::HashMap::new(),
             reg_type: std::collections::HashMap::new(),
+            enum_instance_types: std::collections::HashMap::new(),
         }
     }
 
@@ -320,7 +322,9 @@ impl<'a> IrGenerator<'a> {
                         }
                     }
                     let result_r = self.fresh_reg();
+                    let payload_tys = self.enum_payload_types(&field_regs);
                     block.instrs.push(Instr::EnumCons(result_r, enum_name, variant_name, field_regs));
+                    self.enum_instance_types.insert(result_r, payload_tys);
                     return result_r;
                 }
 
@@ -547,7 +551,9 @@ impl<'a> IrGenerator<'a> {
                 let result_r = self.fresh_reg();
                 // Check if name is an enum variant (named-field variant construction)
                 if let Some(enum_def) = self.module.types.find_enum_for_variant(&s.name.name) {
+                    let payload_tys = self.enum_payload_types(&field_regs);
                     block.instrs.push(Instr::EnumCons(result_r, enum_def.name.clone(), s.name.name.clone(), field_regs));
+                    self.enum_instance_types.insert(result_r, payload_tys);
                 } else {
                     let ty = IrType::Struct(s.name.name.clone());
                     block.instrs.push(Instr::StructCons(result_r, ty, field_regs));
@@ -656,7 +662,9 @@ impl<'a> IrGenerator<'a> {
                     }
                 }
                 let result_r = self.fresh_reg();
+                let payload_tys = self.enum_payload_types(&field_regs);
                 block.instrs.push(Instr::EnumCons(result_r, enum_name, e.name.name.clone(), field_regs));
+                self.enum_instance_types.insert(result_r, payload_tys);
                 result_r
             }
 
@@ -903,6 +911,12 @@ impl<'a> IrGenerator<'a> {
                             self.reg_struct.insert(phi_reg, s.clone());
                         }
                     }
+                    // Propagate enum instance payload types through phi
+                    if let Some(payload) = self.enum_instance_types.get(&t_reg)
+                        .or_else(|| self.enum_instance_types.get(&f_reg))
+                    {
+                        self.enum_instance_types.insert(phi_reg, payload.clone());
+                    }
                     merged_map.insert(name.clone(), phi_reg);
                 }
             }
@@ -976,7 +990,13 @@ impl<'a> IrGenerator<'a> {
                     .unwrap_or_default();
                 for (idx, payload_pat) in v.payload.iter().enumerate() {
                     let proj_reg = self.fresh_reg();
-                    block.instrs.push(Instr::EnumProj(proj_reg, IrType::Undefined, enum_name.clone(), v.name.name.clone(), idx, scrut_reg));
+                    let proj_ty = self.enum_proj_type(scrut_reg, idx);
+                    block.instrs.push(Instr::EnumProj(proj_reg, proj_ty.clone(), enum_name.clone(), v.name.name.clone(), idx, scrut_reg));
+                    if let IrType::Tuple(elems) = &proj_ty {
+                        self.tuple_elem_types.insert(proj_reg, elems.clone());
+                    } else if !matches!(proj_ty, IrType::Undefined) {
+                        self.reg_type.insert(proj_reg, proj_ty.clone());
+                    }
                     match payload_pat {
                         Pattern::Var(inner) => {
                             self.var_map.insert(inner.name.clone(), proj_reg);
@@ -1003,7 +1023,13 @@ impl<'a> IrGenerator<'a> {
                         };
                         if let Some(field_idx) = fields.iter().position(|(n, _)| n == field_name) {
                             let proj_reg = self.fresh_reg();
-                            block.instrs.push(Instr::EnumProj(proj_reg, IrType::Undefined, enum_name.clone(), sp.name.name.clone(), field_idx, scrut_reg));
+                            let proj_ty = self.enum_proj_type(scrut_reg, field_idx);
+                            block.instrs.push(Instr::EnumProj(proj_reg, proj_ty.clone(), enum_name.clone(), sp.name.name.clone(), field_idx, scrut_reg));
+                            if let IrType::Tuple(elems) = &proj_ty {
+                                self.tuple_elem_types.insert(proj_reg, elems.clone());
+                            } else if !matches!(proj_ty, IrType::Undefined) {
+                                self.reg_type.insert(proj_reg, proj_ty.clone());
+                            }
                             self.var_map.insert(var_name.clone(), proj_reg);
                         }
                     }
@@ -1011,6 +1037,24 @@ impl<'a> IrGenerator<'a> {
             }
             _ => {}
         }
+    }
+
+    fn enum_payload_types(&self, field_regs: &[usize]) -> Vec<IrType> {
+        field_regs.iter()
+            .map(|&r| self.reg_type.get(&r).cloned()
+                .or_else(|| self.reg_struct.get(&r)
+                    .map(|n| IrType::Struct(n.clone())))
+                .or_else(|| self.tuple_elem_types.get(&r)
+                    .map(|ts| IrType::Tuple(ts.clone())))
+                .unwrap_or(IrType::Undefined))
+            .collect()
+    }
+
+    fn enum_proj_type(&self, scrut_reg: usize, idx: usize) -> IrType {
+        self.enum_instance_types.get(&scrut_reg)
+            .and_then(|types| types.get(idx))
+            .cloned()
+            .unwrap_or(IrType::Undefined)
     }
 
     fn ast_ty_to_ir(&self, ty: &Type) -> IrType {
