@@ -49,16 +49,18 @@ struct Ctx {
     const_values: HashMap<String, String>,
     var_types: HashMap<String, String>,
     in_func_ret_ty: String,
+    current_fn_name: String,
     in_while: bool,
-    current_while_borrow: Vec<String>,  // borrow vars of enclosing while, for avoiding double &
+    current_while_borrow: Vec<String>,
     fn_borrow_params: HashMap<String, Vec<bool>>,
+    fn_borrow_param_names: HashMap<String, Vec<String>>,
     method_map: HashMap<String, String>,
     method_ref_self: HashMap<String, bool>,
 }
 
 impl Ctx {
     fn new() -> Self {
-        Self { const_values: HashMap::new(), var_types: HashMap::new(), in_func_ret_ty: String::new(), in_while: false, current_while_borrow: Vec::new(), fn_borrow_params: HashMap::new(), method_map: HashMap::new(), method_ref_self: HashMap::new() }
+        Self { const_values: HashMap::new(), var_types: HashMap::new(), in_func_ret_ty: String::new(), current_fn_name: String::new(), in_while: false, current_while_borrow: Vec::new(), fn_borrow_params: HashMap::new(), fn_borrow_param_names: HashMap::new(), method_map: HashMap::new(), method_ref_self: HashMap::new() }
     }
 
     fn map_type(&self, t: &str) -> String {
@@ -196,7 +198,13 @@ impl Ctx {
             let mt = self.const_propagate_str(pt);
             borrow_flags.push(mt.starts_with("&mut "));
         }
-        self.fn_borrow_params.insert(name.clone(), borrow_flags);
+        self.fn_borrow_params.insert(name.clone(), borrow_flags.clone());
+        let mut borrow_names = Vec::new();
+        for ((pn, _), b) in fd.params.iter().zip(borrow_flags.iter().skip(if fd.has_self { 1 } else { 0 })) {
+            if *b { borrow_names.push(pn.clone()); }
+        }
+        self.fn_borrow_param_names.insert(name.clone(), borrow_names);
+        self.current_fn_name = name.clone();
 
         let ret = self.map_type(&self.const_propagate_str(&fd.ret_type));
         self.in_func_ret_ty = ret.clone();
@@ -234,12 +242,25 @@ impl Ctx {
             _ => unreachable!(),
         };
         let cs = self.emit_expr(cond);
-        out.push_str(&format!("{}if ({}) {{\n", pad, cs));
+        let then_bv = self.collect_all_borrow_vars(then_body);
+        if then_bv.is_empty() {
+            out.push_str(&format!("{}if ({}) {{\n", pad, cs));
+        } else {
+            let bl: Vec<String> = then_bv.iter().map(|v| format!("&{}", v)).collect();
+            out.push_str(&format!("{}if ({}; {}) {{\n", pad, bl.join(", "), cs));
+        }
         for s in &then_before { self.emit_one_stmt(s, out, indent + 1, false); }
         out.push_str(&format!("{}  {}\n", pad, jump_value));
         let remaining: Vec<&Stmt> = stmts[i+1..].iter().collect();
         if !remaining.is_empty() {
-            out.push_str(&format!("{}}} else {{\n", pad));
+            let else_body: &[Stmt] = &stmts[i+1..];
+            let else_bv = self.collect_all_borrow_vars(else_body);
+            if else_bv.is_empty() {
+                out.push_str(&format!("{}}} else {{\n", pad));
+            } else {
+                let bl: Vec<String> = else_bv.iter().map(|v| format!("&{}", v)).collect();
+                out.push_str(&format!("{}}} else ({}) {{\n", pad, bl.join(", ")));
+            }
             self.emit_stmts_impl(&stmts[i+1..], out, indent + 1, !tail.is_empty());
             if !tail.is_empty() {
                 out.push_str(&format!("{}{}\n", "  ".repeat(indent + 1), tail));
@@ -348,18 +369,29 @@ impl Ctx {
                 self.current_while_borrow = prev_borrow;
                 self.in_while = prev_in_while;
             }
-            Stmt::If { cond, then_body, else_body } => {
+             Stmt::If { cond, then_body, else_body } => {
                 let cs = self.emit_expr(cond);
-                let mut bv = Vec::new();
-                self.collect_assignments(then_body, &mut bv);
-                if let Some(eb) = else_body { self.collect_assignments(eb, &mut bv); }
+                let then_bv = self.collect_all_borrow_vars(then_body);
+                let else_bv = if let Some(eb) = else_body { self.collect_all_borrow_vars(eb) } else { Vec::new() };
+                let has_then = !then_bv.is_empty();
+                let has_else = !else_bv.is_empty();
                 let term = if is_tail_expr { "\n" } else { ";\n" };
-                if !bv.is_empty() {
-                    let bl: Vec<String> = bv.iter().map(|v| format!("&{}", v)).collect();
-                    out.push_str(&format!("{}if ({}; {}) {{\n", pad, bl.join(", "), cs));
+
+                if has_then || has_else {
+                    if has_then {
+                        let bl: Vec<String> = then_bv.iter().map(|v| format!("&{}", v)).collect();
+                        out.push_str(&format!("{}if ({}; {}) {{\n", pad, bl.join(", "), cs));
+                    } else {
+                        out.push_str(&format!("{}if ({}) {{\n", pad, cs));
+                    }
                     self.emit_stmts(then_body, out, indent + 1);
                     if let Some(eb) = else_body {
-                        out.push_str(&format!("{}}} else {{\n", pad));
+                        if has_else {
+                            let bl: Vec<String> = else_bv.iter().map(|v| format!("&{}", v)).collect();
+                            out.push_str(&format!("{}}} else ({}) {{\n", pad, bl.join(", ")));
+                        } else {
+                            out.push_str(&format!("{}}} else {{\n", pad));
+                        }
                         self.emit_stmts(eb, out, indent + 1);
                         out.push_str(&format!("{}}}{}\n", pad, term));
                     } else { out.push_str(&format!("{}}}{}\n", pad, term)); }
@@ -370,13 +402,35 @@ impl Ctx {
                         out.push_str(&format!("{}}} else ", pad));
                         if let Stmt::If { cond, then_body, else_body } = &eb[0] {
                             let cs2 = self.emit_expr(cond);
-                            out.push_str(&format!("if ({}) {{\n", cs2));
-                            self.emit_stmts(then_body, out, indent + 1);
-                            if let Some(eb2) = else_body {
-                                out.push_str(&format!("{}}} else {{\n", pad));
-                                self.emit_stmts(eb2, out, indent + 1);
-                                out.push_str(&format!("{}}}{}\n", pad, term));
-                            } else { out.push_str(&format!("{}}}{}\n", pad, term)); }
+                            let ithen_bv = self.collect_all_borrow_vars(then_body);
+                            let ielse_bv = if let Some(eb2) = else_body { self.collect_all_borrow_vars(eb2) } else { Vec::new() };
+                            if ithen_bv.is_empty() && ielse_bv.is_empty() {
+                                out.push_str(&format!("if ({}) {{\n", cs2));
+                                self.emit_stmts(then_body, out, indent + 1);
+                                if let Some(eb2) = else_body {
+                                    out.push_str(&format!("{}}} else {{\n", pad));
+                                    self.emit_stmts(eb2, out, indent + 1);
+                                    out.push_str(&format!("{}}}{}\n", pad, term));
+                                } else { out.push_str(&format!("{}}}{}\n", pad, term)); }
+                            } else {
+                                if !ithen_bv.is_empty() {
+                                    let bl: Vec<String> = ithen_bv.iter().map(|v| format!("&{}", v)).collect();
+                                    out.push_str(&format!("if ({}; {}) {{\n", bl.join(", "), cs2));
+                                } else {
+                                    out.push_str(&format!("if ({}) {{\n", cs2));
+                                }
+                                self.emit_stmts(then_body, out, indent + 1);
+                                if let Some(eb2) = else_body {
+                                    if !ielse_bv.is_empty() {
+                                        let bl: Vec<String> = ielse_bv.iter().map(|v| format!("&{}", v)).collect();
+                                        out.push_str(&format!("{}}} else ({}) {{\n", pad, bl.join(", ")));
+                                    } else {
+                                        out.push_str(&format!("{}}} else {{\n", pad));
+                                    }
+                                    self.emit_stmts(eb2, out, indent + 1);
+                                    out.push_str(&format!("{}}}{}\n", pad, term));
+                                } else { out.push_str(&format!("{}}}{}\n", pad, term)); }
+                            }
                         }
                     } else {
                         out.push_str(&format!("{}if ({}) {{\n", pad, cs));
@@ -474,6 +528,9 @@ impl Ctx {
                 _ => {}
             }
         }
+        for name in &self.borrow_params_used_in_stmts(stmts) {
+            if !acc.contains(name) { acc.push(name.clone()); }
+        }
     }
 
     fn collect_var_refs(&self, expr: &Expr) -> Vec<String> {
@@ -508,6 +565,83 @@ impl Ctx {
             if let Stmt::Assign { lhs, .. } = s {
                 if let Some(r) = extract_root(lhs) { if !acc.contains(&r) && self.var_types.contains_key(&r) { acc.push(r); } }
             }
+        }
+    }
+
+    fn collect_all_borrow_vars(&self, stmts: &[Stmt]) -> Vec<String> {
+        let mut bv = Vec::new();
+        self.collect_assignments(stmts, &mut bv);
+        for name in &self.borrow_params_used_in_stmts(stmts) {
+            if !bv.contains(name) { bv.push(name.clone()); }
+        }
+        bv
+    }
+
+    fn borrow_params_used_in_stmts(&self, stmts: &[Stmt]) -> Vec<String> {
+        let Some(names) = self.fn_borrow_param_names.get(&self.current_fn_name) else { return vec![] };
+        let mut used = Vec::new();
+        self.scan_borrow_uses(stmts, names, &mut used);
+        used
+    }
+
+    fn scan_borrow_uses(&self, stmts: &[Stmt], names: &[String], used: &mut Vec<String>) {
+        for s in stmts {
+            match s {
+                Stmt::Expr(e) | Stmt::Return(Some(e)) => self.scan_borrow_uses_expr(e, names, used),
+                Stmt::Assign { rhs, .. } => self.scan_borrow_uses_expr(rhs, names, used),
+                Stmt::Let { init, .. } => { if let Some(e) = init { self.scan_borrow_uses_expr(e, names, used); } }
+                Stmt::If { cond, then_body, else_body } => {
+                    self.scan_borrow_uses_expr(cond, names, used);
+                    self.scan_borrow_uses(then_body, names, used);
+                    if let Some(eb) = else_body { self.scan_borrow_uses(eb, names, used); }
+                }
+                Stmt::While { cond, body } => {
+                    self.scan_borrow_uses_expr(cond, names, used);
+                    self.scan_borrow_uses(body, names, used);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn scan_borrow_uses_expr(&self, expr: &Expr, names: &[String], used: &mut Vec<String>) {
+        match expr {
+            Expr::Call { args, .. } => {
+                for a in args {
+                    match a {
+                        Expr::Ref(inner) => {
+                            if let Expr::Ident(n) = inner.as_ref() {
+                                if names.contains(n) && !used.contains(n) { used.push(n.clone()); }
+                            }
+                        }
+                        Expr::Ident(n) => {
+                            if names.contains(n) && !used.contains(n) { used.push(n.clone()); }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Expr::Binary(l, _, r) => { self.scan_borrow_uses_expr(l, names, used); self.scan_borrow_uses_expr(r, names, used); }
+            Expr::Unary(_, e) => self.scan_borrow_uses_expr(e, names, used),
+            Expr::If { cond, then_body, else_body } => {
+                self.scan_borrow_uses_expr(cond, names, used);
+                for s in then_body { self.scan_borrow_uses_stmt(s, names, used); }
+                for s in else_body { self.scan_borrow_uses_stmt(s, names, used); }
+            }
+            Expr::StructLit { fields, .. } => { for (_, v) in fields { self.scan_borrow_uses_expr(v, names, used); } }
+            Expr::ArrayLit { elements, repeat } => {
+                for e in elements { self.scan_borrow_uses_expr(e, names, used); }
+                if let Some(r) = repeat { self.scan_borrow_uses_expr(r, names, used); }
+            }
+            Expr::Field(obj, _) | Expr::Index(obj, _) => self.scan_borrow_uses_expr(obj, names, used),
+            _ => {}
+        }
+    }
+
+    fn scan_borrow_uses_stmt(&self, s: &Stmt, names: &[String], used: &mut Vec<String>) {
+        match s {
+            Stmt::Expr(e) | Stmt::Return(Some(e)) => self.scan_borrow_uses_expr(e, names, used),
+            _ => {}
         }
     }
 
@@ -630,7 +764,19 @@ impl Ctx {
             Expr::Deref(e) => self.emit_expr(e),
             Expr::Group(e) => format!("({})", self.emit_expr(e)),
             Expr::If { cond, then_body, else_body } => {
-                let mut r = format!("if ({}) {{\n", self.emit_expr(cond));
+                let cs = self.emit_expr(cond);
+                let then_bv = self.collect_all_borrow_vars(then_body);
+                let else_bv = self.collect_all_borrow_vars(else_body);
+                let has_then = !then_bv.is_empty();
+                let has_else = !else_bv.is_empty();
+
+                let if_hdr = if has_then {
+                    let bl: Vec<String> = then_bv.iter().map(|v| format!("&{}", v)).collect();
+                    format!("if ({}; {})", bl.join(", "), cs)
+                } else {
+                    format!("if ({})", cs)
+                };
+                let mut r = format!("{} {{\n", if_hdr);
                 for (i, s) in then_body.iter().enumerate() {
                     let is_last = i == then_body.len() - 1;
                     if is_last && matches!(s, Stmt::Expr(_)) {
@@ -639,7 +785,12 @@ impl Ctx {
                         r.push_str(&format!("    {};\n", self.emit_expr(&stmt_to_expr(s))));
                     }
                 }
-                r.push_str("  } else {\n");
+                if has_else {
+                    let bl: Vec<String> = else_bv.iter().map(|v| format!("&{}", v)).collect();
+                    r.push_str(&format!("  }} else ({}) {{\n", bl.join(", ")));
+                } else {
+                    r.push_str("  } else {\n");
+                }
                 for (i, s) in else_body.iter().enumerate() {
                     let is_last = i == else_body.len() - 1;
                     if is_last && matches!(s, Stmt::Expr(_)) {
