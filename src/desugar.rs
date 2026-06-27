@@ -12,9 +12,187 @@
 
 use crate::ast::*;
 use crate::diagnostics::DiagnosticCollector;
+use std::collections::HashSet;
+
+/// Collect root variable names of all `&lvalue = expr` in an expression tree.
+/// Used to validate that while-borrow/if-borrow bodies only mutate vars
+/// declared in their header.
+fn collect_borrow_vars(expr: &Expr) -> HashSet<String> {
+    let mut vars = HashSet::new();
+    collect_borrow_vars_impl(expr, &mut vars);
+    vars
+}
+
+fn collect_borrow_vars_impl(expr: &Expr, vars: &mut HashSet<String>) {
+    match expr {
+        Expr::Borrow(b) => {
+            vars.insert(b.lvalue.root.name.clone());
+        }
+        Expr::Block(b) => {
+            for s in &b.stmts { collect_borrow_vars_impl(&s.expr, vars); }
+            if let Some(fe) = &b.final_expr { collect_borrow_vars_impl(fe, vars); }
+        }
+        Expr::If(i) => {
+            collect_borrow_vars_impl(&i.condition, vars);
+            collect_borrow_vars_impl(&i.then_branch, vars);
+            if let Some(eb) = &i.else_branch { collect_borrow_vars_impl(eb, vars); }
+        }
+        Expr::Match(m) => {
+            collect_borrow_vars_impl(&m.scrutinee, vars);
+            for arm in &m.arms { collect_borrow_vars_impl(&arm.body, vars); }
+        }
+        Expr::Fn(f) => collect_borrow_vars_impl(&f.body, vars),
+        Expr::Fix(f) => collect_borrow_vars_impl(&f.body, vars),
+        Expr::While(w) => collect_borrow_vars_impl(&w.body, vars),
+        Expr::Loop(l) => collect_borrow_vars_impl(&l.body, vars),
+        Expr::ForIn(fi) => collect_borrow_vars_impl(&fi.body, vars),
+        Expr::Pipeline(pi) => {
+            // IO pipes (&a -> stdin/stdout) pass a reference — not a borrow assignment
+            // that would need carry declaration.
+            let is_io_pipe = if let Expr::Var(v) = &*pi.func {
+                v.name == "stdin" || v.name == "stdout"
+            } else { false };
+            if !is_io_pipe {
+                collect_borrow_vars_impl(&pi.value, vars);
+            }
+            collect_borrow_vars_impl(&pi.func, vars);
+        }
+        Expr::Binary(b) => {
+            collect_borrow_vars_impl(&b.left, vars);
+            collect_borrow_vars_impl(&b.right, vars);
+        }
+        Expr::Unary(u) => collect_borrow_vars_impl(&u.expr, vars),
+        Expr::Call(c) => {
+            collect_borrow_vars_impl(&c.func, vars);
+            for a in &c.args {
+                match a {
+                    ExprArg::Value(e) => collect_borrow_vars_impl(e, vars),
+                    // Borrow args in calls pass references — not carry assignments
+                    ExprArg::Borrow(_) => {}
+                }
+            }
+        }
+        Expr::Field(f) => collect_borrow_vars_impl(&f.object, vars),
+        Expr::Subscript(s) => {
+            collect_borrow_vars_impl(&s.array, vars);
+            collect_borrow_vars_impl(&s.index, vars);
+        }
+        Expr::Update(u) => {
+            collect_borrow_vars_impl(&u.base, vars);
+            for up in &u.updates {
+                match up {
+                    UpdateField::NamedField { value, .. } => collect_borrow_vars_impl(value, vars),
+                    UpdateField::ArrayIndex { value, .. } => collect_borrow_vars_impl(value, vars),
+                    UpdateField::TupleIndex { value, .. } => collect_borrow_vars_impl(value, vars),
+                }
+            }
+        }
+        Expr::TupleLit(t) => { for e in &t.elements { collect_borrow_vars_impl(e, vars); } }
+        Expr::StructLit(s) => {
+            for f in &s.fields { if let Some(ref v) = f.value { collect_borrow_vars_impl(v, vars); } }
+        }
+        Expr::EnumLit(e) => {
+            match &e.payload {
+                EnumPayload::Single(exprs) => {
+                    for e in exprs { collect_borrow_vars_impl(e.as_ref(), vars); }
+                }
+                EnumPayload::Struct(fields) => {
+                    for f in fields { if let Some(ref v) = f.value { collect_borrow_vars_impl(v, vars); } }
+                }
+            }
+        }
+        Expr::ArrayLit(a) => { for e in &a.elements { collect_borrow_vars_impl(e, vars); } }
+        Expr::ArrayFill(a) => collect_borrow_vars_impl(&a.value, vars),
+        Expr::Cast(c) => collect_borrow_vars_impl(&c.expr, vars),
+        Expr::Force(f) => collect_borrow_vars_impl(&f.expr, vars),
+        _ => {}
+    }
+}
+
+/// Validate that all borrow-assigned variables in while/if-borrow bodies
+/// are explicitly declared in their scope header. Runs on the pre-desugared AST.
+fn validate_borrow_scopes(expr: &Expr, diag: &mut DiagnosticCollector) {
+    match expr {
+        Expr::While(w) => {
+            let declared: HashSet<String> = w.borrow_vars.iter().map(|v| v.name.clone()).collect();
+            let used = collect_borrow_vars(&w.body);
+            for uv in &used {
+                if !declared.contains(uv.as_str()) {
+                    diag.error("E003",
+                        format!("'{}' used with & in while body but not declared in while header (declare: &{})",
+                            uv, uv),
+                        Some(w.span));
+                }
+            }
+            // Recurse into body (inner while/if-borrow have their own scope)
+            validate_borrow_scopes_impl(&w.body, diag);
+        }
+        Expr::If(i) => {
+            if !i.if_borrow.is_empty() {
+                let declared: HashSet<String> = i.if_borrow.iter().map(|v| v.name.clone()).collect();
+                let used = collect_borrow_vars(&i.then_branch);
+                for uv in &used {
+                    if !declared.contains(uv.as_str()) {
+                        diag.error("E003",
+                            format!("'{}' used with & in if-borrow body but not declared in if header", uv),
+                            Some(i.span));
+                    }
+                }
+            }
+            validate_borrow_scopes_impl(&i.then_branch, diag);
+            if let Some(eb) = &i.else_branch {
+                // Also validate else-borrow if present
+                if let Expr::If(inner_if) = eb.as_ref() {
+                    if let Some(ref ebv) = inner_if.else_borrow {
+                        let declared: HashSet<String> = ebv.iter().map(|v| v.name.clone()).collect();
+                        let used = collect_borrow_vars(&inner_if.then_branch);
+                        for uv in &used {
+                            if !declared.contains(uv.as_str()) {
+                                diag.error("E003",
+                                    format!("'{}' used with & in else-borrow body but not declared", uv),
+                                    Some(inner_if.span));
+                            }
+                        }
+                    }
+                }
+                validate_borrow_scopes_impl(eb, diag);
+            }
+        }
+        Expr::Block(b) => {
+            for s in &b.stmts { validate_borrow_scopes_impl(&s.expr, diag); }
+            if let Some(fe) = &b.final_expr { validate_borrow_scopes_impl(fe, diag); }
+        }
+        _ => {}
+    }
+}
+
+fn validate_borrow_scopes_impl(expr: &Expr, diag: &mut DiagnosticCollector) {
+    match expr {
+        Expr::While(w) => {
+            validate_borrow_scopes(expr, diag);
+        }
+        Expr::If(i) => { validate_borrow_scopes(expr, diag); }
+        Expr::Block(b) => {
+            for s in &b.stmts { validate_borrow_scopes_impl(&s.expr, diag); }
+            if let Some(fe) = &b.final_expr { validate_borrow_scopes_impl(fe, diag); }
+        }
+        Expr::Fn(f) => { validate_borrow_scopes_impl(&f.body, diag); }
+        Expr::Fix(fx) => { validate_borrow_scopes_impl(&fx.body, diag); }
+        Expr::Match(m) => {
+            for arm in &m.arms { validate_borrow_scopes_impl(&arm.body, diag); }
+        }
+        _ => {}
+    }
+}
 
 /// Desugar a complete program. Returns the desugared program.
 pub fn desugar_program(prog: &Program, diag: &mut DiagnosticCollector) -> Program {
+    // Validate borrow scope declarations before desugaring eliminates Expr::Borrow
+    for decl in &prog.decls {
+        if let Decl::Def(d) = decl {
+            validate_borrow_scopes_impl(&d.value, diag);
+        }
+    }
     let mut decls = Vec::new();
     for decl in &prog.decls {
         let desugared = desugar_decl(decl, diag);
