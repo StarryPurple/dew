@@ -25,7 +25,7 @@ impl IrType {
             IrType::Enum(n) => n.clone(),
             IrType::Fun(p, r) => format!("({}) -> {}", p.iter().map(|t| t.display()).collect::<Vec<_>>().join(", "), r.display()),
             IrType::Tuple(ts) => format!("({})", ts.iter().map(|t| t.display()).collect::<Vec<_>>().join(", ")),
-            IrType::Array(t, n) => format!("Array({}, {})", t.display(), n),
+            IrType::Array(t, n) => format!("[{}; {}]", t.display(), n),
             IrType::ThunkRef(t) => format!("ThunkRef({})", t.display()),
         }
     }

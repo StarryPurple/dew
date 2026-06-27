@@ -24,9 +24,12 @@ pub struct IrGenerator<'a> {
     thunk_names: std::collections::HashSet<String>,
     thunk_name_map: std::collections::HashMap<String, String>,
     rec_fn_names: std::collections::HashSet<String>,
+    current_fn_return_ty: IrType,
+    fn_param_names: std::collections::HashSet<String>,
     extra_blocks: Vec<BasicBlock>,
     reg_struct: std::collections::HashMap<usize, String>,
     tuple_elem_types: std::collections::HashMap<usize, Vec<IrType>>,
+    param_array_elem_types: std::collections::HashMap<usize, IrType>,
 }
 
 impl<'a> IrGenerator<'a> {
@@ -42,9 +45,12 @@ impl<'a> IrGenerator<'a> {
             thunk_names: std::collections::HashSet::new(),
             thunk_name_map: std::collections::HashMap::new(),
             rec_fn_names: std::collections::HashSet::new(),
+            current_fn_return_ty: IrType::Int,
+            fn_param_names: std::collections::HashSet::new(),
             extra_blocks: Vec::new(),
             reg_struct: std::collections::HashMap::new(),
             tuple_elem_types: std::collections::HashMap::new(),
+            param_array_elem_types: std::collections::HashMap::new(),
         }
     }
 
@@ -132,21 +138,27 @@ impl<'a> IrGenerator<'a> {
                 self.reg_struct.insert(i, name.clone());
             } else if let IrType::Tuple(_) = ty {
                 self.reg_struct.insert(i, "%tuple".into());
+            } else if let IrType::Array(elem_ty, _) = ty {
+                self.param_array_elem_types.insert(i, *elem_ty.clone());
             }
         }
 
         // Track rec-defining fn names so self-referencing calls inside the
         // body resolve via Static call (not thunk Force, which blackholes).
         self.rec_fn_names.insert(fn_name.clone());
+        self.current_fn_return_ty = return_ty.clone();
 
         let mut ir_fn = Fn::new(fn_name, params, return_ty.clone());
+        let fn_return_ty = return_ty.clone();
         let mut block = BasicBlock::new("entry".into());
         self.next_reg = f.params.len();
         self.var_map.clear();
 
         for (i, param) in f.params.iter().enumerate() {
             self.var_map.insert(param.name.name.clone(), i);
+            self.fn_param_names.insert(param.name.name.clone());
         }
+        self.fn_param_names.retain(|n| !n.starts_with('%'));
 
         let result_reg = self.compile_expr(&f.body, &mut block);
         self.compile_finish(&mut block, &mut ir_fn.blocks, result_reg);
@@ -271,7 +283,7 @@ impl<'a> IrGenerator<'a> {
             Expr::Call(c) => {
                 // IIFE: fn(params) { body }(args) — inline the anonymous function
                 if let Expr::Fn(fn_expr) = &*c.func {
-                    let saved_var_map = self.var_map.clone();
+                let mut saved_var_map = self.var_map.clone();
                     for (i, param) in fn_expr.params.iter().enumerate() {
                         if let Some(ExprArg::Value(e)) = c.args.get(i) {
                             let arg_reg = self.compile_expr(e, block);
@@ -380,7 +392,7 @@ impl<'a> IrGenerator<'a> {
                                     (CallTarget::Static(ident.name.clone()), ret)
                                 }
                             } else if self.rec_fn_names.contains(&ident.name) {
-                                (CallTarget::Static(ident.name.clone()), IrType::Int)
+                                (CallTarget::Static(ident.name.clone()), self.current_fn_return_ty.clone())
                             } else if self.thunk_names.contains(&ident.name) {
                                 // Self-referencing closure: force thunk then Dynamic call.
                                 // Use the unique thunk name to avoid collisions.
@@ -419,7 +431,7 @@ impl<'a> IrGenerator<'a> {
             }
 
             Expr::Block(b) => {
-                let saved_var_map = self.var_map.clone();
+                let mut saved_var_map = self.var_map.clone();
                 let saved_reg_struct = self.reg_struct.clone();
                 let mut last_reg = 0;
                 for stmt in &b.stmts {
@@ -468,10 +480,42 @@ impl<'a> IrGenerator<'a> {
                         } else {
                             self.var_map.insert(def.name.name.clone(), last_reg);
                         }
+                        // Propagate array element type for immediate use by next statement
+                        if self.fn_param_names.contains(&def.name.name) {
+                            if let Some(&outer_reg) = saved_var_map.get(&def.name.name) {
+                                if outer_reg != last_reg {
+                                    if let Some(elem_ty) = self.param_array_elem_types.get(&outer_reg) {
+                                        self.param_array_elem_types.insert(last_reg, elem_ty.clone());
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 if let Some(final_expr) = &b.final_expr {
                     last_reg = self.compile_expr(final_expr, block);
+                }
+                // Before restoring, propagate var_map updates for function
+                // parameter names that were rebound inside this block. This
+                // allows borrow-param rebindings (e.g. `def pool = %_btmp.0`
+                // inside if-else branches) to escape their enclosing block
+                // and be visible in the function's return tuple. Regular
+                // local variables (non-params) are NOT propagated, preserving
+                // lexical shadowing semantics.
+                if !self.fn_param_names.is_empty() {
+                    for (name, reg) in std::mem::take(&mut self.var_map) {
+                        if self.fn_param_names.contains(&name) {
+                            if let Some(&outer_reg) = saved_var_map.get(&name) {
+                                if outer_reg != reg {
+                                    saved_var_map.insert(name.clone(), reg);
+                                    // Propagate array element type for named field access
+                                    if let Some(elem_ty) = self.param_array_elem_types.get(&outer_reg) {
+                                        self.param_array_elem_types.insert(reg, elem_ty.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 self.var_map = saved_var_map;
                 self.reg_struct = saved_reg_struct;
@@ -628,6 +672,12 @@ impl<'a> IrGenerator<'a> {
                     return 0;
                 }
                 block.instrs.push(Instr::ArrayAccess(result_r, arr_r, idx_r));
+                // Track element type for subsequent field access on array elements
+                if let Some(elem_ty) = self.param_array_elem_types.get(&arr_r) {
+                    if let IrType::Struct(name) = elem_ty {
+                        self.reg_struct.insert(result_r, name.clone());
+                    }
+                }
                 result_r
             }
             Expr::Cast(c) => self.compile_expr(&c.expr, block),
@@ -667,7 +717,12 @@ impl<'a> IrGenerator<'a> {
         for cap_name in &free_vars {
             if let Some(&outer_reg) = self.var_map.get(cap_name) {
                 lambda_captures.push(outer_reg);
-                all_params.push((capture_start + lambda_captures.len() - 1, IrType::Int));
+                let cap_ty = self.reg_struct.get(&outer_reg)
+                    .map(|n| IrType::Struct(n.clone()))
+                    .or_else(|| self.tuple_elem_types.get(&outer_reg)
+                        .map(|types| IrType::Tuple(types.clone())))
+                    .unwrap_or(IrType::Int);
+                all_params.push((capture_start + lambda_captures.len() - 1, cap_ty));
             }
         }
 
@@ -736,24 +791,67 @@ impl<'a> IrGenerator<'a> {
         block.terminator = Terminator::Br(cond_reg, l_true.clone(), l_false.clone());
         self.extra_blocks.push(block.clone());
 
+        let outer_var_map = self.var_map.clone();
+
+        // Compile true arm
         let mut block_true = BasicBlock::new(l_true.clone());
         let true_reg = self.compile_expr(&m.arms[0].body, &mut block_true);
         block_true.terminator = Terminator::Jmp(l_merge.clone());
         let true_label = block_true.label.clone();
+        let true_var_map = self.var_map.clone();
         self.extra_blocks.push(block_true);
 
+        // Reset var_map for false arm
+        self.var_map = outer_var_map.clone();
+
+        // Compile false arm
         let mut block_false = BasicBlock::new(l_false.clone());
         let false_reg = self.compile_expr(&m.arms[1].body, &mut block_false);
         block_false.terminator = Terminator::Jmp(l_merge.clone());
         let false_label = block_false.label.clone();
+        let false_var_map = self.var_map.clone();
         self.extra_blocks.push(block_false);
 
+        // Create merge block with phi nodes
         let mut block_merge = BasicBlock::new(l_merge);
         let result_r = self.fresh_reg();
         block_merge.instrs.push(Instr::Phi(result_r, vec![
-            (true_reg, true_label),
-            (false_reg, false_label),
+            (true_reg, true_label.clone()),
+            (false_reg, false_label.clone()),
         ]));
+
+        // Find variables that diverged between branches (borrow-param rebindings
+        // inside if-else arms) and create phi nodes for each.
+        let mut merged_map = outer_var_map.clone();
+        for (name, &t_reg) in &true_var_map {
+            if let Some(&f_reg) = false_var_map.get(name) {
+                if t_reg != f_reg && !name.starts_with('%') {
+                    let phi_reg = self.fresh_reg();
+                    block_merge.instrs.push(Instr::Phi(phi_reg, vec![
+                        (t_reg, true_label.clone()),
+                        (f_reg, false_label.clone()),
+                    ]));
+                    // Propagate array element type through phi for named field access
+                    if let Some(elem_ty) = self.param_array_elem_types.get(&t_reg)
+                        .or_else(|| self.param_array_elem_types.get(&f_reg))
+                    {
+                        self.param_array_elem_types.insert(phi_reg, elem_ty.clone());
+                    }
+                    // Propagate struct type through phi
+                    if let Some(s) = self.reg_struct.get(&t_reg)
+                        .or_else(|| self.reg_struct.get(&f_reg))
+                    {
+                        if let Some(t) = self.reg_struct.get(&t_reg) {
+                            if t == s { self.reg_struct.insert(phi_reg, s.clone()); }
+                        } else {
+                            self.reg_struct.insert(phi_reg, s.clone());
+                        }
+                    }
+                    merged_map.insert(name.clone(), phi_reg);
+                }
+            }
+        }
+        self.var_map = merged_map;
         *block = block_merge;
         result_r
     }
