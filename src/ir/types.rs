@@ -3,6 +3,7 @@ use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IrType {
+    Undefined,
     Int,
     Bool,
     Char,
@@ -18,6 +19,7 @@ pub enum IrType {
 impl IrType {
     pub fn display(&self) -> String {
         match self {
+            IrType::Undefined => "?".into(),
             IrType::Int => "Int".into(),
             IrType::Bool => "Bool".into(),
             IrType::Char => "Char".into(),

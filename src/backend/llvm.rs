@@ -121,6 +121,7 @@ fn as_i64_tmp(r: usize, tag: &str, reg: usize, out: &mut String, ctx: &LlvmCtx) 
 
 fn ir_type_to_llvm(ty: &IrType) -> String {
     match ty {
+        IrType::Undefined => "i64".into(),
         IrType::Int => "i64".into(),
         IrType::Bool => "i1".into(),
         IrType::Char => "i32".into(),
