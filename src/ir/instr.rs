@@ -35,7 +35,7 @@ pub enum Instr {
     Fetch(Reg, Reg, Vec<Accessor>),
     Place(Reg, Reg, Vec<Accessor>, Reg),
     Field(Reg, Reg, usize, IrType),
-    StructCons(Reg, String, Vec<Reg>),
+    StructCons(Reg, IrType, Vec<Reg>),
     EnumCons(Reg, String, String, Vec<Reg>),
     EnumDisc(Reg, Reg),
     EnumProj(Reg, String, String, usize, Reg),

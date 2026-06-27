@@ -91,7 +91,7 @@ fn instr_type(instr: &Instr, return_ty: &IrType) -> IrType {
         Instr::ArrayLit(_, ty, _) => ty.clone(),
         Instr::ArrayFill(_, ty, _, _) => ty.clone(),
         Instr::TupleLit(_, ty, _) => ty.clone(),
-        Instr::StructCons(_, name, _) => IrType::Struct(name.clone()),
+        Instr::StructCons(_, ty, _) => ty.clone(),
         Instr::EnumCons(_, enum_name, _, _) => IrType::Enum(enum_name.clone()),
         Instr::EnumDisc(..) => IrType::Int,
         Instr::EnumProj(..) => IrType::Int,
@@ -163,8 +163,12 @@ fn display_instr(instr: &Instr, return_ty: &IrType) -> String {
             format!("%{}: {} = place %{} {} = %{}", r, result_ty, base, display_path(path, false), val)
         }
         Instr::Field(r, base, name, _field_ty) => format!("%{}: {} = field %{} .{}", r, result_ty, base, name),
-        Instr::StructCons(r, name, fields) => {
-            format!("%{}: {} = struct_cons @{} {}", r, result_ty, name,
+        Instr::StructCons(r, ty, fields) => {
+            let type_str = match ty {
+                IrType::Struct(n) => format!("@{}", n),
+                _ => String::new(),
+            };
+            format!("%{}: {} = struct_cons {} {}", r, result_ty, type_str,
                 fields.iter().map(|f| format!("%{}", f)).collect::<Vec<_>>().join(" "))
         }
         Instr::EnumCons(r, enum_name, variant, fields) => {

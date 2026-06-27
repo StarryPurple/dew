@@ -312,7 +312,7 @@ fn eval_instr(
                 });
             frame.set(*r, val);
         }
-        Instr::StructCons(r, _name, fields) => {
+        Instr::StructCons(r, _ty, fields) => {
             let values: Vec<Value> = fields.iter().map(|f| frame.get(*f).clone()).collect();
             frame.set(*r, Value::Tuple(values));
         }

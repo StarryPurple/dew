@@ -549,7 +549,8 @@ impl<'a> IrGenerator<'a> {
                 if let Some(enum_def) = self.module.types.find_enum_for_variant(&s.name.name) {
                     block.instrs.push(Instr::EnumCons(result_r, enum_def.name.clone(), s.name.name.clone(), field_regs));
                 } else {
-                    block.instrs.push(Instr::StructCons(result_r, s.name.name.clone(), field_regs));
+                    let ty = IrType::Struct(s.name.name.clone());
+                    block.instrs.push(Instr::StructCons(result_r, ty, field_regs));
                     self.reg_struct.insert(result_r, s.name.name.clone());
                 }
                 result_r
@@ -561,8 +562,15 @@ impl<'a> IrGenerator<'a> {
                     field_regs.push(self.compile_expr(e, block));
                 }
                 let result_r = self.fresh_reg();
-                block.instrs.push(Instr::StructCons(result_r, "%tuple".into(), field_regs));
-                self.reg_struct.insert(result_r, "%tuple".into());
+                let elem_tys: Vec<IrType> = field_regs.iter()
+                    .map(|&r| self.reg_type.get(&r).cloned()
+                        .or_else(|| self.reg_struct.get(&r).map(|n| IrType::Struct(n.clone())))
+                        .or_else(|| self.tuple_elem_types.get(&r).map(|ts| IrType::Tuple(ts.clone())))
+                        .unwrap_or(IrType::Int))
+                    .collect();
+                let ty = IrType::Tuple(elem_tys.clone());
+                self.tuple_elem_types.insert(result_r, elem_tys);
+                block.instrs.push(Instr::StructCons(result_r, ty, field_regs));
                 result_r
             }
 

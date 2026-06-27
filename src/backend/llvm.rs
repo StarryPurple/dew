@@ -227,7 +227,7 @@ fn infer_thunk_result_type(thunk: &Thunk) -> IrType {
         for instr in thunk.blocks.first().map(|b| &b.instrs).unwrap_or(&vec![]) {
             match instr {
                 Instr::EnumCons(dst, name, _, _) if *dst == reg => return IrType::Enum(name.clone()),
-                Instr::StructCons(dst, name, _) if *dst == reg => return IrType::Struct(name.clone()),
+                Instr::StructCons(dst, ty, _) if *dst == reg => return ty.clone(),
                 _ => {}
             }
         }
@@ -479,11 +479,12 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             let phity = llvm_boundary_type(ctx.reg_ty(r));
             writeln!(out, "  %r{} = phi {} [{}]", r, phity, p.join("], [")).ok();
         }
-        Instr::StructCons(r, name, fields) => {
-            ctx.set_reg(*r, IrType::Struct(name.clone()));
+        Instr::StructCons(r, ty, fields) => {
+            ctx.set_reg(*r, ty.clone());
+            let is_tuple = matches!(ty, IrType::Tuple(_));
             if fields.is_empty() {
                 writeln!(out, "  %r{} = add i64 0, 0", r).ok();
-            } else if name == "%tuple" {
+            } else if is_tuple {
                 // Tuple construction: arena-allocate and store like a struct
                 let struct_ty = format!("{{ {} }}", (0..fields.len()).map(|_| "i64").collect::<Vec<_>>().join(", "));
                 let first = as_i64(r * 1000, fields[0], out, ctx);
@@ -501,7 +502,8 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                 writeln!(out, "  store {} {}, ptr %r{}_cast", struct_ty, prev, r).ok();
                 writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
             } else {
-                let st_ty = format!("%struct.{}", name);
+                let struct_name = match ty { IrType::Struct(n) => n.as_str(), _ => "%tuple" };
+                let st_ty = format!("%struct.{}", struct_name);
                 let first = as_i64(r * 1000, fields[0], out, ctx);
                 writeln!(out, "  %r{}_0 = insertvalue {} undef, i64 {}, 0", r, st_ty, first).ok();
                 let mut prev = format!("%r{}_0", r);
