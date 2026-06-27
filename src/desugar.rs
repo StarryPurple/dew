@@ -373,11 +373,11 @@ fn desugar_expr(expr: &Expr) -> Expr {
                     match branch {
                         Expr::Block(b) => {
                             for s in &b.stmts { stmts.push(s.clone()); }
-                            // If final_expr has a Borrow statement, promote to stmt
                             if let Some(fe) = &b.final_expr {
-                                if matches!(**fe, Expr::Borrow(_)) {
-                                    stmts.push(BlockStmt { span: Span::DUMMY, expr: (**fe).clone(), def: None });
-                                }
+                                // Push any final_expr as a stmt so the body content is
+                                // preserved. The branch's actual value is the borrow-vars
+                                // tuple appended afterwards.
+                                stmts.push(BlockStmt { span: Span::DUMMY, expr: (**fe).clone(), def: None });
                             }
                         }
                         other => {
