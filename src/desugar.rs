@@ -693,12 +693,15 @@ fn desugar_fn(f: &FnExpr) -> Expr {
             // differ from the first borrow param to avoid collision:
             // the Tuple must reference the borrow param's original type
             // (e.g. Int) while the result has a different type (e.g. Array).
-            // When orig_final is a complex expression (match/if-else/binary op/etc.)
-            // it may return a different type than the borrow param. Use a unique
-            // name to avoid shadowing the borrow param with a mismatched type.
-            let result_name = Ident::new(
-                format!("{}__res", f.params[borrow_params[0].0].name.name),
-                f.params[borrow_params[0].0].name.span);
+            // With 1 borrow param, the def binding shadows the param
+            // intentionally so Var(p) references the updated value.
+            let result_name = if borrow_params.len() > 1 {
+                Ident::new(
+                    format!("{}__res", f.params[borrow_params[0].0].name.name),
+                    f.params[borrow_params[0].0].name.span)
+            } else {
+                f.params[borrow_params[0].0].name.clone()
+            };
             b.stmts.push(BlockStmt {
                 span: body_span,
                 expr: orig_final,
