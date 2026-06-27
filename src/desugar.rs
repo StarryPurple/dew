@@ -337,29 +337,13 @@ fn desugar_expr(expr: &Expr) -> Expr {
                 let tmp_name = Ident::new("%_ifbrw", Span::DUMMY);
                 stmts.push(BlockStmt {
                     span: i.span,
-                    expr: match_expr,
+                    expr: match_expr.clone(),
                     def: Some(DefDecl {
                         span: i.span, rec: false, name: tmp_name.clone(),
-                        destructure: None, ty: None,
-                        value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                        destructure: Some(union_vars.clone()), ty: None,
+                        value: match_expr,
                     }),
                 });
-                for (idx, v) in union_vars.iter().enumerate() {
-                    let field = Expr::Field(FieldExpr {
-                        span: i.span,
-                        object: Box::new(Expr::Var(tmp_name.clone())),
-                        field: Ident::new(format!("{}", idx), Span::DUMMY),
-                    });
-                    stmts.push(BlockStmt {
-                        span: i.span,
-                        expr: field,
-                        def: Some(DefDecl {
-                            span: i.span, rec: false, name: v.clone(),
-                            destructure: None, ty: None,
-                            value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
-                        }),
-                    });
-                }
                 return Expr::Block(BlockExpr { span: i.span, stmts, final_expr: None });
                 return Expr::Block(BlockExpr { span: i.span, stmts, final_expr: None });
             }
@@ -1438,7 +1422,39 @@ fn desugar_block(b: &BlockExpr) -> Expr {
 
         if s.def.is_none() {
             if let Expr::Block(inner) = &expr {
-                for is in &inner.stmts { stmts.push(is.clone()); }
+                for is in &inner.stmts {
+                    // Expand destructure def bindings when flattening
+                    if let Some(DefDecl { destructure: Some(vars), name: tmp_name, value: dv, .. }) = &is.def {
+                        let tmp = Ident::new(&tmp_name.name, Span::DUMMY);
+                        stmts.push(BlockStmt {
+                            span: is.span,
+                            expr: desugar_expr(dv),
+                            def: Some(DefDecl {
+                                span: is.span, rec: false, name: tmp.clone(),
+                                destructure: None, ty: None,
+                                value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                            }),
+                        });
+                        for (i, v) in vars.iter().enumerate() {
+                            let field = Expr::Field(FieldExpr {
+                                span: is.span,
+                                object: Box::new(Expr::Var(tmp.clone())),
+                                field: Ident::new(format!("{}", i), Span::DUMMY),
+                            });
+                            stmts.push(BlockStmt {
+                                span: is.span,
+                                expr: field,
+                                def: Some(DefDecl {
+                                    span: is.span, rec: false, name: v.clone(),
+                                    destructure: None, ty: None,
+                                    value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                                }),
+                            });
+                        }
+                    } else {
+                        stmts.push(is.clone());
+                    }
+                }
                 if let Some(fe) = inner.final_expr.as_ref() {
                     stmts.push(BlockStmt {
                         span: fe.span(), expr: (**fe).clone(), def: None,
