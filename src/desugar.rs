@@ -707,6 +707,82 @@ fn expr_has_io(expr: &Expr) -> bool {
     }
 }
 
+/// Replace `continue`/`break` keywords in a while-borrow body block with
+/// `__Continue((vars...))`/`__Done((vars...))` enum expressions.
+fn replace_while_jumps(mut block: BlockExpr, vars: &[Ident]) -> BlockExpr {
+    let build_continue = |span: Span| -> Expr {
+        let var_refs: Vec<Box<Expr>> = vars.iter()
+            .map(|v| Box::new(Expr::Var(v.clone())))
+            .collect();
+        Expr::EnumLit(EnumLit {
+            span, name: Ident::new("__Continue", Span::DUMMY),
+            payload: EnumPayload::Single(var_refs),
+        })
+    };
+    let build_break = |span: Span| -> Expr {
+        let var_refs: Vec<Box<Expr>> = vars.iter()
+            .map(|v| Box::new(Expr::Var(v.clone())))
+            .collect();
+        Expr::EnumLit(EnumLit {
+            span, name: Ident::new("__Done", Span::DUMMY),
+            payload: EnumPayload::Single(var_refs),
+        })
+    };
+    for stmt in &mut block.stmts {
+        stmt.expr = replace_jump_in_expr(std::mem::replace(&mut stmt.expr, Expr::UnitLit(Span::DUMMY)), &build_continue, &build_break);
+    }
+    if let Some(fe) = &mut block.final_expr {
+        let old = std::mem::replace(fe.as_mut(), Expr::UnitLit(Span::DUMMY));
+        *fe = Box::new(replace_jump_in_expr(old, &build_continue, &build_break));
+    }
+    block
+}
+
+fn replace_jump_in_expr(expr: Expr, cont: &dyn Fn(Span) -> Expr, brk: &dyn Fn(Span) -> Expr) -> Expr {
+    match expr {
+        Expr::Var(ref ident) if ident.name == "continue" => cont(ident.span),
+        Expr::Var(ref ident) if ident.name == "break" => brk(ident.span),
+        Expr::Block(b) => {
+            let mut stmts = Vec::new();
+            for s in b.stmts {
+                stmts.push(BlockStmt {
+                    expr: replace_jump_in_expr(s.expr, cont, brk),
+                    ..s
+                });
+            }
+            let fe = b.final_expr.map(|e| Box::new(replace_jump_in_expr(*e, cont, brk)));
+            Expr::Block(BlockExpr { stmts, final_expr: fe, ..b })
+        }
+        Expr::If(i) => {
+            Expr::If(IfExpr {
+                condition: Box::new(replace_jump_in_expr(*i.condition, cont, brk)),
+                then_branch: Box::new(replace_jump_in_expr(*i.then_branch, cont, brk)),
+                else_branch: i.else_branch.map(|e| Box::new(replace_jump_in_expr(*e, cont, brk))),
+                ..i
+            })
+        }
+        Expr::Match(m) => {
+            Expr::Match(MatchExpr {
+                scrutinee: Box::new(replace_jump_in_expr(*m.scrutinee, cont, brk)),
+                arms: m.arms.into_iter().map(|a| MatchArm {
+                    body: replace_jump_in_expr(a.body, cont, brk),
+                    ..a
+                }).collect(),
+                ..m
+            })
+        }
+        Expr::Fix(f) => Expr::Fix(FixExpr {
+            body: Box::new(replace_jump_in_expr(*f.body, cont, brk)),
+            ..f
+        }),
+        Expr::Fn(f) => Expr::Fn(FnExpr {
+            body: Box::new(replace_jump_in_expr(*f.body, cont, brk)),
+            ..f
+        }),
+        _ => expr,
+    }
+}
+
 /// Desugar a borrow statement: `&p = expr` → `def p = expr`
 /// `&p { fields }` → `def p = p { fields }`
 /// Desugar a borrow statement: `&p = expr` → `def p = expr`
@@ -852,6 +928,8 @@ fn desugar_while_borrow(w: &WhileExpr) -> Expr {
         Expr::Block(b) => b.clone(),
         other => BlockExpr { span: Span::DUMMY, stmts: vec![BlockStmt { span: Span::DUMMY, expr: other.clone(), def: None }], final_expr: None },
     };
+    // Replace `continue`/`break` keywords with __Continue((vars...))/__Done((vars...))
+    let body_block = replace_while_jumps(body_block, vars);
 
     // Build fix fn body: if (cond) { match ({ body }) { Dispatch } } else { Done(init_tuple) }
     let fix_body = Expr::If(IfExpr {

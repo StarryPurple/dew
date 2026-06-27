@@ -222,7 +222,7 @@ impl Ctx {
             Stmt::Return(None) => "Unit".to_string(),
             Stmt::Continue => {
                 if self.in_while {
-                    format!("__Continue(({}))", self.current_while_borrow.join(", "))
+                    "continue".to_string()
                 } else {
                     "Unit".to_string()
                 }
@@ -318,7 +318,7 @@ impl Ctx {
                     // The __Continue tail is passed into the jump chain so it lands inside the
                     // else branch rather than after the if-else (avoids redundant double __Continue).
                     let tv: Vec<String> = carried.iter().map(|v| v.clone()).collect();
-                    let continue_text = format!("__Continue(({}))", tv.join(", "));
+                    let continue_text = "continue".to_string();
                     let mut j = 0;
                     let mut chain_fired = false;
                     while j < body.len() {
@@ -393,14 +393,14 @@ impl Ctx {
             }
             Stmt::Return(None) => {
                 if self.in_while {
-                    out.push_str(&format!("{}__Done((Unit,))\n", pad));
+                    out.push_str(&format!("{}Done((Unit,))\n", pad));
                 } else {
                     out.push_str(&format!("{}Unit\n", pad));
                 }
             }
             Stmt::Continue => {
                 if self.in_while {
-                    out.push_str(&format!("{}__Continue(({}))\n", pad, self.current_while_borrow.join(", ")));
+                    out.push_str(&format!("{}continue\n", pad));
                 } else {
                     out.push_str(&format!("{}Unit\n", pad));
                 }
