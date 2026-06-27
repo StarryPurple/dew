@@ -38,7 +38,7 @@ pub enum Instr {
     StructCons(Reg, IrType, Vec<Reg>),
     EnumCons(Reg, String, String, Vec<Reg>),
     EnumDisc(Reg, Reg),
-    EnumProj(Reg, String, String, usize, Reg),
+    EnumProj(Reg, IrType, String, String, usize, Reg),
     ArrayLit(Reg, IrType, Vec<Reg>),
     ArrayFill(Reg, IrType, Reg, usize),
     TupleLit(Reg, IrType, Vec<Reg>),

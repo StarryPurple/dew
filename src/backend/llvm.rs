@@ -613,7 +613,7 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                 _ => { writeln!(out, "  %r{} = add i64 %r{}, 0", r, reg).ok(); }
             }
         }
-        Instr::EnumProj(r, _enum_name, _variant, idx, reg) => {
+        Instr::EnumProj(r, _ty, _enum_name, _variant, idx, reg) => {
             ctx.set_reg(*r, IrType::Int);
             match ctx.reg_ty(reg) {
                 IrType::Enum(name) | IrType::Struct(name) => {

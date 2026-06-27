@@ -351,7 +351,7 @@ fn eval_instr(
                 frame.set(*r, Value::Int(0));
             }
         }
-        Instr::EnumProj(r, _enum_name, _variant, idx, reg) => {
+        Instr::EnumProj(r, _ty, _enum_name, _variant, idx, reg) => {
             let val = frame.get(*reg);
             if let Value::Enum(_, _, _tag, fields) = val {
                 if *idx < fields.len() {

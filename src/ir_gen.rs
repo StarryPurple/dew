@@ -976,7 +976,7 @@ impl<'a> IrGenerator<'a> {
                     .unwrap_or_default();
                 for (idx, payload_pat) in v.payload.iter().enumerate() {
                     let proj_reg = self.fresh_reg();
-                    block.instrs.push(Instr::EnumProj(proj_reg, enum_name.clone(), v.name.name.clone(), idx, scrut_reg));
+                    block.instrs.push(Instr::EnumProj(proj_reg, IrType::Undefined, enum_name.clone(), v.name.name.clone(), idx, scrut_reg));
                     match payload_pat {
                         Pattern::Var(inner) => {
                             self.var_map.insert(inner.name.clone(), proj_reg);
@@ -1003,7 +1003,7 @@ impl<'a> IrGenerator<'a> {
                         };
                         if let Some(field_idx) = fields.iter().position(|(n, _)| n == field_name) {
                             let proj_reg = self.fresh_reg();
-                            block.instrs.push(Instr::EnumProj(proj_reg, enum_name.clone(), sp.name.name.clone(), field_idx, scrut_reg));
+                            block.instrs.push(Instr::EnumProj(proj_reg, IrType::Undefined, enum_name.clone(), sp.name.name.clone(), field_idx, scrut_reg));
                             self.var_map.insert(var_name.clone(), proj_reg);
                         }
                     }

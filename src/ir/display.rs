@@ -94,7 +94,7 @@ fn instr_type(instr: &Instr, return_ty: &IrType) -> IrType {
         Instr::StructCons(_, ty, _) => ty.clone(),
         Instr::EnumCons(_, enum_name, _, _) => IrType::Enum(enum_name.clone()),
         Instr::EnumDisc(..) => IrType::Int,
-        Instr::EnumProj(..) => IrType::Undefined,
+        Instr::EnumProj(_, ty, _, _, _, _) => ty.clone(),
         Instr::StructUpdate(_, _, _, _, struct_ty) => struct_ty.clone(),
         Instr::ArrayAccess(_, ty, _, _) | Instr::ArrayUpdate(_, ty, _, _, _) => ty.clone(),
         Instr::TupleUpdate(..) => IrType::Int,
@@ -176,8 +176,8 @@ fn display_instr(instr: &Instr, return_ty: &IrType) -> String {
                 fields.iter().map(|f| format!("%{}", f)).collect::<Vec<_>>().join(" "))
         }
         Instr::EnumDisc(r, e) => format!("%{}: {} = enum_disc %{}", r, result_ty, e),
-        Instr::EnumProj(r, enum_name, variant, idx, e) => {
-            format!("%{}: {} = enum_proj @{}::{}[{}] %{}", r, result_ty, enum_name, variant, idx, e)
+        Instr::EnumProj(r, ty, enum_name, variant, idx, e) => {
+            format!("%{}: {} = enum_proj @{}::{}[{}] %{}", r, ty, enum_name, variant, idx, e)
         }
         Instr::ArrayLit(r, _ty, elems) => {
             format!("%{}: {} = array_lit {}", r, result_ty,
