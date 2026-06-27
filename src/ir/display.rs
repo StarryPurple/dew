@@ -74,21 +74,54 @@ fn display_thunk(t: &Thunk) -> String {
     out
 }
 
-fn display_instr(instr: &Instr, _return_ty: &IrType) -> String {
+fn instr_type(instr: &Instr, return_ty: &IrType) -> IrType {
     match instr {
-        Instr::Lit(r, v) => format!("%{} = lit {}", r, display_lit(v)),
-        Instr::Stdout(r) => format!("stdout{{Int}} %{}", r),
-        Instr::Stdin(r) => format!("%{} = stdin{{Int}}", r),
+        Instr::Lit(_, v) => match v {
+            LitValue::Int(_) => IrType::Int,
+            LitValue::Bool(_) => IrType::Bool,
+            LitValue::Char(_) => IrType::Char,
+        },
+        Instr::Add(..) | Instr::Sub(..) | Instr::Mul(..) | Instr::Div(..) | Instr::Rem(..) => IrType::Int,
+        Instr::BitAnd(..) | Instr::BitOr(..) | Instr::BitXor(..) | Instr::Shl(..) | Instr::Shr(..) => IrType::Int,
+        Instr::Lt(..) | Instr::Gt(..) | Instr::Le(..) | Instr::Ge(..) | Instr::Eq(..) | Instr::Ne(..) => IrType::Bool,
+        Instr::And(..) | Instr::Or(..) | Instr::Not(..) => IrType::Bool,
+        Instr::Field(_, _, _, field_ty) => field_ty.clone(),
+        Instr::Call(_, _, _, ret_ty) => ret_ty.clone(),
+        Instr::Force(_, _) => return_ty.clone(),
+        Instr::ArrayLit(_, ty, _) => ty.clone(),
+        Instr::ArrayFill(_, ty, _, _) => ty.clone(),
+        Instr::TupleLit(_, ty, _) => ty.clone(),
+        Instr::StructCons(_, name, _) => IrType::Struct(name.clone()),
+        Instr::EnumCons(_, enum_name, _, _) => IrType::Enum(enum_name.clone()),
+        Instr::EnumDisc(..) => IrType::Int,
+        Instr::EnumProj(..) => IrType::Int,
+        Instr::StructUpdate(_, _, _, _, struct_ty) => struct_ty.clone(),
+        Instr::ArrayAccess(..) | Instr::ArrayUpdate(..) => IrType::Int,
+        Instr::TupleUpdate(..) => IrType::Int,
+        Instr::Move(..) | Instr::Update(..) | Instr::Fetch(..) | Instr::Place(..) => IrType::Unit,
+        Instr::Lambda(..) => IrType::Int,
+        Instr::Phi(..) => return_ty.clone(),
+        Instr::Stdout(_) => IrType::Int,
+        Instr::Stdin(_) => IrType::Int,
+    }
+}
+
+fn display_instr(instr: &Instr, return_ty: &IrType) -> String {
+    let result_ty = instr_type(instr, return_ty);
+    match instr {
+        Instr::Lit(r, v) => format!("%{}: {} = lit {}", r, result_ty, display_lit(v)),
+        Instr::Stdout(r) => format!("stdout{} %{}", result_ty, r),
+        Instr::Stdin(r) => format!("%{}: {} = stdin", r, result_ty),
         Instr::Lambda(r, name, caps) => {
-            format!("%{} = lambda{{}} @{}({})", r, name,
+            format!("%{}: {} = lambda @{}({})", r, result_ty, name,
                 caps.iter().map(|c| format!("%{}", c)).collect::<Vec<_>>().join(", "))
         }
-        Instr::Call(r, target, args, ret_ty) => {
+        Instr::Call(r, target, args, _ret_ty) => {
             let t = match target {
                 CallTarget::Static(n) => format!("@{}", n),
                 CallTarget::Dynamic(reg) => format!("%{}", reg),
             };
-            format!("%{} = call{{{}}} {} {}", r, ret_ty.display(), t,
+            format!("%{}: {} = call {} {}", r, result_ty, t,
                 args.iter().map(|a| format!("%{}", a)).collect::<Vec<_>>().join(" "))
         }
         Instr::Force(r, target) => {
@@ -96,80 +129,80 @@ fn display_instr(instr: &Instr, _return_ty: &IrType) -> String {
                 ForceTarget::Static(n) => format!("@{}", n),
                 ForceTarget::Dynamic(reg) => format!("%{}", reg),
             };
-            format!("%{} = force{{}} {}", r, t)
+            format!("%{}: {} = force {}", r, result_ty, t)
         }
-        Instr::Add(r, a, b) => format!("%{} = add %{} %{}", r, a, b),
-        Instr::Sub(r, a, b) => format!("%{} = sub %{} %{}", r, a, b),
-        Instr::Mul(r, a, b) => format!("%{} = mul %{} %{}", r, a, b),
-        Instr::Div(r, a, b) => format!("%{} = div %{} %{}", r, a, b),
-        Instr::Rem(r, a, b) => format!("%{} = rem %{} %{}", r, a, b),
-        Instr::BitAnd(r, a, b) => format!("%{} = and %{} %{}", r, a, b),
-        Instr::BitOr(r, a, b) => format!("%{} = or %{} %{}", r, a, b),
-        Instr::BitXor(r, a, b) => format!("%{} = xor %{} %{}", r, a, b),
-        Instr::Shl(r, a, b) => format!("%{} = shl %{} %{}", r, a, b),
-        Instr::Shr(r, a, b) => format!("%{} = shr %{} %{}", r, a, b),
-        Instr::Lt(r, a, b) => format!("%{} = lt %{} %{}", r, a, b),
-        Instr::Gt(r, a, b) => format!("%{} = gt %{} %{}", r, a, b),
-        Instr::Le(r, a, b) => format!("%{} = le %{} %{}", r, a, b),
-        Instr::Ge(r, a, b) => format!("%{} = ge %{} %{}", r, a, b),
-        Instr::Eq(r, a, b) => format!("%{} = eq %{} %{}", r, a, b),
-        Instr::Ne(r, a, b) => format!("%{} = ne %{} %{}", r, a, b),
-        Instr::And(r, a, b) => format!("%{} = and %{} %{}", r, a, b),
-        Instr::Or(r, a, b) => format!("%{} = or %{} %{}", r, a, b),
-        Instr::Not(r, a) => format!("%{} = not %{}", r, a),
+        Instr::Add(r, a, b) => format!("%{}: {} = add %{} %{}", r, result_ty, a, b),
+        Instr::Sub(r, a, b) => format!("%{}: {} = sub %{} %{}", r, result_ty, a, b),
+        Instr::Mul(r, a, b) => format!("%{}: {} = mul %{} %{}", r, result_ty, a, b),
+        Instr::Div(r, a, b) => format!("%{}: {} = div %{} %{}", r, result_ty, a, b),
+        Instr::Rem(r, a, b) => format!("%{}: {} = rem %{} %{}", r, result_ty, a, b),
+        Instr::BitAnd(r, a, b) => format!("%{}: {} = and %{} %{}", r, result_ty, a, b),
+        Instr::BitOr(r, a, b) => format!("%{}: {} = or %{} %{}", r, result_ty, a, b),
+        Instr::BitXor(r, a, b) => format!("%{}: {} = xor %{} %{}", r, result_ty, a, b),
+        Instr::Shl(r, a, b) => format!("%{}: {} = shl %{} %{}", r, result_ty, a, b),
+        Instr::Shr(r, a, b) => format!("%{}: {} = shr %{} %{}", r, result_ty, a, b),
+        Instr::Lt(r, a, b) => format!("%{}: {} = lt %{} %{}", r, result_ty, a, b),
+        Instr::Gt(r, a, b) => format!("%{}: {} = gt %{} %{}", r, result_ty, a, b),
+        Instr::Le(r, a, b) => format!("%{}: {} = le %{} %{}", r, result_ty, a, b),
+        Instr::Ge(r, a, b) => format!("%{}: {} = ge %{} %{}", r, result_ty, a, b),
+        Instr::Eq(r, a, b) => format!("%{}: {} = eq %{} %{}", r, result_ty, a, b),
+        Instr::Ne(r, a, b) => format!("%{}: {} = ne %{} %{}", r, result_ty, a, b),
+        Instr::And(r, a, b) => format!("%{}: {} = and %{} %{}", r, result_ty, a, b),
+        Instr::Or(r, a, b) => format!("%{}: {} = or %{} %{}", r, result_ty, a, b),
+        Instr::Not(r, a) => format!("%{}: {} = not %{}", r, result_ty, a),
         Instr::Phi(r, pairs) => {
             let p: Vec<String> = pairs.iter()
                 .map(|(v, l)| format!("%{} {}", v, l))
                 .collect();
-            format!("%{} = phi [{}]", r, p.join("] ["))
+            format!("%{}: {} = phi [{}]", r, result_ty, p.join("] ["))
         }
         Instr::Fetch(r, base, path) => {
-            format!("%{} = fetch{{}} %{} {}", r, base, display_path(path, true))
+            format!("%{}: {} = fetch %{} {}", r, result_ty, base, display_path(path, true))
         }
         Instr::Place(r, base, path, val) => {
-            format!("%{} = place %{} {} = %{}", r, base, display_path(path, false), val)
+            format!("%{}: {} = place %{} {} = %{}", r, result_ty, base, display_path(path, false), val)
         }
-        Instr::Field(r, base, name, field_ty) => format!("%{} = field{{{}}} %{} .{}", r, field_ty.display(), base, name),
+        Instr::Field(r, base, name, _field_ty) => format!("%{}: {} = field %{} .{}", r, result_ty, base, name),
         Instr::StructCons(r, name, fields) => {
-            format!("%{} = struct_cons{{{}}} @{} {}", r, name, name,
+            format!("%{}: {} = struct_cons @{} {}", r, result_ty, name,
                 fields.iter().map(|f| format!("%{}", f)).collect::<Vec<_>>().join(" "))
         }
         Instr::EnumCons(r, enum_name, variant, fields) => {
-            format!("%{} = enum_cons{{{}}} @{}::{} {}", r, enum_name, enum_name, variant,
+            format!("%{}: {} = enum_cons @{}::{} {}", r, result_ty, enum_name, variant,
                 fields.iter().map(|f| format!("%{}", f)).collect::<Vec<_>>().join(" "))
         }
-        Instr::EnumDisc(r, e) => format!("%{} = enum_disc %{}", r, e),
+        Instr::EnumDisc(r, e) => format!("%{}: {} = enum_disc %{}", r, result_ty, e),
         Instr::EnumProj(r, enum_name, variant, idx, e) => {
-            format!("%{} = enum_proj{{{}}} @{}::{}[{}] %{}", r, enum_name, enum_name, variant, idx, e)
+            format!("%{}: {} = enum_proj @{}::{}[{}] %{}", r, result_ty, enum_name, variant, idx, e)
         }
-        Instr::ArrayLit(r, ty, elems) => {
-            format!("%{} = array_lit{{{}}} {}", r, ty.display(),
+        Instr::ArrayLit(r, _ty, elems) => {
+            format!("%{}: {} = array_lit {}", r, result_ty,
                 elems.iter().map(|e| format!("%{}", e)).collect::<Vec<_>>().join(" "))
         }
-        Instr::ArrayFill(r, ty, val, n) => {
-            format!("%{} = array_fill{{{}}} %{} {}", r, ty.display(), val, n)
+        Instr::ArrayFill(r, _ty, val, n) => {
+            format!("%{}: {} = array_fill %{} {}", r, result_ty, val, n)
         }
-        Instr::TupleLit(r, ty, elems) => {
-            format!("%{} = tuple_lit{{{}}} {}", r, ty.display(),
+        Instr::TupleLit(r, _ty, elems) => {
+            format!("%{}: {} = tuple_lit {}", r, result_ty,
                 elems.iter().map(|e| format!("%{}", e)).collect::<Vec<_>>().join(" "))
         }
-        Instr::StructUpdate(r, base, field, val, struct_ty) => {
-            format!("%{} = struct_update{{{}}} %{} .{} = %{}", r, struct_ty.display(), base, field, val)
+        Instr::StructUpdate(r, base, field, val, _struct_ty) => {
+            format!("%{}: {} = struct_update %{} .{} = %{}", r, result_ty, base, field, val)
         }
-        Instr::ArrayAccess(r, arr, idx) => format!("%{} = array_access{{}} %{} %{}", r, arr, idx),
+        Instr::ArrayAccess(r, arr, idx) => format!("%{}: {} = array_access %{} %{}", r, result_ty, arr, idx),
         Instr::ArrayUpdate(r, arr, idx, val) => {
-            format!("%{} = array_update{{}} %{} %{} %{}", r, arr, idx, val)
+            format!("%{}: {} = array_update %{} %{} %{}", r, result_ty, arr, idx, val)
         }
         Instr::TupleUpdate(r, tup, idx, val) => {
-            format!("%{} = tuple_update{{}} %{} .{} = %{}", r, tup, idx, val)
+            format!("%{}: {} = tuple_update %{} .{} = %{}", r, result_ty, tup, idx, val)
         }
-        Instr::Move(r, from) => format!("%{} = move %{}", r, from),
+        Instr::Move(r, from) => format!("%{}: {} = move %{}", r, result_ty, from),
         Instr::Update(r, target) => {
             let t = match target {
                 ForceTarget::Static(n) => format!("@{}", n),
                 ForceTarget::Dynamic(reg) => format!("%{}", reg),
             };
-            format!("%{} = update {}", r, t)
+            format!("%{}: {} = update {}", r, result_ty, t)
         }
     }
 }

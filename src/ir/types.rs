@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IrType {
@@ -28,6 +29,12 @@ impl IrType {
             IrType::Array(t, n) => format!("[{}; {}]", t.display(), n),
             IrType::ThunkRef(t) => format!("ThunkRef({})", t.display()),
         }
+    }
+}
+
+impl fmt::Display for IrType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.display())
     }
 }
 
