@@ -859,7 +859,7 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
                             format!("({})", pats.join(", "))
                         }).unwrap_or_default();
                         let name = def.name.name.clone();
-                        out.push_str(&format!("def{}{} = {}", rec,
+                        out.push_str(&format!("def{}{} = {};", rec,
                             if destr.is_empty() { format!(" {}", name) } else { format!(" {}", destr) },
                             display_expr(&stmt.expr, depth)));
                     }
@@ -873,7 +873,8 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
                 }
                 out.push_str(&format!("\n{}", display_expr(fe, depth)));
             } else if b.stmts.is_empty() && !has_final {
-                return "Unit".to_string();
+                // Empty block — returns Unit implicitly; caller wraps in { }
+                return String::new();
             }
             out
         }
