@@ -5,5 +5,6 @@ struct Data { value: Int }
 def show = fn(&d: Data) -> Int { d.value * 2 }
 def main = fn {
   def data = Data { value: 42 };
-  show(data) -> stdout;
+  def result = show(&data);
+  result -> stdout;
 };

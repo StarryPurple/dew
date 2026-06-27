@@ -881,6 +881,65 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
             format!("match {} {{\n{}\n{}}}", scrutinee, arms.join(",\n"), pad(depth))
         }
         Expr::Block(b) => {
+            // Detect expanded destructure pattern:
+            //   def %_dstmp = <init>;
+            //   def a = %_dstmp.0; def b = %_dstmp.1; ...
+            // Collapse to: def (a, b) = <init>;
+            if let Some(first) = b.stmts.first() {
+                if let Some(ref def) = first.def {
+                    if def.name.name.starts_with("%_dstmp") || def.name.name.starts_with("%_ifbrw") {
+                        let tmp_name = format!("%{}", def.name.name.strip_prefix('%').unwrap_or(&def.name.name));
+                        let mut destr_vars = Vec::new();
+                        let mut rest_start = 1;
+                        for (i, stmt) in b.stmts.iter().enumerate().skip(1) {
+                            if let Some(ref d) = stmt.def {
+                                if let Expr::Field(FieldExpr {
+                                    object, field, ..
+                                }) = &stmt.expr {
+                                    if let Expr::Var(ref v) = **object {
+                                        if v.name == tmp_name && field.name.parse::<usize>().ok()
+                                            .map_or(false, |idx| idx == destr_vars.len()) {
+                                            destr_vars.push(d.name.name.clone());
+                                            rest_start = i + 1;
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                        if !destr_vars.is_empty() {
+                            let init = display_expr(&first.expr, depth);
+                            let destr = if destr_vars.len() == 1 {
+                                format!("({},)", destr_vars[0])
+                            } else {
+                                format!("({})", destr_vars.join(", "))
+                            };
+                            let mut out = String::new();
+                            out.push_str(&pad(depth + 1));
+                            out.push_str(&format!("def {} = {};", destr, init));
+                            for stmt in b.stmts.iter().skip(rest_start) {
+                                out.push('\n');
+                                out.push_str(&pad(depth + 1));
+                                if stmt.def.is_some() {
+                                    if let Some(ref d) = stmt.def {
+                                        let rec = if d.rec { " rec" } else { "" };
+                                        let n = d.name.name.strip_prefix('%').unwrap_or(&d.name.name);
+                                        out.push_str(&format!("def{}{} = {};", rec, format!(" {}", n),
+                                            display_expr(&stmt.expr, depth + 1)));
+                                    }
+                                } else {
+                                    out.push_str(&display_expr(&stmt.expr, depth + 1));
+                                }
+                            }
+                            if let Some(fe) = &b.final_expr {
+                                out.push_str(&format!("\n{}{}", pad(depth + 1), display_expr(fe, depth + 1)));
+                            }
+                            return format!("{}{{\n{}\n{}}}", pad(depth), out, pad(depth));
+                        }
+                    }
+                }
+            }
             let mut out = String::new();
             let has_final = b.final_expr.is_some();
             for (idx, stmt) in b.stmts.iter().enumerate() {
@@ -951,12 +1010,12 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
         Expr::StructLit(s) => {
             let fields: Vec<String> = s.fields.iter().map(|f| {
                 if let Some(val) = &f.value {
-                    display_expr(val, depth)
+                    format!("{}: {}", f.name.name, display_expr(val, depth))
                 } else {
-                    f.name.name.clone()
+                    format!("{}: {}", f.name.name, f.name.name)
                 }
             }).collect();
-            format!("{}({})", s.name.name, fields.join(", "))
+            format!("{} {{ {} }}", s.name.name, fields.join(", "))
         }
         Expr::EnumLit(e) => {
             match &e.payload {

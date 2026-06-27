@@ -185,12 +185,88 @@ fn validate_borrow_scopes_impl(expr: &Expr, diag: &mut DiagnosticCollector) {
     }
 }
 
+/// Collect function name → borrow param flags from all definitions.
+fn collect_fn_borrow_info(prog: &Program) -> std::collections::HashMap<String, Vec<bool>> {
+    let mut info = std::collections::HashMap::new();
+    for decl in &prog.decls {
+        if let Decl::Def(d) = &decl {
+            if let Expr::Fn(f) = &d.value {
+                let flags: Vec<bool> = f.params.iter().map(|p| p.is_borrow).collect();
+                if flags.iter().any(|&b| b) {
+                    info.insert(d.name.name.clone(), flags);
+                }
+            }
+        }
+    }
+    info
+}
+
+/// Validate that all function calls match their target's borrow params:
+/// a `&` param must be passed as `ExprArg::Borrow`.
+fn validate_borrow_calls(expr: &Expr, fn_borrow: &std::collections::HashMap<String, Vec<bool>>, diag: &mut DiagnosticCollector) {
+    match expr {
+        Expr::Call(c) => {
+            if let Expr::Var(ident) = &*c.func {
+                if let Some(flags) = fn_borrow.get(&ident.name) {
+                    for (i, arg) in c.args.iter().enumerate() {
+                        if i < flags.len() && flags[i] {
+                            if let ExprArg::Value(e) = arg {
+                                // Borrow param called without & — this is valid only if the
+                                // function is also being called from a borrow-desugared context
+                                // (handled by the desugar_fn wrapper).  At the call site the
+                                // argument must be passed as &lvalue.
+                                diag.error("E003",
+                                    format!("call to '{}' passes value directly to &-parameter {}: use &{}",
+                                        ident.name, i, ident.name),
+                                    Some(c.span));
+                            }
+                        }
+                    }
+                }
+            }
+            for a in &c.args {
+                if let ExprArg::Value(e) = a { validate_borrow_calls(e, fn_borrow, diag); }
+            }
+        }
+        Expr::Block(b) => {
+            for s in &b.stmts { validate_borrow_calls(&s.expr, fn_borrow, diag); }
+            if let Some(fe) = &b.final_expr { validate_borrow_calls(fe, fn_borrow, diag); }
+        }
+        Expr::Fn(f) => { validate_borrow_calls(&f.body, fn_borrow, diag); }
+        Expr::Fix(fx) => { validate_borrow_calls(&fx.body, fn_borrow, diag); }
+        Expr::Match(m) => {
+            for arm in &m.arms { validate_borrow_calls(&arm.body, fn_borrow, diag); }
+        }
+        Expr::If(i) => {
+            validate_borrow_calls(&i.condition, fn_borrow, diag);
+            validate_borrow_calls(&i.then_branch, fn_borrow, diag);
+            if let Some(eb) = &i.else_branch { validate_borrow_calls(eb, fn_borrow, diag); }
+        }
+        Expr::Pipeline(pi) => {
+            validate_borrow_calls(&pi.value, fn_borrow, diag);
+            validate_borrow_calls(&pi.func, fn_borrow, diag);
+        }
+        Expr::Binary(b) => {
+            validate_borrow_calls(&b.left, fn_borrow, diag);
+            validate_borrow_calls(&b.right, fn_borrow, diag);
+        }
+        _ => {}
+    }
+}
+
 /// Desugar a complete program. Returns the desugared program.
 pub fn desugar_program(prog: &Program, diag: &mut DiagnosticCollector) -> Program {
     // Validate borrow scope declarations before desugaring eliminates Expr::Borrow
     for decl in &prog.decls {
         if let Decl::Def(d) = decl {
             validate_borrow_scopes_impl(&d.value, diag);
+        }
+    }
+    // Validate borrow call arguments: & params must be passed with &
+    let fn_borrow = collect_fn_borrow_info(prog);
+    for decl in &prog.decls {
+        if let Decl::Def(d) = decl {
+            validate_borrow_calls(&d.value, &fn_borrow, diag);
         }
     }
     let mut decls = Vec::new();
@@ -644,15 +720,6 @@ fn desugar_fn(f: &FnExpr) -> Expr {
         is_borrow: false,
     }).collect();
 
-    if !has_rebindings {
-        return Expr::Fn(FnExpr {
-            span: f.span,
-            params: new_params,
-            return_ty: f.return_ty.clone(),
-            body: Box::new(desugar_expr(&f.body)),
-        });
-    }
-
     // Track borrow params: (original index, type)
     let borrow_params: Vec<(usize, Option<Type>)> = f.params.iter()
         .enumerate()
@@ -660,6 +727,22 @@ fn desugar_fn(f: &FnExpr) -> Expr {
         .map(|(i, p)| (i, p.ty.clone()))
         .collect();
 
+    // New return type always includes borrow params: (T1, T2, ..., U)
+    let new_return_ty = {
+        let mut tys: Vec<Type> = borrow_params.iter().map(|&(_, ref ty)| {
+            ty.clone().unwrap_or(Type::Wildcard(Span::DUMMY))
+        }).collect();
+        tys.push(f.return_ty.clone().unwrap_or(Type::Named(NamedType {
+            span: Span::DUMMY,
+            name: Ident::new("Unit", Span::DUMMY),
+            args: None,
+        })));
+        Type::Tuple(TupleType { span: Span::DUMMY, elements: tys })
+    };
+
+    let has_rebindings = expr_has_borrow(&f.body);
+
+    // Wrap body to return (borrow_params..., result)
     let mut body = desugar_expr(&f.body);
     let body_span = body.span();
 
@@ -1456,9 +1539,17 @@ fn desugar_block(b: &BlockExpr) -> Expr {
                     }
                 }
                 if let Some(fe) = inner.final_expr.as_ref() {
-                    stmts.push(BlockStmt {
-                        span: fe.span(), expr: (**fe).clone(), def: None,
-                    });
+                    // Borrow-call blocks produce a %_btmp.N expression as final_expr.
+                    // In statement context (def: None), the return value is unused —
+                    // skip it to avoid an orphan tail expression without semicolon.
+                    let is_borrow_call = inner.stmts.first()
+                        .and_then(|s| s.def.as_ref())
+                        .map_or(false, |d| d.name.name.starts_with("%_"));
+                    if !is_borrow_call {
+                        stmts.push(BlockStmt {
+                            span: fe.span(), expr: (**fe).clone(), def: None,
+                        });
+                    }
                 }
                 continue;
             }

@@ -1,0 +1,8 @@
+// expect error: [E003]
+// Passing a value directly to a &-parameter is an error.
+struct Data { value: Int }
+def read = fn(&d: Data) -> Int { d.value }
+def main = fn {
+  def data = Data { value: 42 };
+  read(data) -> stdout;
+}

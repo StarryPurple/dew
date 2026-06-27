@@ -8,6 +8,13 @@ use crate::value::*;
 use std::collections::HashMap;
 use std::io::{self, Write, BufRead};
 
+/// Result of evaluating a function body: either a final value, or a tail call
+/// to another function (frame already set up for the callee).
+enum TailResult {
+    Value(Value),
+    TailCall(String),
+}
+
 pub fn run(module: &Module) -> Result<Value, String> {
     let mut runtime = Runtime::new();
 
@@ -53,8 +60,19 @@ fn eval_fn(
     frame: &mut EvalFrame,
     runtime: &mut Runtime,
 ) -> Result<Value, String> {
-    let entry = func.blocks.first().ok_or("no entry block")?;
-    eval_block(entry, &func.blocks, fns, thunks, types, frame, runtime)
+    let mut current = func;
+    loop {
+        let entry = current.blocks.first().ok_or("no entry block")?;
+        match eval_block(entry, &current.blocks, fns, thunks, types, frame, runtime)? {
+            TailResult::Value(v) => return Ok(v),
+            TailResult::TailCall(name) => {
+                current = fns.iter().find(|f| f.name == *name)
+                    .ok_or_else(|| format!("fn '{}' not found for tail call", name))?;
+                frame.label_stack.clear();
+                continue;
+            }
+        }
+    }
 }
 
 fn eval_block(
@@ -65,12 +83,38 @@ fn eval_block(
     types: &TypeTable,
     frame: &mut EvalFrame,
     runtime: &mut Runtime,
-) -> Result<Value, String> {
+) -> Result<TailResult, String> {
+    // Check for tail call: last instruction is Call(r, target, args) followed by Ret(r).
+    // Evaluate all NON-tail instructions first, then handle the last one specially.
+    let tail_info = block.instrs.last().and_then(|last| {
+        if let Instr::Call(reg, CallTarget::Static(name), args, _) = last {
+            if let Terminator::Ret(ret_r) = &block.terminator {
+                if *reg == *ret_r {
+                    return Some((name.clone(), args.clone()));
+                }
+            }
+        }
+        None
+    });
+
+    if let Some((name, args)) = &tail_info {
+        // Evaluate all instructions except the last (tail-call) one
+        for instr in &block.instrs[..block.instrs.len() - 1] {
+            eval_instr(instr, fns, thunks, types, frame, runtime)?;
+        }
+        // Reuse frame for callee: replace regs with call arguments
+        let arg_vals: Vec<Value> = args.iter().map(|a| frame.get(*a).clone()).collect();
+        frame.regs = arg_vals;
+        frame.label_stack.clear();
+        return Ok(TailResult::TailCall(name.clone()));
+    }
+
+    // No tail call — evaluate all instructions normally
     for instr in &block.instrs {
         eval_instr(instr, fns, thunks, types, frame, runtime)?;
     }
     match &block.terminator {
-        Terminator::Ret(r) => Ok(frame.get(*r).clone()),
+        Terminator::Ret(r) => Ok(TailResult::Value(frame.get(*r).clone())),
         Terminator::Br(cond, t, f) => {
             let v = frame.get(*cond).as_bool().unwrap_or(false);
             let target = if v { t } else { f };
@@ -385,9 +429,18 @@ fn force_thunk(
             runtime.thunks.insert(thunk.name.clone(), ThunkState::Evaluating);
             let entry = thunk.blocks.first().ok_or("no entry block")?;
             let mut thunk_frame = EvalFrame::new();
-            let result = eval_block(entry, &thunk.blocks, fns, thunks, types, &mut thunk_frame, runtime)?;
-            runtime.thunks.insert(thunk.name.clone(), ThunkState::Evaluated(result.clone()));
-            Ok(result)
+            let result = match eval_block(entry, &thunk.blocks, fns, thunks, types, &mut thunk_frame, runtime)? {
+                TailResult::Value(v) => Ok(v),
+                TailResult::TailCall(name) => {
+                    // thunk_frame already has args set up by the tail-call
+                    // handler in eval_block — reuse it for the callee.
+                    let callee = fns.iter().find(|f| f.name == *name)
+                        .ok_or_else(|| format!("fn '{}' not found", name))?;
+                    eval_fn(callee, fns, thunks, types, &mut thunk_frame, runtime)
+                }
+            };
+            runtime.thunks.insert(thunk.name.clone(), ThunkState::Evaluated(result.clone()?));
+            result
         }
     }
 }

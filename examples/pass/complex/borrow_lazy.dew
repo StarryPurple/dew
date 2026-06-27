@@ -4,4 +4,4 @@
 struct Data { value: Int }
 def data = Data { value: 42 };
 def show = fn(&d: Data) -> Int { d.value * 2 }
-def main = fn { show(data) -> stdout; };
+def main = fn { def r = show(&data); r -> stdout; };

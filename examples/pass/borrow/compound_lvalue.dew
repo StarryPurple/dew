@@ -6,5 +6,6 @@ struct Outer { inner: Int }
 def read = fn(&v: Int) -> Int { v * 2 }
 def main = fn {
   def outer = Outer { inner: Inner { x: 42 } };
-  read(outer.inner.x) -> stdout;
+  def result = read(&outer.inner.x);
+  result -> stdout;
 };

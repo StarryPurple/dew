@@ -133,7 +133,7 @@ IO functions (`stdout`/`stdin` callers) are compiled as `fn` (strict), not `thun
 
 ### 4.4 Struct
 
-**Construction** (`Point(3, 4)`):
+**Construction** (`Point { x: 3, y: 4 }`):
 ```
 Parser: Expr::Call(Ident("Point"), [Value(3), Value(4)])
   → Parser converts Call → StructCons if func is a struct name

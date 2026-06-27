@@ -3,8 +3,10 @@
 // Chained borrow: pass borrowed value to another & function.
 struct Value { n: Int }
 def inspect = fn(&v: Value) -> Int { v.n }
-def double_inspect = fn(&v: Value) -> Int { inspect(v) * 2 }
+def double_inspect = fn(&v: Value) -> Int { def r = inspect(&v); r * 2 }
 def main = fn {
   def val = Value { n: 21 };
-  double_inspect(val) + inspect(val) -> stdout;
+  def r1 = double_inspect(&val);
+  def r2 = inspect(&val);
+  (r1 + r2) -> stdout;
 };

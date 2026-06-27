@@ -116,7 +116,7 @@ Bare expressions at the top level are **not allowed**. Every expression must app
 // Valid: declarations only at top level
 struct Point { x: Int, y: Int }
 
-def origin = Point(0, 0)
+def origin = Point { x: 0, y: 0 }
 
 def main = fn {
   origin.x + origin.y -> stdout;
@@ -159,7 +159,7 @@ An interactive REPL accepts arbitrary expressions at the prompt and evaluates th
 $ dew
 dew> 40 + 2
 2026
-dew> def x = Point(3, 4)
+dew> def x = Point { x: 3, y: 4 }
 dew> x.x + x.y
 7
 dew> :t x
@@ -1589,7 +1589,7 @@ At the IR level, `Place` instructions perform copy-on-write: unchanged structure
 | Parameter | `&name: T` | `fn(&p: Point) -> ...` | Declares a borrow parameter |
 | Call argument | `f(&LValue, ...)` | `f(&x, 10)` `f(&p.x[1])` | Pass ownership, rebind after call |
 | Call arg ([pipeline](#56-pipeline-operator)) | `&LValue -> f` | `&x -> stdin` `&v -> f(a, b)` | Pipeline with borrow argument |
-| Statement rebind | `&LValue = expr;` | `&p = Point(1,2);` `&a[i] = v;` | Rebind with new value |
+| Statement rebind | `&LValue = expr;` | `&p = Point { x: 1, y: 2 };` `&a[i] = v;` | Rebind with new value |
 | Statement update | `&LValue { ... };` | `&p { x = 10 };` `&a[i] { [0] = v };` `&t { .0 = v };` | Update nested fields and rebind |
 | If borrow | `if (&x; cond) { }` | `if (&x; x < n) { &x = x+1 }` | Cross-scope rebinding via if |
 | Else borrow | `else (&y) { }` | `... else (&y) { &y = y+1 }` | Independent else borrow vars |
@@ -1828,7 +1828,7 @@ def x: Int;            // 0
 def flag: Bool;        // false
 def c: Char;           // '\0'
 def u: Unit;           // Unit
-def p: Point;          // Point(0, 0) — recursive field defaults
+def p: Point;          // Point { x: 0, y: 0 } — recursive field defaults
 def arr: [Int; 3];  // [0, 0, 0]
 ```
 

@@ -17,7 +17,7 @@ pub fn translate_rx_to_dew(src: &str) -> Result<String, String> {
                 let mname = format!("{}_{}", struct_name, m.name);
                 // Find the method in the original source and check for &self
                 let src_around = find_method_src(src, struct_name, &m.name);
-                ctx.method_ref_self.insert(mname, src_around.contains("&self") || src_around.contains("&mut self"));
+                ctx.method_ref_self.insert(mname, src_around.contains("&mut self"));
             }
         }
     }
@@ -164,7 +164,7 @@ impl Ctx {
         let mut params = Vec::new();
         if fd.has_self {
             let sname = if struct_name.is_empty() { "Self".into() } else { struct_name.to_string() };
-            let is_ref = self.method_ref_self.get(&name).copied().unwrap_or(true);
+            let is_ref = self.method_ref_self.get(&name).copied().unwrap_or(false);
             if is_ref {
                 params.push(format!("&self: {}", sname));
             } else {
@@ -174,9 +174,13 @@ impl Ctx {
         }
         for (pn, pt) in &fd.params {
             let mt = self.const_propagate_str(pt);
-            if mt.starts_with("&") || mt.starts_with("&mut ") {
-                let ct = mt.trim_start_matches("&mut ").trim_start_matches("&");
+            if mt.starts_with("&mut ") {
+                let ct = mt.trim_start_matches("&mut ");
                 params.push(format!("&{}: {}", pn, self.map_type(ct)));
+            } else if mt.starts_with("&") {
+                // Immutable &T — pass by value, no borrow param
+                let ct = mt.trim_start_matches("&");
+                params.push(format!("{}: {}", pn, self.map_type(ct)));
             } else {
                 params.push(format!("{}: {}", pn, self.map_type(&mt)));
             }
@@ -185,12 +189,12 @@ impl Ctx {
         // Track borrow params for call-site & emission
         let mut borrow_flags = Vec::new();
         if fd.has_self {
-            let is_ref = self.method_ref_self.get(&name).copied().unwrap_or(true);
+            let is_ref = self.method_ref_self.get(&name).copied().unwrap_or(false);
             borrow_flags.push(is_ref);
         }
         for (pn, pt) in &fd.params {
             let mt = self.const_propagate_str(pt);
-            borrow_flags.push(mt.starts_with("&mut ") || mt.starts_with("&"));
+            borrow_flags.push(mt.starts_with("&mut "));
         }
         self.fn_borrow_params.insert(name.clone(), borrow_flags);
 
@@ -571,7 +575,7 @@ impl Ctx {
                     if let Some(sname) = self.method_map.get(method) {
                         let func_name = format!("{}_{}", sname, method);
                         let borrow_info = self.fn_borrow_params.get(&func_name);
-                        let self_is_ref = self.method_ref_self.get(&func_name).copied().unwrap_or(true);
+                        let self_is_ref = self.method_ref_self.get(&func_name).copied().unwrap_or(false);
                         let self_is_lvalue = extract_root(obj).is_some();
                         let self_prefix = if self_is_ref {
                             if self_is_lvalue {
@@ -619,13 +623,9 @@ impl Ctx {
             }
             Expr::Cast(e, t) => format!("({} as {})", self.emit_expr(e), self.map_type(&self.const_propagate_str(t))),
             Expr::Ref(e) => {
-                let inner = self.emit_expr(e);
-                if extract_root(e).is_some() {
-                    format!("&{}", inner)
-                } else {
-                    eprintln!("[W006] warning: rvalue passed to &-parameter, modification to temporary discarded");
-                    inner
-                }
+                // Immutable refs pass by value in Dew — emit the inner expr directly.
+                // Only the call site adds `&` for mutable borrow params via fn_borrow_params.
+                self.emit_expr(e)
             }
             Expr::Deref(e) => self.emit_expr(e),
             Expr::Group(e) => format!("({})", self.emit_expr(e)),
@@ -668,9 +668,8 @@ impl Ctx {
         match expr {
             Expr::Call { func, args } => {
                 // Detect borrow call: the function has borrow params (via fn_borrow_params)
-                // OR the args contain Expr::Ref (explicit & in source).
-                let has_borrow = args.iter().any(|a| matches!(a, Expr::Ref(_)))
-                    || match func.as_ref() {
+                // Note: Expr::Ref in args no longer implies borrow — immutable refs pass by value.
+                let has_borrow = match func.as_ref() {
                         Expr::Ident(name) => self.fn_borrow_params.get(name)
                             .map_or(false, |bi| bi.iter().any(|&b| b)),
                         Expr::Field(_, method) => {
@@ -688,12 +687,17 @@ impl Ctx {
                     extracted.push(format!("def {} = {};", tmp_name, call_text));
                     return tmp_name;
                 }
+                // At depth == 0 with no borrow params, delegate to emit_expr
+                // so builtins (printlnInt → stdout) are handled correctly.
+                if depth == 0 && !has_borrow {
+                    return self.emit_expr(expr);
+                }
                 if let Expr::Field(obj, method) = func.as_ref() {
                     // Check if this is a known method — convert to function call
                     if let Some(sname) = self.method_map.get(method).cloned() {
                         let func_name = format!("{}_{}", sname, method);
                         let borrow_info = self.fn_borrow_params.get(&func_name);
-                        let self_is_ref = self.method_ref_self.get(&func_name).copied().unwrap_or(true);
+                         let self_is_ref = self.method_ref_self.get(&func_name).copied().unwrap_or(false);
                         let obj_text = self.extract_borrow_calls(obj, tmp_counter, extracted, depth + 1);
                         let self_prefix = if self_is_ref { "&" } else { "" };
                         let mut all_args = vec![format!("{}{}", self_prefix, obj_text)];
@@ -714,7 +718,21 @@ impl Ctx {
                     }
                 } else {
                     let func_text = self.emit_expr(func);
-                    let arg_texts: Vec<String> = args.iter().map(|a| self.extract_borrow_calls(a, tmp_counter, extracted, depth + 1)).collect();
+                    // Add & for borrow params, matching emit_expr's behavior
+                    let borrow_info = match func.as_ref() {
+                        Expr::Ident(name) => self.fn_borrow_params.get(name),
+                        _ => None,
+                    };
+                    let mut arg_texts = Vec::new();
+                    for (i, a) in args.iter().enumerate() {
+                        let needs_borrow = borrow_info.map_or(false, |bi| i < bi.len() && bi[i]);
+                        let t = self.extract_borrow_calls(a, tmp_counter, extracted, depth + 1);
+                        if needs_borrow {
+                            arg_texts.push(if t.starts_with('&') { t } else { format!("&{}", t) });
+                        } else {
+                            arg_texts.push(t);
+                        }
+                    }
                     format!("{}({})", func_text, arg_texts.join(", "))
                 }
             }
