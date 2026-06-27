@@ -291,8 +291,11 @@ impl Ctx {
                 self.var_types.insert(name.clone(), dew_ty);
             }
             Stmt::Assign { lhs, op, rhs } => {
+                let mut tmp_cnt = 0;
+                let mut extracted = Vec::new();
+                let rs = self.extract_borrow_calls(rhs, &mut tmp_cnt, &mut extracted, 0);
+                for ext in &extracted { out.push_str(&format!("{}{}\n", pad, ext)); }
                 let ls = self.emit_expr(lhs);
-                let rs = self.emit_expr(rhs);
                 let s = match op {
                     AssignOp::Plain => format!("&{} = {}", ls, rs),
                     AssignOp::Plus => format!("&{} = {} + {}", ls, ls, rs),
@@ -407,7 +410,10 @@ impl Ctx {
             }
             Stmt::Expr(e) => {
                 if is_exit_call(e) { return; }
-                let es = self.emit_expr(e);
+                let mut tmp_cnt = 0;
+                let mut extracted = Vec::new();
+                let es = self.extract_borrow_calls(e, &mut tmp_cnt, &mut extracted, 0);
+                for ext in &extracted { out.push_str(&format!("{}{}\n", pad, ext)); }
                 if is_tail_expr {
                     out.push_str(&format!("{}{}\n", pad, es));
                 } else {
@@ -653,6 +659,97 @@ impl Ctx {
                 r.push_str("  }");
                 r
             }
+        }
+    }
+
+    /// Process an Rx expression and return its Dew text. Nested borrow calls
+    /// (borrow calls inside other expressions) are extracted into temp defs.
+    fn extract_borrow_calls(&self, expr: &Expr, tmp_counter: &mut usize, extracted: &mut Vec<String>, depth: usize) -> String {
+        match expr {
+            Expr::Call { func, args } => {
+                // Detect borrow call: the function has borrow params (via fn_borrow_params)
+                // OR the args contain Expr::Ref (explicit & in source).
+                let has_borrow = args.iter().any(|a| matches!(a, Expr::Ref(_)))
+                    || match func.as_ref() {
+                        Expr::Ident(name) => self.fn_borrow_params.get(name)
+                            .map_or(false, |bi| bi.iter().any(|&b| b)),
+                        Expr::Field(_, method) => {
+                            let func_name = self.method_map.get(method)
+                                .map(|sname| format!("{}_{}", sname, method));
+                            func_name.and_then(|n| self.fn_borrow_params.get(&n))
+                                .map_or(false, |bi| bi.iter().any(|&b| b))
+                        }
+                        _ => false,
+                    };
+                if has_borrow && depth > 0 {
+                    let call_text = self.emit_expr(expr);
+                    let tmp_name = format!("_tmp{}", *tmp_counter);
+                    *tmp_counter += 1;
+                    extracted.push(format!("def {} = {};", tmp_name, call_text));
+                    return tmp_name;
+                }
+                if let Expr::Field(obj, method) = func.as_ref() {
+                    // Check if this is a known method — convert to function call
+                    if let Some(sname) = self.method_map.get(method).cloned() {
+                        let func_name = format!("{}_{}", sname, method);
+                        let borrow_info = self.fn_borrow_params.get(&func_name);
+                        let self_is_ref = self.method_ref_self.get(&func_name).copied().unwrap_or(true);
+                        let obj_text = self.extract_borrow_calls(obj, tmp_counter, extracted, depth + 1);
+                        let self_prefix = if self_is_ref { "&" } else { "" };
+                        let mut all_args = vec![format!("{}{}", self_prefix, obj_text)];
+                        for (i, a) in args.iter().enumerate() {
+                            let needs_borrow = borrow_info.map_or(false, |bi| (i + 1) < bi.len() && bi[i + 1]);
+                            let arg_text = self.extract_borrow_calls(a, tmp_counter, extracted, depth + 1);
+                            if needs_borrow {
+                                all_args.push(if arg_text.starts_with('&') { arg_text } else { format!("&{}", arg_text) });
+                            } else {
+                                all_args.push(arg_text);
+                            }
+                        }
+                        format!("{}({})", func_name, all_args.join(", "))
+                    } else {
+                        let obj_text = self.extract_borrow_calls(obj, tmp_counter, extracted, depth + 1);
+                        let arg_texts: Vec<String> = args.iter().map(|a| self.extract_borrow_calls(a, tmp_counter, extracted, depth + 1)).collect();
+                        format!("{}.{}({})", obj_text, method, arg_texts.join(", "))
+                    }
+                } else {
+                    let func_text = self.emit_expr(func);
+                    let arg_texts: Vec<String> = args.iter().map(|a| self.extract_borrow_calls(a, tmp_counter, extracted, depth + 1)).collect();
+                    format!("{}({})", func_text, arg_texts.join(", "))
+                }
+            }
+            Expr::Binary(left, op, right) => {
+                let l = self.extract_borrow_calls(left, tmp_counter, extracted, depth + 1);
+                let r = self.extract_borrow_calls(right, tmp_counter, extracted, depth + 1);
+                let os = match op {
+                    BinOp::Add => "+", BinOp::Sub => "-", BinOp::Mul => "*",
+                    BinOp::Div => "/", BinOp::Rem => "%",
+                    BinOp::Eq => "==", BinOp::Ne => "!=",
+                    BinOp::Lt => "<", BinOp::Gt => ">",
+                    BinOp::Le => "<=", BinOp::Ge => ">=",
+                    BinOp::And => "&&", BinOp::Or => "||",
+                    BinOp::BitAnd => "&", BinOp::BitOr => "|",
+                    BinOp::BitXor => "^", BinOp::Shl => "<<", BinOp::Shr => ">>",
+                };
+                format!("({} {} {})", l, os, r)
+            }
+            Expr::Unary(op, e) => {
+                let e = self.extract_borrow_calls(e, tmp_counter, extracted, depth + 1);
+                match op { UnOp::Neg => format!("-{}", e), UnOp::Not => format!("not {}", e) }
+            }
+            Expr::Field(obj, field) => format!("{}.{}", self.extract_borrow_calls(obj, tmp_counter, extracted, depth + 1), field),
+            Expr::Index(arr, idx) => format!("{}[{}]", self.extract_borrow_calls(arr, tmp_counter, extracted, depth + 1), self.extract_borrow_calls(idx, tmp_counter, extracted, depth + 1)),
+            Expr::StructLit { name, fields } => {
+                let fs: Vec<String> = fields.iter().map(|(fn_, fe)| format!("{}: {}", fn_, self.extract_borrow_calls(fe, tmp_counter, extracted, depth + 1))).collect();
+                format!("{} {{ {} }}", name, fs.join(", "))
+            }
+            Expr::ArrayLit { elements, repeat } => {
+                let es: Vec<String> = elements.iter().map(|e| self.extract_borrow_calls(e, tmp_counter, extracted, depth + 1)).collect();
+                if let Some(r) = repeat { format!("[{}; {}]", es[0], self.emit_expr(r)) }
+                else { format!("[{}]", es.join(", ")) }
+            }
+            Expr::Cast(e, t) => format!("({} as {})", self.extract_borrow_calls(e, tmp_counter, extracted, depth + 1), self.map_type(t)),
+            _ => self.emit_expr(expr),
         }
     }
 
