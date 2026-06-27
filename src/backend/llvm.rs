@@ -736,7 +736,7 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             }
             writeln!(out, "  %r{} = ptrtoint ptr {} to i64", r, arena_ptr).ok();
         }
-        Instr::ArrayAccess(r, arr, idx) => {
+        Instr::ArrayAccess(r, _ty, arr, idx) => {
             let elem_ty = match ctx.reg_ty(arr) { IrType::Array(t, _) => ir_type_to_llvm(t), _ => "i64".into() };
             let esize = if elem_ty == "i1" { "1" } else if elem_ty == "i32" { "4" } else { "8" };
             ctx.set_reg(*r, match ctx.reg_ty(arr) { IrType::Array(t, _) => (**t).clone(), _ => IrType::Int });
@@ -750,7 +750,7 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                 _ => { writeln!(out, "  %r{} = add i64 %r{}_raw, 0", r, r).ok(); }
             }
         }
-        Instr::ArrayUpdate(r, arr, idx, val) => {
+        Instr::ArrayUpdate(r, _ty, arr, idx, val) => {
             let elem_ty = match ctx.reg_ty(arr) { IrType::Array(t, _) => ir_type_to_llvm(t), _ => "i64".into() };
             let esize = if elem_ty == "i1" { "1" } else if elem_ty == "i32" { "4" } else { "8" };
             ctx.set_reg(*r, ctx.reg_ty(arr).clone());

@@ -626,7 +626,9 @@ impl<'a> IrGenerator<'a> {
                         let idx_r = self.compile_expr(index, block);
                         let val_r = self.compile_expr(value, block);
                         let result_r = self.fresh_reg();
-                        block.instrs.push(Instr::ArrayUpdate(result_r, current_r, idx_r, val_r));
+                        let elem_ty = self.param_array_elem_types.get(&current_r).cloned()
+                            .unwrap_or(IrType::Int);
+                        block.instrs.push(Instr::ArrayUpdate(result_r, elem_ty, current_r, idx_r, val_r));
                         current_r = result_r;
                     }
                 }
@@ -681,6 +683,12 @@ impl<'a> IrGenerator<'a> {
                 let arr_r = self.compile_expr(&s.array, block);
                 let idx_r = self.compile_expr(&s.index, block);
                 let result_r = self.fresh_reg();
+                // Determine element type for ArrayAccess display
+                let elem_ty = self.param_array_elem_types.get(&arr_r).cloned()
+                    .or_else(|| self.reg_type.get(&arr_r).and_then(|ty| {
+                        if let IrType::Array(e, _) = ty { Some(*e.clone()) } else { None }
+                    }))
+                    .unwrap_or(IrType::Int);
                 // Skip subscript on tuple field access (t.0[i]) where the field
                 // is NOT an array. Struct array fields like Node.fa[i] must NOT
                 // be skipped.
@@ -691,12 +699,10 @@ impl<'a> IrGenerator<'a> {
                         return 0;
                     }
                 }
-                block.instrs.push(Instr::ArrayAccess(result_r, arr_r, idx_r));
+                block.instrs.push(Instr::ArrayAccess(result_r, elem_ty.clone(), arr_r, idx_r));
                 // Track element type for subsequent field access on array elements
-                if let Some(elem_ty) = self.param_array_elem_types.get(&arr_r) {
-                    if let IrType::Struct(name) = elem_ty {
-                        self.reg_struct.insert(result_r, name.clone());
-                    }
+                if let IrType::Struct(name) = &elem_ty {
+                    self.reg_struct.insert(result_r, name.clone());
                 }
                 result_r
             }

@@ -371,7 +371,7 @@ fn eval_instr(
             let v = frame.get(*val).clone();
             frame.set(*r, Value::Array(vec![v; *n]));
         }
-        Instr::ArrayAccess(r, arr, idx) => {
+        Instr::ArrayAccess(r, _ty, arr, idx) => {
             if let Value::Array(elems) = frame.get(*arr) {
                 let i = frame.get(*idx).as_int().unwrap_or(0) as usize;
                 frame.set(*r, elems.get(i).cloned().unwrap_or(Value::Int(0)));
@@ -379,7 +379,7 @@ fn eval_instr(
                 frame.set(*r, Value::Int(0));
             }
         }
-        Instr::ArrayUpdate(r, arr, idx, val) => {
+        Instr::ArrayUpdate(r, _ty, arr, idx, val) => {
             if let Value::Array(elems) = frame.get(*arr) {
                 let mut new_elems = elems.clone();
                 let i = frame.get(*idx).as_int().unwrap_or(0) as usize;

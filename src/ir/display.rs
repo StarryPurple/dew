@@ -96,7 +96,7 @@ fn instr_type(instr: &Instr, return_ty: &IrType) -> IrType {
         Instr::EnumDisc(..) => IrType::Int,
         Instr::EnumProj(..) => IrType::Int,
         Instr::StructUpdate(_, _, _, _, struct_ty) => struct_ty.clone(),
-        Instr::ArrayAccess(..) | Instr::ArrayUpdate(..) => IrType::Int,
+        Instr::ArrayAccess(_, ty, _, _) | Instr::ArrayUpdate(_, ty, _, _, _) => ty.clone(),
         Instr::TupleUpdate(..) => IrType::Int,
         Instr::Move(..) | Instr::Update(..) | Instr::Fetch(..) | Instr::Place(..) => IrType::Unit,
         Instr::Lambda(..) => IrType::Int,
@@ -154,7 +154,7 @@ fn display_instr(instr: &Instr, return_ty: &IrType) -> String {
             let p: Vec<String> = pairs.iter()
                 .map(|(v, l)| format!("%{} {}", v, l))
                 .collect();
-            format!("%{}: {} = phi [{}]", r, result_ty, p.join("] ["))
+            format!("%{} = phi [{}]", r, p.join("] ["))
         }
         Instr::Fetch(r, base, path) => {
             format!("%{}: {} = fetch %{} {}", r, result_ty, base, display_path(path, true))
@@ -193,8 +193,8 @@ fn display_instr(instr: &Instr, return_ty: &IrType) -> String {
         Instr::StructUpdate(r, base, field, val, _struct_ty) => {
             format!("%{}: {} = struct_update %{} .{} = %{}", r, result_ty, base, field, val)
         }
-        Instr::ArrayAccess(r, arr, idx) => format!("%{}: {} = array_access %{} %{}", r, result_ty, arr, idx),
-        Instr::ArrayUpdate(r, arr, idx, val) => {
+        Instr::ArrayAccess(r, _ty, arr, idx) => format!("%{}: {} = array_access %{} %{}", r, result_ty, arr, idx),
+        Instr::ArrayUpdate(r, _ty, arr, idx, val) => {
             format!("%{}: {} = array_update %{} %{} %{}", r, result_ty, arr, idx, val)
         }
         Instr::TupleUpdate(r, tup, idx, val) => {
