@@ -697,6 +697,14 @@ fn indent(text: &str, prefix: &str) -> String {
     }).collect::<Vec<_>>().join("\n")
 }
 
+fn indent_except_first(text: &str, prefix: &str) -> String {
+    text.lines().enumerate().map(|(i, line)| {
+        if i == 0 { line.to_string() }
+        else if line.is_empty() { String::new() }
+        else { format!("{}{}", prefix, line) }
+    }).collect::<Vec<_>>().join("\n")
+}
+
 fn display_type(ty: &Type) -> String {
     match ty {
         Type::Named(n) => {
@@ -735,7 +743,7 @@ fn display_type(ty: &Type) -> String {
 fn display_pattern(pat: &Pattern) -> String {
     match pat {
         Pattern::Wildcard(_) => "_".to_string(),
-        Pattern::Var(ident) => ident.name.clone(),
+        Pattern::Var(ident) => ident.name.strip_prefix('%').unwrap_or(&ident.name).to_string(),
         Pattern::Lit(l) => display_lit_value(&l.value),
         Pattern::Struct(s) => {
             let fields: Vec<String> = s.fields.iter().map(|f| match f {
@@ -791,7 +799,7 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
             format!("'{}'", s)
         }
         Expr::UnitLit(_) => "Unit".to_string(),
-        Expr::Var(ident) => ident.name.clone(),
+        Expr::Var(ident) => ident.name.strip_prefix('%').unwrap_or(&ident.name).to_string(),
 
         Expr::Binary(b) => {
             let op = match b.op {
@@ -834,12 +842,38 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
             format!("{}({})", display_expr(&c.func, depth), args.join(", "))
         }
         Expr::Match(m) => {
-            let scrutinee = display_expr(&m.scrutinee, depth);
+            // Detect `match (fix %name = fn(...))(args) { arms }` pattern
+            // (fix is desugared to Block { def rec name = fn(...); name }).
+            let scrutinee = if let Expr::Call(c) = &*m.scrutinee {
+                let is_fix_block = match &*c.func {
+                    Expr::Block(b) => b.stmts.len() == 1 && b.stmts[0].def.as_ref()
+                        .map_or(false, |d| d.rec) && b.final_expr.is_some(),
+                    _ => false,
+                };
+                if is_fix_block {
+                    if let Expr::Block(b) = &*c.func {
+                        let def = b.stmts[0].def.as_ref().unwrap();
+                        let name = def.name.name.strip_prefix('%').unwrap_or(&def.name.name);
+                        let fn_expr = display_expr(&b.stmts[0].expr, depth);
+                        let args: Vec<String> = c.args.iter().map(|a| match a {
+                            ExprArg::Value(e) => display_expr(e, depth),
+                            ExprArg::Borrow(b) => display_borrow_expr(b),
+                        }).collect();
+                        format!("{{ def rec {} = {}; {}({}) }}", name, fn_expr, name, args.join(", "))
+                    } else {
+                        display_expr(&m.scrutinee, depth)
+                    }
+                } else {
+                    display_expr(&m.scrutinee, depth)
+                }
+            } else {
+                display_expr(&m.scrutinee, depth)
+            };
             let arms: Vec<String> = m.arms.iter().map(|arm| {
                 let pat = display_pattern(&arm.pattern);
-                let body = display_expr(&arm.body, depth + 2);
+                let body = display_expr(&arm.body, depth + 1);
                 if body.contains('\n') {
-                    format!("{}{} =>\n{}", pad(depth + 1), pat, indent(&body, &pad(depth + 2)))
+                    format!("{}{} =>\n{}", pad(depth + 1), pat, body)
                 } else {
                     format!("{}{} => {}", pad(depth + 1), pat, body)
                 }
@@ -851,6 +885,7 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
             let has_final = b.final_expr.is_some();
             for (idx, stmt) in b.stmts.iter().enumerate() {
                 if idx > 0 { out.push('\n'); }
+                out.push_str(&pad(depth + 1));
                 if stmt.def.is_some() {
                     if let Some(ref def) = stmt.def {
                         let rec = if def.rec { " rec" } else { "" };
@@ -858,7 +893,7 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
                             let pats: Vec<String> = d.iter().map(|id| id.name.clone()).collect();
                             format!("({})", pats.join(", "))
                         }).unwrap_or_default();
-                        let name = def.name.name.clone();
+                        let name = def.name.name.strip_prefix('%').unwrap_or(&def.name.name).to_string();
                         out.push_str(&format!("def{}{} = {};", rec,
                             if destr.is_empty() { format!(" {}", name) } else { format!(" {}", destr) },
                             display_expr(&stmt.expr, depth + 1)));
@@ -869,14 +904,14 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
             }
             if let Some(fe) = &b.final_expr {
                 if out.is_empty() {
-                    return format!("{{\n{}{}\n{}}}", pad(depth + 1), display_expr(fe, depth + 1), pad(depth));
+                    return format!("{}{{\n{}{}\n{}}}", pad(depth), pad(depth + 1), display_expr(fe, depth + 1), pad(depth));
                 }
-                out.push_str(&format!("\n{}", display_expr(fe, depth + 1)));
+                out.push_str(&format!("\n{}{}", pad(depth + 1), display_expr(fe, depth + 1)));
             }
             if out.is_empty() {
                 return "{}".to_string();
             }
-            format!("{{\n{}\n{}}}", indent(&out, &pad(depth + 1)), pad(depth))
+            format!("{}{{\n{}\n{}}}", pad(depth), out, pad(depth))
         }
         Expr::If(i) => {
             let cond = display_expr(&i.condition, depth);
@@ -912,12 +947,7 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
         Expr::StructLit(s) => {
             let fields: Vec<String> = s.fields.iter().map(|f| {
                 if let Some(val) = &f.value {
-                    if let Expr::Var(ident) = val {
-                        if ident.name == f.name.name {
-                            return f.name.name.clone();
-                        }
-                    }
-                    format!("{}: {}", f.name.name, display_expr(val, depth))
+                    display_expr(val, depth)
                 } else {
                     f.name.name.clone()
                 }
@@ -1028,7 +1058,7 @@ pub fn display_program(prog: &Program) -> String {
                     let pats: Vec<String> = d.iter().map(|id| id.name.clone()).collect();
                     format!("({})", pats.join(", "))
                 }).unwrap_or_default();
-                let name = d.name.name.clone();
+                let name = d.name.name.strip_prefix('%').unwrap_or(&d.name.name).to_string();
                 let ty = d.ty.as_ref().map(|t| format!(": {}", display_type(t))).unwrap_or_default();
                 let value = display_expr(&d.value, 0);
                 out.push_str(&format!("def{}{}{} = {};\n\n", rec, if destr.is_empty() { format!(" {}", name) } else { format!(" {}", destr) }, ty, value));
