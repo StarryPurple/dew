@@ -823,8 +823,8 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
                 }
             }).collect();
             let ret = f.return_ty.as_ref().map(|t| format!(" -> {}", display_type(t))).unwrap_or_default();
-            let body = display_expr(&f.body, depth + 1);
-            format!("fn({}){} {{\n{}\n{}}}", params.join(", "), ret, indent(&body, &pad(depth + 1)), pad(depth))
+            let body = display_expr(&f.body, depth);
+            format!("fn({}){} {}", params.join(", "), ret, body)
         }
         Expr::Call(c) => {
             let args: Vec<String> = c.args.iter().map(|a| match a {
@@ -837,14 +837,14 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
             let scrutinee = display_expr(&m.scrutinee, depth);
             let arms: Vec<String> = m.arms.iter().map(|arm| {
                 let pat = display_pattern(&arm.pattern);
-                let body = display_expr(&arm.body, depth + 1);
+                let body = display_expr(&arm.body, depth + 2);
                 if body.contains('\n') {
-                    format!("{}{} =>\n{}", pad(depth), pat, indent(&body, &pad(depth + 1)))
+                    format!("{}{} =>\n{}", pad(depth + 1), pat, indent(&body, &pad(depth + 2)))
                 } else {
-                    format!("{}{} => {}", pad(depth), pat, body)
+                    format!("{}{} => {}", pad(depth + 1), pat, body)
                 }
             }).collect();
-            format!("match {} {{\n{}\n{}}}", scrutinee, arms.join(",\n"), pad(depth))
+            format!("match {} {{\n{}\n{}}}", scrutinee, arms.join(",\n"), pad(depth + 1))
         }
         Expr::Block(b) => {
             let mut out = String::new();
@@ -861,22 +861,22 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
                         let name = def.name.name.clone();
                         out.push_str(&format!("def{}{} = {};", rec,
                             if destr.is_empty() { format!(" {}", name) } else { format!(" {}", destr) },
-                            display_expr(&stmt.expr, depth)));
+                            display_expr(&stmt.expr, depth + 1)));
                     }
                 } else {
-                    out.push_str(&display_expr(&stmt.expr, depth));
+                    out.push_str(&display_expr(&stmt.expr, depth + 1));
                 }
             }
             if let Some(fe) = &b.final_expr {
                 if out.is_empty() {
-                    return display_expr(fe, depth);
+                    return format!("{{\n{}{}\n{}}}", pad(depth + 1), display_expr(fe, depth + 1), pad(depth));
                 }
-                out.push_str(&format!("\n{}", display_expr(fe, depth)));
-            } else if b.stmts.is_empty() && !has_final {
-                // Empty block — returns Unit implicitly; caller wraps in { }
-                return String::new();
+                out.push_str(&format!("\n{}", display_expr(fe, depth + 1)));
             }
-            out
+            if out.is_empty() {
+                return "{}".to_string();
+            }
+            format!("{{\n{}\n{}}}", indent(&out, &pad(depth + 1)), pad(depth))
         }
         Expr::If(i) => {
             let cond = display_expr(&i.condition, depth);
