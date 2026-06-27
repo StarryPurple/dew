@@ -31,6 +31,7 @@ pub struct IrGenerator<'a> {
     tuple_elem_types: std::collections::HashMap<usize, Vec<IrType>>,
     param_array_elem_types: std::collections::HashMap<usize, IrType>,
     fn_param_regs: std::collections::HashMap<String, usize>,
+    reg_type: std::collections::HashMap<usize, IrType>,
 }
 
 impl<'a> IrGenerator<'a> {
@@ -53,6 +54,7 @@ impl<'a> IrGenerator<'a> {
             tuple_elem_types: std::collections::HashMap::new(),
             param_array_elem_types: std::collections::HashMap::new(),
             fn_param_regs: std::collections::HashMap::new(),
+            reg_type: std::collections::HashMap::new(),
         }
     }
 
@@ -136,6 +138,7 @@ impl<'a> IrGenerator<'a> {
 
         // Register parameter struct types in reg_struct before params is moved
         for (i, (_, ty)) in params.iter().enumerate() {
+            self.reg_type.insert(i, ty.clone());
             if let IrType::Struct(name) = ty {
                 self.reg_struct.insert(i, name.clone());
             } else if let IrType::Tuple(_) = ty {
@@ -723,8 +726,9 @@ impl<'a> IrGenerator<'a> {
                 .or_else(|| self.fn_param_regs.get(cap_name).copied());
             if let Some(outer_reg) = outer_reg {
                 lambda_captures.push(outer_reg);
-                let cap_ty = self.reg_struct.get(&outer_reg)
-                    .map(|n| IrType::Struct(n.clone()))
+                let cap_ty = self.reg_type.get(&outer_reg).cloned()
+                    .or_else(|| self.reg_struct.get(&outer_reg)
+                        .map(|n| IrType::Struct(n.clone())))
                     .or_else(|| self.tuple_elem_types.get(&outer_reg)
                         .map(|types| IrType::Tuple(types.clone())))
                     .unwrap_or(IrType::Int);
@@ -749,12 +753,14 @@ impl<'a> IrGenerator<'a> {
         for (i, param) in f.params.iter().enumerate() {
             self.var_map.insert(param.name.name.clone(), i);
         }
-        // Map resolved captures into var_map. Use the SAVED outer var_map
-        // (before it was cleared for the closure scope) to check which free
-        // vars were actually resolvable from the outer scope.
+        // Map resolved captures into var_map. Check both saved_var_map and
+        // fn_param_regs so captures work even when the outer Block has
+        // restored var_map (e.g., inside thunk/fix scopes).
         let mut capture_idx = 0;
         for cap_name in free_vars.iter() {
-            if saved_var_map.get(cap_name).is_some() {
+            if saved_var_map.get(cap_name).is_some()
+                || self.fn_param_regs.get(cap_name).is_some()
+            {
                 let reg = capture_start + capture_idx;
                 self.var_map.insert(cap_name.clone(), reg);
                 capture_idx += 1;
