@@ -227,16 +227,6 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn infer_var(&mut self, ident: &Ident) -> Ty {
-        // continue/break are desugared before typeck — if they appear here,
-        // they're outside a while loop. Report a clear error.
-        if ident.name == "continue" {
-            self.diag.error("E003", "'continue' outside a while loop", Some(ident.span));
-            return Ty::Unit;
-        }
-        if ident.name == "break" {
-            self.diag.error("E003", "'break' outside a while loop", Some(ident.span));
-            return Ty::Unit;
-        }
         // Check affine consumption: if variable was already consumed, error
         if self.consumed.get(&ident.name) == Some(&true) {
             self.diag.error("E004",

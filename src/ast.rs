@@ -777,7 +777,19 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
     match expr {
         Expr::IntLit(l) => l.value.to_string(),
         Expr::BoolLit(l) => l.value.to_string(),
-        Expr::CharLit(l) => format!("'{}'", l.value),
+        Expr::CharLit(l) => {
+            let ch = l.value;
+            let s = match ch {
+                '\n' => "\\n".to_string(),
+                '\r' => "\\r".to_string(),
+                '\t' => "\\t".to_string(),
+                '\\' => "\\\\".to_string(),
+                '\'' => "\\'".to_string(),
+                c if c.is_ascii_control() => format!("\\x{:02x}", c as u8),
+                c => c.to_string(),
+            };
+            format!("'{}'", s)
+        }
         Expr::UnitLit(_) => "Unit".to_string(),
         Expr::Var(ident) => ident.name.clone(),
 

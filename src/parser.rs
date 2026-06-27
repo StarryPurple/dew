@@ -476,14 +476,6 @@ impl<'a> Parser<'a> {
             TokenKind::Fix => self.parse_fix(),
             TokenKind::While => self.parse_while(),
             TokenKind::Loop => self.parse_loop(),
-            TokenKind::Continue => {
-                let start = self.advance().start;
-                Ok(Expr::Var(Ident { name: "continue".into(), span: Span { start, end: start, line: 0, col: start } }))
-            }
-            TokenKind::Break => {
-                let start = self.advance().start;
-                Ok(Expr::Var(Ident { name: "break".into(), span: Span { start, end: start, line: 0, col: start } }))
-            }
             _ => {
                 self.diag.error("E002", "unexpected token", Some(self.current_span()));
                 Err(self.current_span())

@@ -10,7 +10,7 @@ pub enum TokenKind {
     // Keywords
     As, Def, Fn, Struct, Enum, Match, If, Else, Fix, Rec,
     Import, Unit, Affine, TypeMatch, TypeOf, Not,
-    While, Loop, For, Continue, Break, // reserved for future loop constructs
+    While, Loop, For, // reserved for future loop constructs (handled by Rx→Dew translator)
 
     // Literals
     IntLit(i64),
@@ -252,8 +252,6 @@ impl Lexer {
             "not" => TokenKind::Not, "_" => TokenKind::Underscore,
             "while" => TokenKind::While, // native while loop
             "forever" => TokenKind::Loop, // native infinite loop
-            "continue" => TokenKind::Continue,
-            "break" => TokenKind::Break,
             _ => TokenKind::Ident(name),
         }
     }
