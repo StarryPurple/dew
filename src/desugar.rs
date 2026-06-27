@@ -333,8 +333,8 @@ fn desugar_expr(expr: &Expr) -> Expr {
                         },
                     ],
                 });
-                let tmp_name = Ident::new("%_ifbrw", Span::DUMMY);
                 let mut stmts: Vec<BlockStmt> = Vec::new();
+                let tmp_name = Ident::new("%_ifbrw", Span::DUMMY);
                 stmts.push(BlockStmt {
                     span: i.span,
                     expr: match_expr,
@@ -360,6 +360,7 @@ fn desugar_expr(expr: &Expr) -> Expr {
                         }),
                     });
                 }
+                return Expr::Block(BlockExpr { span: i.span, stmts, final_expr: None });
                 return Expr::Block(BlockExpr { span: i.span, stmts, final_expr: None });
             }
 
@@ -507,19 +508,19 @@ fn desugar_expr(expr: &Expr) -> Expr {
                 } else {
                     // Compound lvalue: rebuild the outer struct with updated inner field
                     let last_accessor = borrow_arg.lvalue.path.last().unwrap();
-                    let field_name = match last_accessor {
-                        LValueAccessor::Field(ident) => ident.clone(),
-                        LValueAccessor::Index(_) => Ident::new("0", Span::DUMMY),
-                        LValueAccessor::TupleIndex(i) => Ident::new(format!("{}", i), Span::DUMMY),
-                    };
                     let root_expr = Expr::Var(name.clone());
-                    let update = build_nested_update(&borrow_arg.lvalue, root_expr, &[
-                        UpdateField::NamedField {
-                            span: c.span,
-                            name: field_name,
-                            value: field,
-                        }
-                    ]);
+                    let update_field = match last_accessor {
+                        LValueAccessor::Field(ident) => UpdateField::NamedField {
+                            span: c.span, name: ident.clone(), value: field,
+                        },
+                        LValueAccessor::Index(idx) => UpdateField::ArrayIndex {
+                            span: c.span, index: idx.clone(), value: field,
+                        },
+                        LValueAccessor::TupleIndex(i) => UpdateField::TupleIndex {
+                            span: c.span, index: *i, value: field,
+                        },
+                    };
+                    let update = build_nested_update(&borrow_arg.lvalue, root_expr, &[update_field]);
                     block_stmts.push(BlockStmt {
                         span: c.span, expr: update,
                         def: Some(DefDecl {
@@ -681,7 +682,15 @@ fn desugar_fn(f: &FnExpr) -> Expr {
     let new_body = if let Expr::Block(mut b) = body {
         let orig_final = b.final_expr.take()
             .map(|e| (*e).clone())
-            .unwrap_or_else(|| Expr::UnitLit(Span::DUMMY));
+            .unwrap_or_else(|| {
+                // 1 borrow param WITH explicit return type: result IS the updated param
+                // Otherwise (no explicit return or multiple params): result is Unit
+                if borrow_params.len() == 1 && f.return_ty.is_some() {
+                    Expr::Var(f.params[borrow_params[0].0].name.clone())
+                } else {
+                    Expr::UnitLit(Span::DUMMY)
+                }
+            });
         // If the block already has statements (e.g., borrow mutations),
         // the result def binding must use a unique name to avoid
         // shadowing the borrow param's existing def binding.
@@ -693,15 +702,9 @@ fn desugar_fn(f: &FnExpr) -> Expr {
             // differ from the first borrow param to avoid collision:
             // the Tuple must reference the borrow param's original type
             // (e.g. Int) while the result has a different type (e.g. Array).
-            // With 1 borrow param, the def binding shadows the param
-            // intentionally so Var(p) references the updated value.
-            let result_name = if borrow_params.len() > 1 {
-                Ident::new(
-                    format!("{}__res", f.params[borrow_params[0].0].name.name),
-                    f.params[borrow_params[0].0].name.span)
-            } else {
-                f.params[borrow_params[0].0].name.clone()
-            };
+            // Use a generic temporary name for the result value to avoid
+            // shadowing any borrow param with a potentially different type.
+            let result_name = Ident::new("%__fn_res".to_string(), Span::DUMMY);
             b.stmts.push(BlockStmt {
                 span: body_span,
                 expr: orig_final,
@@ -1277,6 +1280,54 @@ fn desugar_enum_payload(p: &EnumPayload) -> EnumPayload {
     }
 }
 
+/// Flatten borrow-call Blocks inside an expression. Borrow-call desugaring
+/// produces a Block containing the function call + borrow param rebindings
+/// + final expression. When this Block is embedded in a borrow assignment's
+/// RHS, the borrow param rebindings must be lifted into the enclosing scope
+/// instead of being trapped in a nested block.
+fn flatten_borrow_call_in_expr(expr: &mut Expr, stmts: &mut Vec<BlockStmt>) -> bool {
+    match expr {
+        Expr::Block(b) => {
+            let is_borrow_call = b.stmts.first().and_then(|s| s.def.as_ref())
+                .map_or(false, |d| d.name.name.starts_with("%_"));
+            if is_borrow_call {
+                stmts.extend(b.stmts.drain(..));
+                if let Some(fe) = b.final_expr.take() {
+                    *expr = *fe;
+                } else {
+                    *expr = Expr::UnitLit(Span::DUMMY);
+                }
+                return true;
+            }
+            false
+        }
+        Expr::Update(u) => {
+            for up in &mut u.updates {
+                let val = match up {
+                    UpdateField::NamedField { value, .. } => value,
+                    UpdateField::ArrayIndex { value, .. } => value,
+                    UpdateField::TupleIndex { value, .. } => value,
+                };
+                if flatten_borrow_call_in_expr(val, stmts) {
+                    return true;
+                }
+            }
+            false
+        }
+        Expr::Call(c) => {
+            for arg in &mut c.args {
+                if let ExprArg::Value(e) = arg {
+                    if flatten_borrow_call_in_expr(e.as_mut(), stmts) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
 fn desugar_block(b: &BlockExpr) -> Expr {
     let mut stmts: Vec<BlockStmt> = Vec::new();
     for s in &b.stmts {
@@ -1316,8 +1367,14 @@ fn desugar_block(b: &BlockExpr) -> Expr {
         let expr = desugar_expr(&s.expr);
 
         if let Expr::Borrow(borrow) = &s.expr {
-            let rhs = desugar_borrow_stmt(borrow);
+            let mut rhs = desugar_borrow_stmt(borrow);
             let name = borrow.lvalue.root.clone();
+            // Flatten any borrow-call Block inside rhs — extract its statements
+            // into the current scope so borrow param rebindings aren't lost
+            // inside a nested block.
+            let mut call_stmts = Vec::new();
+            flatten_borrow_call_in_expr(&mut rhs, &mut call_stmts);
+            stmts.extend(call_stmts);
             stmts.push(BlockStmt {
                 span: s.span,
                 expr: rhs.clone(),
@@ -1396,8 +1453,21 @@ fn desugar_block(b: &BlockExpr) -> Expr {
 
     let final_expr = b.final_expr.as_ref().map(|e| {
         let expr = desugar_expr(e);
-        let result = match &**e {
-            Expr::Borrow(borrow) => desugar_borrow_stmt(borrow),
+        let result: Expr = match &**e {
+            Expr::Borrow(borrow) => {
+                let rhs = desugar_borrow_stmt(borrow);
+                let name = borrow.lvalue.root.clone();
+                stmts.push(BlockStmt {
+                    span: borrow.lvalue.span,
+                    expr: rhs.clone(),
+                    def: Some(DefDecl {
+                        span: borrow.lvalue.span, rec: false,
+                        name: name.clone(), destructure: None, ty: None,
+                        value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                    }),
+                });
+                Expr::Var(name)
+            }
             _ => expr,
         };
         if let Expr::Block(inner) = &result {

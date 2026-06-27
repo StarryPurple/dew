@@ -873,12 +873,12 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
                 let pat = display_pattern(&arm.pattern);
                 let body = display_expr(&arm.body, depth + 1);
                 if body.contains('\n') {
-                    format!("{}{} =>\n{}", pad(depth + 1), pat, body)
+                    format!("{}{} => {}", pad(depth + 1), pat, body.trim_start())
                 } else {
                     format!("{}{} => {}", pad(depth + 1), pat, body)
                 }
             }).collect();
-            format!("match {} {{\n{}\n{}}}", scrutinee, arms.join(",\n"), pad(depth + 1))
+            format!("match {} {{\n{}\n{}}}", scrutinee, arms.join(",\n"), pad(depth))
         }
         Expr::Block(b) => {
             let mut out = String::new();
@@ -891,7 +891,7 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
                         let rec = if def.rec { " rec" } else { "" };
                         let destr = def.destructure.as_ref().map(|d| {
                             let pats: Vec<String> = d.iter().map(|id| id.name.clone()).collect();
-                            format!("({})", pats.join(", "))
+                            if pats.len() == 1 { format!("({},)", pats[0]) } else { format!("({})", pats.join(", ")) }
                         }).unwrap_or_default();
                         let name = def.name.name.strip_prefix('%').unwrap_or(&def.name.name).to_string();
                         out.push_str(&format!("def{}{} = {};", rec,
@@ -942,7 +942,11 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
         }
         Expr::TupleLit(t) => {
             let inner: Vec<String> = t.elements.iter().map(|e| display_expr(e, depth)).collect();
-            format!("({})", inner.join(", "))
+            if inner.len() == 1 {
+                format!("({},)", inner[0])
+            } else {
+                format!("({})", inner.join(", "))
+            }
         }
         Expr::StructLit(s) => {
             let fields: Vec<String> = s.fields.iter().map(|f| {
@@ -1056,7 +1060,7 @@ pub fn display_program(prog: &Program) -> String {
                 let rec = if d.rec { " rec" } else { "" };
                 let destr = d.destructure.as_ref().map(|d| {
                     let pats: Vec<String> = d.iter().map(|id| id.name.clone()).collect();
-                    format!("({})", pats.join(", "))
+                    if pats.len() == 1 { format!("({},)", pats[0]) } else { format!("({})", pats.join(", ")) }
                 }).unwrap_or_default();
                 let name = d.name.name.strip_prefix('%').unwrap_or(&d.name.name).to_string();
                 let ty = d.ty.as_ref().map(|t| format!(": {}", display_type(t))).unwrap_or_default();
