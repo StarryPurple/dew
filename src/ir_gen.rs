@@ -30,6 +30,7 @@ pub struct IrGenerator<'a> {
     reg_struct: std::collections::HashMap<usize, String>,
     tuple_elem_types: std::collections::HashMap<usize, Vec<IrType>>,
     param_array_elem_types: std::collections::HashMap<usize, IrType>,
+    fn_param_regs: std::collections::HashMap<String, usize>,
 }
 
 impl<'a> IrGenerator<'a> {
@@ -51,6 +52,7 @@ impl<'a> IrGenerator<'a> {
             reg_struct: std::collections::HashMap::new(),
             tuple_elem_types: std::collections::HashMap::new(),
             param_array_elem_types: std::collections::HashMap::new(),
+            fn_param_regs: std::collections::HashMap::new(),
         }
     }
 
@@ -159,6 +161,7 @@ impl<'a> IrGenerator<'a> {
             self.fn_param_names.insert(param.name.name.clone());
         }
         self.fn_param_names.retain(|n| !n.starts_with('%'));
+        self.fn_param_regs = self.var_map.clone();
 
         let result_reg = self.compile_expr(&f.body, &mut block);
         self.compile_finish(&mut block, &mut ir_fn.blocks, result_reg);
@@ -715,7 +718,10 @@ impl<'a> IrGenerator<'a> {
         // Resolve capture registers from outer scope BEFORE saving var_map
         let mut lambda_captures: Vec<usize> = Vec::new();
         for cap_name in &free_vars {
-            if let Some(&outer_reg) = self.var_map.get(cap_name) {
+            let outer_reg = self.var_map.get(cap_name)
+                .copied()
+                .or_else(|| self.fn_param_regs.get(cap_name).copied());
+            if let Some(outer_reg) = outer_reg {
                 lambda_captures.push(outer_reg);
                 let cap_ty = self.reg_struct.get(&outer_reg)
                     .map(|n| IrType::Struct(n.clone()))

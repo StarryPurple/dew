@@ -509,17 +509,8 @@ impl Ctx {
     fn collect_carried(&self, stmts: &[Stmt], acc: &mut Vec<String>) {
         for s in stmts {
             match s {
-                Stmt::Assign { lhs, rhs, .. } => {
+                Stmt::Assign { lhs, .. } => {
                     if let Some(r) = extract_root(lhs) { if !acc.contains(&r) && self.var_types.contains_key(&r) { acc.push(r); } }
-                    // Also capture vars from RHS expressions
-                    for v in self.collect_var_refs(rhs) {
-                        if !acc.contains(&v) && self.var_types.contains_key(&v) { acc.push(v); }
-                    }
-                }
-                Stmt::Expr(e) => {
-                    for v in self.collect_var_refs(e) {
-                        if !acc.contains(&v) && self.var_types.contains_key(&v) { acc.push(v); }
-                    }
                 }
                 Stmt::If { then_body, else_body, .. } => {
                     self.collect_carried(then_body, acc);
@@ -528,6 +519,11 @@ impl Ctx {
                 _ => {}
             }
         }
+        // Carry borrow params that are used as function call arguments inside
+        // the loop body (e.g., update(&seg_pool, &seg_cnt, ...)). Only borrow
+        // params of the enclosing function are carried; immutable refs (pass-by-value)
+        // and local variables are NOT — they become free variables captured by the
+        // while-loop closure.
         for name in &self.borrow_params_used_in_stmts(stmts) {
             if !acc.contains(name) { acc.push(name.clone()); }
         }
