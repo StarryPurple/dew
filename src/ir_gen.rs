@@ -589,6 +589,7 @@ impl<'a> IrGenerator<'a> {
                     }))
                     .unwrap_or((0, None));
                 let field_ty = field_struct_name.clone().unwrap_or(IrType::Int);
+                self.reg_type.insert(result_r, field_ty.clone());
                 block.instrs.push(Instr::Field(result_r, obj_r, field_idx, field_ty));
                 if let Some(IrType::Struct(name)) = field_struct_name {
                     self.reg_struct.insert(result_r, name);
@@ -672,10 +673,15 @@ impl<'a> IrGenerator<'a> {
                 let arr_r = self.compile_expr(&s.array, block);
                 let idx_r = self.compile_expr(&s.index, block);
                 let result_r = self.fresh_reg();
-                // Check if it's a tuple field access (integer field name)
-                if let Expr::Field(_) = &*s.array {
-                    // Handled by Expr::Field path
-                    return 0;
+                // Skip subscript on tuple field access (t.0[i]) where the field
+                // is NOT an array. Struct array fields like Node.fa[i] must NOT
+                // be skipped.
+                if let Expr::Field(f) = &*s.array {
+                    if f.field.name.parse::<usize>().is_ok()
+                        && !self.param_array_elem_types.contains_key(&arr_r)
+                    {
+                        return 0;
+                    }
                 }
                 block.instrs.push(Instr::ArrayAccess(result_r, arr_r, idx_r));
                 // Track element type for subsequent field access on array elements
@@ -714,7 +720,21 @@ impl<'a> IrGenerator<'a> {
 
         // Build Fn IR: params = original params + captured vars
         let mut all_params: Vec<(usize, IrType)> = f.params.iter().enumerate()
-            .map(|(i, p)| (i, p.ty.as_ref().map(|t| self.ast_ty_to_ir(t)).unwrap_or(IrType::Int)))
+            .map(|(i, p)| {
+                let ty = p.ty.as_ref().map(|t| self.ast_ty_to_ir(t))
+                    .or_else(|| {
+                        self.fn_param_regs.get(&p.name.name)
+                            .and_then(|&reg| self.reg_type.get(&reg))
+                            .cloned()
+                    })
+                    .or_else(|| {
+                        self.var_map.get(&p.name.name)
+                            .and_then(|&reg| self.reg_type.get(&reg))
+                            .cloned()
+                    })
+                    .unwrap_or(IrType::Int);
+                (i, ty)
+            })
             .collect();
         let capture_start = all_params.len();
 
@@ -733,6 +753,16 @@ impl<'a> IrGenerator<'a> {
                         .map(|types| IrType::Tuple(types.clone())))
                     .unwrap_or(IrType::Int);
                 all_params.push((capture_start + lambda_captures.len() - 1, cap_ty));
+            }
+        }
+
+        // Register struct/array types for closure params so field access
+        // and array element access within the closure body resolve correctly.
+        for (i, (_, ty)) in all_params.iter().enumerate() {
+            if let IrType::Struct(name) = ty {
+                self.reg_struct.insert(i, name.clone());
+            } else if let IrType::Array(elem_ty, _) = ty {
+                self.param_array_elem_types.insert(i, *elem_ty.clone());
             }
         }
 
