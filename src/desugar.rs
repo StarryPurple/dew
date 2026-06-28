@@ -981,6 +981,229 @@ fn expr_has_io(expr: &Expr) -> bool {
 }
 
 /// Replace `continue`/`break` keywords in a while-borrow body block with
+/// Lift borrow rebindings out of nested if bodies. Without this,
+/// `def x = val` created by `&x = val` inside an `if` is scoped to the
+/// if body, so `continue` after the if reads the closure param (old value).
+fn lift_borrow_rebindings(block: BlockExpr, borrow_vars: &[Ident]) -> BlockExpr {
+    let borrow_set: std::collections::HashSet<&str> =
+        borrow_vars.iter().map(|v| v.name.as_str()).collect();
+    let mut new_stmts: Vec<BlockStmt> = Vec::new();
+    for s in &block.stmts {
+        if let Expr::If(i) = &s.expr {
+            let borrow_vars_in_if = find_borrow_vars_in_if(i, &borrow_set);
+            if borrow_vars_in_if.is_empty() {
+                new_stmts.push(s.clone());
+            } else {
+                // For each affected borrow var, emit: def x = rebind_expr
+                for v in &borrow_vars_in_if {
+                    let v_ident = Ident::new(v.clone(), Span::DUMMY);
+                    let then_val = rebind_expr(&i.then_branch, &v, &borrow_set)
+                        .unwrap_or_else(|| Expr::Var(v_ident.clone()));
+                    let else_val = i.else_branch.as_ref()
+                        .and_then(|eb| rebind_expr(eb, &v, &borrow_set))
+                        .unwrap_or_else(|| Expr::Var(v_ident.clone()));
+                    let def_expr = Expr::If(IfExpr {
+                        span: Span::DUMMY, if_borrow: vec![], else_borrow: None,
+                        condition: i.condition.clone(),
+                        then_branch: Box::new(then_val),
+                        else_branch: Some(Box::new(else_val)),
+                    });
+                    new_stmts.push(BlockStmt {
+                        span: s.span,
+                        expr: def_expr,
+                        def: Some(DefDecl {
+                            span: s.span, rec: false,
+                            name: v_ident, destructure: None, ty: None,
+                            value: Expr::IntLit(IntLit { span: Span::DUMMY, value: 0 }),
+                        }),
+                    });
+                }
+                // Keep non-borrow content as nested if (without borrow bindings)
+                let rest_then = strip_borrow_stmts(&i.then_branch, &borrow_vars_in_if);
+                let rest_else = i.else_branch.as_ref().map(|eb| strip_borrow_stmts(eb, &borrow_vars_in_if));
+                let has_then_rest = !matches!(&rest_then, Expr::Block(b) if b.stmts.is_empty() && b.final_expr.is_none());
+                let has_else_rest = rest_else.as_ref().map_or(false, |e| !matches!(e, Expr::Block(b) if b.stmts.is_empty() && b.final_expr.is_none()));
+                if has_then_rest || has_else_rest {
+                    new_stmts.push(BlockStmt {
+                        span: s.span,
+                        expr: Expr::If(IfExpr {
+                            span: Span::DUMMY, if_borrow: vec![], else_borrow: None,
+                            condition: i.condition.clone(),
+                            then_branch: Box::new(rest_then),
+                            else_branch: rest_else.map(Box::new),
+                        }),
+                        def: None,
+                    });
+                }
+            }
+        } else {
+            new_stmts.push(s.clone());
+        }
+    }
+    BlockExpr {
+        stmts: new_stmts,
+        final_expr: block.final_expr.clone(),
+        ..block
+    }
+}
+
+/// Find all borrow variables in `borrow_set` that have assignments anywhere
+/// inside the if expression (including nested ifs).
+fn find_borrow_vars_in_if(if_expr: &IfExpr, borrow_set: &std::collections::HashSet<&str>) -> Vec<String> {
+    let mut vars: Vec<String> = Vec::new();
+    find_borrow_vars_in_expr(&if_expr.then_branch, borrow_set, &mut vars);
+    if let Some(eb) = &if_expr.else_branch {
+        find_borrow_vars_in_expr(eb, borrow_set, &mut vars);
+    }
+    vars.sort();
+    vars.dedup();
+    vars
+}
+
+fn find_borrow_vars_in_expr(expr: &Expr, borrow_set: &std::collections::HashSet<&str>, acc: &mut Vec<String>) {
+    match expr {
+        Expr::Borrow(b) => {
+            if let Some(ref rhs) = b.rhs {
+                if matches!(&**rhs, BorrowRhs::Assign(_)) {
+                    // Only lift simple borrows (path is empty), not compound lvalues
+                    // like &self.field = val or &arr[i] = val.
+                    if borrow_set.contains(b.lvalue.root.name.as_str()) && b.lvalue.path.is_empty() {
+                        if !acc.contains(&b.lvalue.root.name) {
+                            acc.push(b.lvalue.root.name.clone());
+                        }
+                    }
+                }
+            }
+        }
+        Expr::Block(bl) => {
+            for s in &bl.stmts { find_borrow_vars_in_expr(&s.expr, borrow_set, acc); }
+            if let Some(fe) = &bl.final_expr { find_borrow_vars_in_expr(fe, borrow_set, acc); }
+        }
+        Expr::If(i) => {
+            find_borrow_vars_in_expr(&i.then_branch, borrow_set, acc);
+            if let Some(eb) = &i.else_branch { find_borrow_vars_in_expr(eb, borrow_set, acc); }
+        }
+        _ => {}
+    }
+}
+
+/// Given a branch expression, compute the new value for a borrow variable,
+/// preserving the nested condition chain. Returns None if the variable is
+/// never assigned in this branch.
+fn rebind_expr(expr: &Expr, var: &str, borrow_set: &std::collections::HashSet<&str>) -> Option<Expr> {
+    match expr {
+        Expr::Borrow(b) => {
+            // Only handle simple borrow assignments (path empty)
+            if b.lvalue.root.name == var && b.lvalue.path.is_empty() {
+                if let Some(ref rhs) = b.rhs {
+                    if let BorrowRhs::Assign(val) = &**rhs {
+                        return Some(val.as_ref().clone());
+                    }
+                }
+            }
+            None
+        }
+        Expr::Block(bl) => {
+            // Check final_expr first (it's the "result" of the block)
+            if let Some(fe) = &bl.final_expr {
+                if let Some(e) = rebind_expr(fe, var, borrow_set) { return Some(e); }
+            }
+            // Check statements in reverse (last assignment wins)
+            for s in bl.stmts.iter().rev() {
+                if let Some(e) = rebind_expr(&s.expr, var, borrow_set) { return Some(e); }
+            }
+            None
+        }
+        Expr::If(i) => {
+            let then_val = rebind_expr(&i.then_branch, var, borrow_set);
+            let else_val = i.else_branch.as_ref().and_then(|eb| rebind_expr(eb, var, borrow_set));
+            match (then_val, else_val) {
+                (Some(tv), Some(ev)) => {
+                    Some(Expr::If(IfExpr {
+                        span: Span::DUMMY, if_borrow: vec![], else_borrow: None,
+                        condition: i.condition.clone(),
+                        then_branch: Box::new(tv),
+                        else_branch: Some(Box::new(ev)),
+                    }))
+                }
+                (Some(tv), None) => {
+                    Some(Expr::If(IfExpr {
+                        span: Span::DUMMY, if_borrow: vec![], else_borrow: None,
+                        condition: i.condition.clone(),
+                        then_branch: Box::new(tv),
+                        else_branch: Some(Box::new(Expr::Var(Ident::new(var.to_string(), Span::DUMMY)))),
+                    }))
+                }
+                (None, Some(ev)) => {
+                    Some(Expr::If(IfExpr {
+                        span: Span::DUMMY, if_borrow: vec![], else_borrow: None,
+                        condition: i.condition.clone(),
+                        then_branch: Box::new(Expr::Var(Ident::new(var.to_string(), Span::DUMMY))),
+                        else_branch: Some(Box::new(ev)),
+                    }))
+                }
+                (None, None) => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Strip borrow assignment stmts for the given vars from an expression,
+/// returning the remaining expression as a BlockExpr.
+fn strip_borrow_stmts(expr: &Expr, vars: &[String]) -> Expr {
+    match expr {
+        Expr::Borrow(b) => {
+            // Only strip simple borrow assignments (path empty), not compound lvalues
+            if b.lvalue.path.is_empty() && vars.contains(&b.lvalue.root.name) {
+                Expr::Block(BlockExpr { span: Span::DUMMY, stmts: vec![], final_expr: None })
+            } else {
+                expr.clone()
+            }
+        }
+        Expr::If(i) => {
+            // If this if has its own borrow header (if_borrow), it's an if-borrow
+            // whose variable updates have been lifted out. Remove it entirely.
+            let has_own_borrow = !i.if_borrow.is_empty()
+                || i.else_borrow.as_ref().map_or(false, |v| !v.is_empty());
+            if has_own_borrow {
+                // All the borrow vars this if-borrow handles should be in `vars`.
+                // Remove the entire if-borrow — its updates have been lifted.
+                Expr::Block(BlockExpr { span: Span::DUMMY, stmts: vec![], final_expr: None })
+            } else {
+                // Plain if: strip borrow stmts from branches, keep non-borrow content
+                let then_rest = strip_borrow_stmts(&i.then_branch, vars);
+                let else_rest = i.else_branch.as_ref().map(|eb| strip_borrow_stmts(eb, vars));
+                let has_then = !matches!(&then_rest, Expr::Block(b) if b.stmts.is_empty() && b.final_expr.is_none());
+                let has_else = else_rest.as_ref().map_or(false, |e| !matches!(e, Expr::Block(b) if b.stmts.is_empty() && b.final_expr.is_none()));
+                if has_then || has_else {
+                    Expr::If(IfExpr {
+                        span: Span::DUMMY, if_borrow: vec![], else_borrow: None,
+                        condition: i.condition.clone(),
+                        then_branch: Box::new(then_rest),
+                        else_branch: else_rest.map(Box::new),
+                    })
+                } else {
+                    Expr::Block(BlockExpr { span: Span::DUMMY, stmts: vec![], final_expr: None })
+                }
+            }
+        }
+        Expr::Block(bl) => {
+            let mut stmts = Vec::new();
+            for s in &bl.stmts {
+                let is_borrow = if let Expr::Borrow(b) = &s.expr {
+                    vars.contains(&b.lvalue.root.name)
+                } else { false };
+                if !is_borrow {
+                    stmts.push(s.clone());
+                }
+            }
+            Expr::Block(BlockExpr { stmts, final_expr: bl.final_expr.clone(), span: bl.span })
+        }
+        other => other.clone(),
+    }
+}
+
 /// `__Continue((vars...))`/`__Done((vars...))` enum expressions.
 fn replace_while_jumps(mut block: BlockExpr, vars: &[Ident]) -> BlockExpr {
     let var_refs = || -> Vec<Box<Expr>> {
@@ -1206,6 +1429,18 @@ fn desugar_while_borrow(w: &WhileExpr) -> Expr {
         Expr::Block(b) => b.clone(),
         other => BlockExpr { span: Span::DUMMY, stmts: vec![BlockStmt { span: Span::DUMMY, expr: other.clone(), def: None }], final_expr: None },
     };
+    // Lift conditional borrow rebindings out of nested if/else blocks.
+    // Without this, `&x = val` inside an `if` creates `def x = val` scoped
+    // to the if body; after the if, `continue` reads the closure param (old
+    // value) instead of the updated one. We transform:
+    //   if (&x; cond) { &x = new_x; } else { &x = other_x; }
+    // into:
+    //   def x = if (cond) { new_x } else { other_x };
+    // at the parent scope. If only the then-branch has the borrow update:
+    //   if (&x; cond) { &x = new_x; }
+    // becomes:
+    //   def x = if (cond) { new_x } else { x };
+    let body_block = lift_borrow_rebindings(body_block, vars);
     // Replace `continue`/`break` keywords with __Continue((vars...))/__Done((vars...))
     let body_block = replace_while_jumps(body_block, vars);
 

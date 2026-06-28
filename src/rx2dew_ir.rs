@@ -465,14 +465,14 @@ impl Ctx {
             }
             Stmt::Return(Some(e)) => {
                 if self.in_while {
-                    out.push_str(&format!("{}Done(({},))\n", pad, self.emit_expr(e)));
+                    out.push_str(&format!("{}__Done(({},))\n", pad, self.emit_expr(e)));
                 } else {
                     out.push_str(&format!("{}{}\n", pad, self.emit_expr(e)));
                 }
             }
             Stmt::Return(None) => {
                 if self.in_while {
-                    out.push_str(&format!("{}Done((Unit,))\n", pad));
+                    out.push_str(&format!("{}__Done((Unit,))\n", pad));
                 } else {
                     out.push_str(&format!("{}Unit\n", pad));
                 }
@@ -544,64 +544,6 @@ impl Ctx {
         // the loop body
         for name in &self.borrow_params_used_in_stmts(stmts) {
             if !acc.contains(name) { acc.push(name.clone()); }
-        }
-        // Also carry enclosing function parameters used in the body as free
-        // variables (read-only access), so the while-loop closure captures them.
-        for s in stmts {
-            self.collect_fn_param_refs(s, acc);
-        }
-    }
-
-    fn collect_fn_param_refs(&self, stmt: &Stmt, acc: &mut Vec<String>) {
-        let fn_param_names: Vec<String> = self.var_types.keys()
-            .filter(|k| {
-                // Only function params: known before the while loop, not defined in while body
-                self.fn_borrow_param_names.get(&self.current_fn_name)
-                    .map_or(true, |bn| !bn.contains(k))
-            })
-            .cloned()
-            .collect();
-        let refs = match stmt {
-            Stmt::Expr(e) | Stmt::Return(Some(e)) => self.collect_var_refs(e),
-            Stmt::Assign { rhs, .. } => self.collect_var_refs(rhs),
-            Stmt::Let { init, .. } => init.as_ref().map(|e| self.collect_var_refs(e)).unwrap_or_default(),
-            Stmt::If { cond, then_body, else_body } => {
-                let mut v = self.collect_var_refs(cond);
-                for s in then_body { v.extend(self.collect_var_refs_stmt(s)); }
-                if let Some(eb) = else_body { for s in eb { v.extend(self.collect_var_refs_stmt(s)); } }
-                v
-            }
-            Stmt::While { cond, body } => {
-                let mut v = self.collect_var_refs(cond);
-                for s in body { v.extend(self.collect_var_refs_stmt(s)); }
-                v
-            }
-            _ => vec![],
-        };
-        for r in &refs {
-            if fn_param_names.contains(r) && !acc.contains(r) {
-                acc.push(r.clone());
-            }
-        }
-    }
-
-    fn collect_var_refs_stmt(&self, stmt: &Stmt) -> Vec<String> {
-        match stmt {
-            Stmt::Expr(e) | Stmt::Return(Some(e)) => self.collect_var_refs(e),
-            Stmt::Assign { rhs, .. } => self.collect_var_refs(rhs),
-            Stmt::Let { init, .. } => init.as_ref().map(|e| self.collect_var_refs(e)).unwrap_or_default(),
-            Stmt::If { cond, then_body, else_body } => {
-                let mut v = self.collect_var_refs(cond);
-                for s in then_body { v.extend(self.collect_var_refs_stmt(s)); }
-                if let Some(eb) = else_body { for s in eb { v.extend(self.collect_var_refs_stmt(s)); } }
-                v
-            }
-            Stmt::While { cond, body } => {
-                let mut v = self.collect_var_refs(cond);
-                for s in body { v.extend(self.collect_var_refs_stmt(s)); }
-                v
-            }
-            _ => vec![],
         }
     }
 
@@ -727,7 +669,7 @@ impl Ctx {
                 if self.const_values.contains_key(s) {
                     return self.const_values[s].clone();
                 }
-                s.clone()
+                s.replace("::", "_")
             },
             Expr::Str(s) => format!("\"{}\"", s),
             Expr::Binary(l, op, r) => {
@@ -752,11 +694,12 @@ impl Ctx {
             Expr::Call { func, args } => {
                 // Handle `getInt()` builtin
                 if let Expr::Ident(s) = func.as_ref() {
+                    let fn_name = s.replace("::", "_");
                     if s == "getInt" { return "(stdin(0) as Int)".into(); }
                     if s == "printlnInt" { if let Some(a) = args.first() { return format!("{{ {} -> stdout; '\\n' -> stdout }}", self.emit_expr(a)); } }
                     if s == "exit" { return String::new(); }
                     // Direct function call — add & for borrow params
-                    let borrow_info = self.fn_borrow_params.get(s);
+                    let borrow_info = self.fn_borrow_params.get(&fn_name);
                     let mut as_ = Vec::new();
                     for (i, a) in args.iter().enumerate() {
                         let needs_borrow = borrow_info.map_or(false, |bi| i < bi.len() && bi[i]);
@@ -765,14 +708,14 @@ impl Ctx {
                             if arg_str.starts_with('&') { as_.push(arg_str); }
                             else if extract_root(a).is_some() { as_.push(format!("&{}", arg_str)); }
                             else {
-                                eprintln!("[W006] warning: rvalue passed to &-parameter of {}, modification to temporary discarded", s);
+                                eprintln!("[W006] warning: rvalue passed to &-parameter of {}, modification to temporary discarded", fn_name);
                                 as_.push(arg_str);
                             }
                         } else {
                             as_.push(arg_str);
                         }
                     }
-                    return format!("{}({})", s, as_.join(", "));
+                    return format!("{}({})", fn_name, as_.join(", "));
                 }
                 // Method call: x.foo(args) → Type__foo(&x, args)
                 if let Expr::Field(obj, method) = func.as_ref() {
@@ -926,7 +869,7 @@ impl Ctx {
                 // Detect borrow call: the function has borrow params (via fn_borrow_params)
                 // Note: Expr::Ref in args no longer implies borrow — immutable refs pass by value.
                 let has_borrow = match func.as_ref() {
-                        Expr::Ident(name) => self.fn_borrow_params.get(name)
+                        Expr::Ident(name) => self.fn_borrow_params.get(&name.replace("::", "_"))
                             .map_or(false, |bi| bi.iter().any(|&b| b)),
                         Expr::Field(_, method) => {
                             let func_name = self.method_map.get(method)
@@ -976,7 +919,7 @@ impl Ctx {
                     let func_text = self.emit_expr(func);
                     // Add & for borrow params, matching emit_expr's behavior
                     let borrow_info = match func.as_ref() {
-                        Expr::Ident(name) => self.fn_borrow_params.get(name),
+                        Expr::Ident(name) => self.fn_borrow_params.get(&name.replace("::", "_")),
                         _ => None,
                     };
                     let mut arg_texts = Vec::new();
