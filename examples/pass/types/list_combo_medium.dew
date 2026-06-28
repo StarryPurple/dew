@@ -1,6 +1,19 @@
 // expect: 25
 // Tier: Medium
 // Large: combine list_sum and list_length with local computation.
+enum List(T) { Cons(T, List(T)), Nil }
+def rec list_sum = fn(lst: List(Int)) -> Int {
+  match lst {
+    Cons(h, t) => h + list_sum(t),
+    Nil => 0,
+  }
+};
+def rec list_length = fn(lst: List(Int)) -> Int {
+  match lst {
+    Cons(h, t) => 1 + list_length(t),
+    Nil => 0,
+  }
+};
 def xs = Cons(1, Cons(2, Cons(3, Cons(4, Cons(5, Nil)))));
 def main = fn {
   def s = list_sum(xs);

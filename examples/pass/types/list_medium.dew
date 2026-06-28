@@ -1,6 +1,7 @@
 // expect: 6
 // Tier: Medium
 // Medium: sum a list via recursive match.
+enum List(T) { Cons(T, List(T)), Nil }
 def xs = Cons(1, Cons(2, Cons(3, Nil)));
 def rec sum = fn(lst: List(Int)) -> Int {
   match lst {

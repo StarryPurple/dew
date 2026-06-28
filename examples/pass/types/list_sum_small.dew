@@ -1,5 +1,12 @@
 // expect: 6
 // Tier: Small
-// MVP: use list_sum from stdlib.
+// MVP: use list_sum.
+enum List(T) { Cons(T, List(T)), Nil }
+def rec list_sum = fn(lst: List(Int)) -> Int {
+  match lst {
+    Cons(h, t) => h + list_sum(t),
+    Nil => 0,
+  }
+};
 def xs = Cons(1, Cons(2, Cons(3, Nil)));
 def main = fn { list_sum(xs) -> stdout; };

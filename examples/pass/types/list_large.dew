@@ -1,6 +1,7 @@
 // expect: 20
 // Tier: Medium
 // Large: map over list, then sum — compose two recursive functions.
+enum List(T) { Cons(T, List(T)), Nil }
 def xs = Cons(1, Cons(2, Cons(3, Cons(4, Nil))));
 def rec sum = fn(lst: List(Int)) -> Int {
   match lst {

@@ -1,6 +1,7 @@
 // expect: 1
 // Tier: Medium
 // MVP: construct a three-element list and match on head.
+enum List(T) { Cons(T, List(T)), Nil }
 def xs = Cons(1, Cons(2, Cons(3, Nil)));
 def main = fn {
   match xs {

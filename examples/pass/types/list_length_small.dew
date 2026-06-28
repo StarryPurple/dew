@@ -1,5 +1,12 @@
 // expect: 5
 // Tier: Small
-// Medium: use list_length to count elements.
+// Use list_length to count elements.
+enum List(T) { Cons(T, List(T)), Nil }
+def rec list_length = fn(lst: List(Int)) -> Int {
+  match lst {
+    Cons(h, t) => 1 + list_length(t),
+    Nil => 0,
+  }
+};
 def xs = Cons(10, Cons(20, Cons(30, Cons(40, Cons(50, Nil)))));
 def main = fn { list_length(xs) -> stdout; };
