@@ -392,7 +392,7 @@ fn emit_fn(f: &crate::ir::func::Fn, _module: &Module, ctx: &mut Ctx, out: &mut S
             }
         }
         for instr in &b.instrs { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
-        emit_terminator(&b.terminator, ctx, out).map_err(|e| e.to_string())?;
+        emit_terminator(&b.terminator, &rl, ctx, out).map_err(|e| e.to_string())?;
     }
     writeln!(out, "}}\n").ok();
     Ok(())
@@ -498,11 +498,16 @@ fn emit_not(r: usize, a: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), S
 
 fn emit_phi(r: usize, pairs: &[(usize, String)], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
     let ty = ctx.get(r);
-    let ll = if is_aggregate(&ty) { "ptr".into() } else { ctx.ll(r) };
+    let alloca_ll = if is_aggregate(&ty) { "ptr".into() } else { ctx.ll(r) };
+    // LLVM phi requires SSA values from predecessor blocks. Since emit_phi runs
+    // in the merge block (not predecessors), we can't put loads there.
+    // Instead: phi on alloca addresses (all ptr), then load after phi.
     let inc: Vec<String> = pairs.iter().map(|(v, l)| format!("%R{}, %{}", v, l)).collect();
     let cv = ctx.next();
-    writeln!(out, "  %v{} = phi {} [{}]", cv, ll, inc.join("], [")).ok();
-    writeln!(out, "  store {} %v{}, ptr %R{}", ll, cv, r).ok();
+    let pv = ctx.next();
+    writeln!(out, "  %p{} = phi ptr [{}]", cv, inc.join("], [")).ok();
+    writeln!(out, "  %v{} = load {}, ptr %p{}", pv, alloca_ll, cv).ok();
+    writeln!(out, "  store {} %v{}, ptr %R{}", alloca_ll, pv, r).ok();
     Ok(())
 }
 
@@ -511,17 +516,19 @@ fn emit_call(r: usize, target: &CallTarget, args: &[usize], ctx: &mut Ctx, out: 
         CallTarget::Static(name) => {
             let mut av = Vec::new();
             for (i, a) in args.iter().enumerate() {
+                let li = ctx.next();
                 let ll = ctx.ll(*a);
-                writeln!(out, "  %a{} = load {}, ptr %R{}", i, ll, a).map_err(|e| e.to_string()).map_err(|e| e.to_string())?;
-                av.push(format!("{} %a{}", ll, i));
+                let _ = writeln!(out, "  %a{} = load {}, ptr %R{}", li, ll, a);
+                av.push(format!("{} %a{}", ll, li));
             }
+            let ci = ctx.next();
             let rl = ctx.ll(r);
-            writeln!(out, "  %c{} = call {} @{}({})", ctx.next(), rl, name, av.join(", ")).map_err(|e| e.to_string()).map_err(|e| e.to_string())?;
+            let _ = writeln!(out, "  %c{} = call {} @{}({})", ci, rl, name, av.join(", "));
             if rl != "void" && rl != "%Unit" {
-                writeln!(out, "  store {} %c{}, ptr %R{}", rl, ctx.next()-1, r).map_err(|e| e.to_string()).map_err(|e| e.to_string())?;
+                let _ = writeln!(out, "  store {} %c{}, ptr %R{}", rl, ci, r);
             }
         }
-        CallTarget::Dynamic(_) => writeln!(out, "  ;; dynamic call").map_err(|e| e.to_string()).map_err(|e| e.to_string())?,
+        CallTarget::Dynamic(_) => { let _ = writeln!(out, "  ;; dynamic call"); }
     }
     Ok(())
 }
@@ -818,16 +825,22 @@ fn emit_move(r: usize, from: usize, ctx: &Ctx, out: &mut String) -> Result<(), S
     Ok(())
 }
 
-fn emit_terminator(term: &Terminator, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+fn emit_terminator(term: &Terminator, ret_ll: &str, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
     match term {
         Terminator::Ret(r) => {
             let rl = ctx.ll(*r);
-            if rl == "void" || rl == "%Unit" {
+            // Use the function's declared return type, not the register type
+            if ret_ll == "void" || ret_ll == "%Unit" {
                 let _ = writeln!(out, "  ret void");
             } else {
                 let vl = ctx.next();
                 let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", vl, rl, r);
-                let _ = writeln!(out, "  ret {} %v{}", rl, vl);
+                if ret_ll != rl.as_str() {
+                    let _ = writeln!(out, "  %v{}_c = bitcast {} %v{} to {}", vl, rl, vl, ret_ll);
+                    let _ = writeln!(out, "  ret {} %v{}_c", ret_ll, vl);
+                } else {
+                    let _ = writeln!(out, "  ret {} %v{}", rl, vl);
+                }
             }
         }
         Terminator::Br(cond, t, f) => {
