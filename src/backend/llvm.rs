@@ -149,7 +149,10 @@ fn llvm_type_for(ty: &IrType, enum_names: &std::collections::HashSet<String>) ->
 /// LLVM type for a register used in function boundaries (params, call args).
 /// Aggregates → i64; primitive types use their natural LLVM type.
 fn llvm_boundary_type(ty: &IrType) -> String {
-    match ty { IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(), _ => ir_type_to_llvm(ty) }
+    match ty {
+        IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) | IrType::Array(_, _) => "i64".into(),
+        _ => ir_type_to_llvm(ty),
+    }
 }
 
 fn emit_type_defs(module: &Module, out: &mut String, ctx: &mut LlvmCtx) -> Result<(), String> {
@@ -721,37 +724,33 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
         }
         Instr::ArrayLit(r, ty, elems) => {
             ctx.set_reg(*r, ty.clone());
-            let elem_ty = match ty { IrType::Array(t, _) => ir_type_to_llvm(t), _ => "i64".into() };
             let n = elems.len();
-            let size = match &elem_ty[..] { "i1" => n, "i32" => n * 4, _ => n * 8 };
+            let esize = 8;
+            let size = n * esize;
             let arena_ptr = ctx.arena_alloc(size, out);
             for (i, e) in elems.iter().enumerate() {
-                writeln!(out, "  %r{}_ep{} = getelementptr i8, ptr {}, i32 {}", r, i, arena_ptr, i * (size / n)).ok();
-                writeln!(out, "  store {} %r{}, ptr %r{}_ep{}", elem_ty, e, r, i).ok();
+                writeln!(out, "  %r{}_ep{} = getelementptr i8, ptr {}, i32 {}", r, i, arena_ptr, (i * esize) as i32).ok();
+                writeln!(out, "  store i64 %r{}, ptr %r{}_ep{}", e, r, i).ok();
             }
             writeln!(out, "  %r{} = ptrtoint ptr {} to i64", r, arena_ptr).ok();
         }
         Instr::ArrayFill(r, ty, val, n) => {
             ctx.set_reg(*r, ty.clone());
-            let elem_ty = match ty { IrType::Array(t, _) => ir_type_to_llvm(t), _ => "i64".into() };
-            let size = match &elem_ty[..] { "i1" => *n as usize, "i32" => *n as usize * 4, _ => *n as usize * 8 };
-            let esize = if elem_ty == "i1" { 1 } else if elem_ty == "i32" { 4 } else { 8 };
+            let esize = 8;
+            let size = *n as usize * esize;
             let arena_ptr = ctx.arena_alloc(size, out);
             for i in 0..*n {
                 writeln!(out, "  %r{}_ep{} = getelementptr i8, ptr {}, i32 {}", r, i, arena_ptr, i * esize).ok();
-                writeln!(out, "  store {} %r{}, ptr %r{}_ep{}", elem_ty, val, r, i).ok();
+                writeln!(out, "  store i64 %r{}, ptr %r{}_ep{}", val, r, i).ok();
             }
             writeln!(out, "  %r{} = ptrtoint ptr {} to i64", r, arena_ptr).ok();
         }
         Instr::ArrayAccess(r, _ty, arr, idx) => {
-            let elem_ty = match ctx.reg_ty(arr) { IrType::Array(t, _) => ir_type_to_llvm(t), _ => "i64".into() };
-            let esize = if elem_ty == "i1" { "1" } else if elem_ty == "i32" { "4" } else { "8" };
             ctx.set_reg(*r, match ctx.reg_ty(arr) { IrType::Array(t, _) => (**t).clone(), _ => IrType::Int });
             writeln!(out, "  %r{}_p = inttoptr i64 %r{} to ptr", r, arr).ok();
-            writeln!(out, "  %r{}_off = mul i64 %r{}, {}", r, idx, esize).ok();
+            writeln!(out, "  %r{}_off = mul i64 %r{}, 8", r, idx).ok();
             writeln!(out, "  %r{}_ep = getelementptr i8, ptr %r{}_p, i64 %r{}_off", r, r, r).ok();
-            writeln!(out, "  %r{}_raw = load {}, ptr %r{}_ep", r, elem_ty, r).ok();
-            // If loaded type doesn't match register type, convert
+            writeln!(out, "  %r{}_raw = load i64, ptr %r{}_ep", r, r).ok();
             match ctx.reg_ty(r) {
                 IrType::Bool => { writeln!(out, "  %r{} = trunc i64 %r{}_raw to i1", r, r).ok(); }
                 _ => { writeln!(out, "  %r{} = add i64 %r{}_raw, 0", r, r).ok(); }
