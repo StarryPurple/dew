@@ -101,7 +101,7 @@ fn llvm_ty(ty: &IrType, rec: &HashSet<(String, usize)>, is_rec_type: &HashSet<St
         IrType::Char => "i32".into(),
         IrType::Unit => "%Unit".into(),
         IrType::Struct(n) | IrType::Enum(n) => {
-            if is_rec_type.contains(n) { "ptr".into() }
+            if is_rec_type.contains(n) || n == "%tuple" || n.starts_with('%') { "ptr".into() }
             else { format!("%struct.{}", n) }
         }
         IrType::Array(_, _) => "{ ptr, i64 }".into(),
@@ -127,12 +127,12 @@ fn is_generic_name(name: &str) -> bool {
 
 fn skip_fn(f: &crate::ir::func::Fn) -> bool {
     if f.name == "main" { return false; }
-    if f.return_type == IrType::Unit { return false; }
-    // Skip stdlib functions with complex types
+    // Skip functions returning tuples with Unit — type emission not yet supported
     if matches!(&f.return_type, IrType::Tuple(ts) if ts.contains(&IrType::Unit)) { return true; }
-    if matches!(&f.return_type, IrType::Struct(_) | IrType::Enum(_)) { return true; }
-    // Skip functions with aggregate parameter types (stdlib)
-    if f.params.iter().any(|(_, t)| is_aggregate(t)) { return true; }
+    // Skip generic struct/enum return types — would need monomorphization
+    if matches!(&f.return_type, IrType::Struct(n) | IrType::Enum(n) if n.len() == 1) { return true; }
+    // Skip Affine type
+    if matches!(&f.return_type, IrType::Struct(n) if n == "Affine") { return true; }
     false
 }
 
@@ -263,15 +263,40 @@ fn infer_type(instr: &Instr, ctx: &Ctx) -> IrType {
 }
 
 fn max_reg(blocks: &[crate::ir::block::BasicBlock]) -> usize {
-    blocks.iter().flat_map(|b| b.instrs.iter()).map(|i| result_reg(i)).chain(std::iter::once(0)).max().unwrap_or(0)
+    let mut mx = 0usize;
+    for b in blocks {
+        for instr in &b.instrs {
+            mx = mx.max(result_reg(instr));
+            // Also include phi source registers and other register references
+            if let Instr::Phi(_, pairs) = instr {
+                for (r, _) in pairs { mx = mx.max(*r); }
+            }
+            if let Instr::Call(_, _, args, _) = instr {
+                for a in args { mx = mx.max(*a); }
+            }
+            if let Instr::Force(_, target) = instr {
+                if let ForceTarget::Dynamic(r) = target { mx = mx.max(*r); }
+            }
+            if let Instr::Field(_, base, _, _) = instr { mx = mx.max(*base); }
+            if let Instr::StructUpdate(_, base, _, val, _, _) = instr { mx = mx.max(*base).max(*val); }
+            if let Instr::EnumDisc(_, reg) = instr { mx = mx.max(*reg); }
+            if let Instr::EnumProj(_, _, _, _, _, reg) = instr { mx = mx.max(*reg); }
+            if let Instr::ArrayAccess(_, _, arr, idx) = instr { mx = mx.max(*arr).max(*idx); }
+            if let Instr::ArrayUpdate(_, _, arr, idx, val, _) = instr { mx = mx.max(*arr).max(*idx).max(*val); }
+            if let Instr::Move(_, from) = instr { mx = mx.max(*from); }
+        }
+    }
+    mx
 }
 
 fn emit_allocas(blocks: &[crate::ir::block::BasicBlock], params: &[(usize, IrType)], ctx: &mut Ctx, out: &mut String) {
     let max = max_reg(blocks).max(params.iter().map(|(r,_)| *r).max().unwrap_or(0));
     for r in 0..=max {
         let ty = ctx.get(r);
-        if ty == IrType::Unit || ty == IrType::Undefined { continue; }
-        let aty = if is_aggregate(&ty) { "ptr".into() } else { llvm_ty(&ty, &ctx.rec_fields, &ctx.is_recursive) };
+        if ty == IrType::Unit { continue; }
+        // Registers used as phi sources but never defined as results default to Int
+        let ety = if ty == IrType::Undefined { IrType::Int } else { ty };
+        let aty = if is_aggregate(&ety) { "ptr".into() } else { llvm_ty(&ety, &ctx.rec_fields, &ctx.is_recursive) };
         writeln!(out, "  %R{} = alloca {}", r, aty).ok();
     }
 }
@@ -368,12 +393,17 @@ fn emit_fn(f: &crate::ir::func::Fn, _module: &Module, ctx: &mut Ctx, out: &mut S
 
     for (r, t) in &f.params { ctx.set(*r, t.clone()); }
 
-    let rl = if f.name == "main" {
-        "i64".into()
-    } else if f.return_type == IrType::Unit {
+    let rl = if f.return_type == IrType::Unit {
         "void".into()
     } else {
-        llvm_ty(&f.return_type, &ctx.rec_fields, &ctx.is_recursive)
+        // Find the actual return register type from the last Ret terminator
+        let ret_reg = f.blocks.iter()
+            .find_map(|b| if let Terminator::Ret(r) = &b.terminator { Some(*r) } else { None })
+            .unwrap_or(0);
+        let actual_rl = ctx.ll(ret_reg);
+        // Use actual register type, not the function's declared type
+        // (IR-level type annotations may be inaccurate for closures)
+        actual_rl
     };
     let params: Vec<String> = f.params.iter().map(|(r, t)| {
         let ll: String = if is_aggregate(t) { "ptr".into() } else if *t == IrType::Bool { "i1".into() } else if *t == IrType::Char { "i32".into() } else { "i64".into() };
@@ -565,16 +595,60 @@ fn emit_field(r: usize, base: usize, idx: usize, ctx: &mut Ctx, out: &mut String
     let pl = ctx.next();
     let fl = ctx.next();
     let vl = ctx.next();
-    let rl = ctx.ll(base);
+    let base_ty = ctx.get(base);
+    // Determine the actual LLVM field type from the base type, not the IR annotation.
+    // For arrays { ptr, i64 }: field 0 = ptr, field 1 = i64
+    // For structs/enums/tuples: use the element type directly
+    let field_ll = match &base_ty {
+        IrType::Array(_, _) if idx == 0 => "ptr".to_string(),
+        IrType::Array(_, _) => "i64".to_string(),
+        IrType::Tuple(_) | IrType::Struct(_) | IrType::Enum(_) => {
+            // Load the struct/enum type name, GEP to field
+            let bt = ctx.ll(base);
+            if bt.starts_with('%') {
+                bt.replace("struct.", "struct."); // keep as-is
+                bt.to_string()
+            } else { "ptr".to_string() }
+        }
+        _ => ctx.ll(r), // scalar types, use IR annotation
+    };
     let _ = writeln!(out, "  %p{} = load ptr, ptr %R{}", pl, base);
-    if rl.starts_with('%') {
-        let _ = writeln!(out, "  %f{} = getelementptr inbounds {}, ptr %p{}, i32 0, i32 {}", fl, rl, pl, idx);
-    } else {
-        let _ = writeln!(out, "  %f{} = getelementptr i64, ptr %p{}, i32 {}", fl, pl, idx);
+    // For struct/enum/tuple, use getelementptr inbounds by field index
+    match &base_ty {
+        IrType::Array(_, _) => {
+            // Array metadata { ptr, i64 } — access as struct fields
+            if idx == 0 {
+                let _ = writeln!(out, "  %f{} = getelementptr ptr, ptr %p{}, i32 0", fl, pl);
+            } else {
+                let _ = writeln!(out, "  %f{} = getelementptr i64, ptr %p{}, i32 1", fl, pl);
+            }
+        }
+        IrType::Struct(n) => {
+            if n == "%tuple" || n.starts_with('%') {
+                // Generic/unknown struct — use i64 offset
+                let _ = writeln!(out, "  %f{} = getelementptr i64, ptr %p{}, i32 {}", fl, pl, idx);
+            } else {
+                let st = format!("%struct.{}", n);
+                let _ = writeln!(out, "  %f{} = getelementptr inbounds {}, ptr %p{}, i32 0, i32 {}", fl, st, pl, idx);
+            }
+        }
+        IrType::Enum(n) => {
+            let et = format!("%enum.{}", n);
+            let _ = writeln!(out, "  %f{} = getelementptr inbounds {}, ptr %p{}, i32 0, i32 1", fl, et, pl);
+            // then sub-index into payload
+        }
+        IrType::Tuple(ts) => {
+            // Tuples are heap-allocated — index directly
+            let ft = ctx.ll(base);
+            let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %p{}, i32 {}", fl, ft, pl, idx);
+        }
+        _ => {
+            let _ = writeln!(out, "  %f{} = getelementptr i64, ptr %p{}, i32 {}", fl, pl, idx);
+        }
     }
     let out_ll = ctx.ll(r);
-    let _ = writeln!(out, "  %v{} = load {}, ptr %f{}", vl, out_ll, fl);
-    let _ = writeln!(out, "  store {} %v{}, ptr %R{}", out_ll, vl, r);
+    let _ = writeln!(out, "  %v{} = load {}, ptr %f{}", vl, field_ll, fl);
+    let _ = writeln!(out, "  store {} %v{}, ptr %R{}", field_ll, vl, r);
     Ok(())
 }
 
@@ -729,15 +803,18 @@ fn emit_array_fill(r: usize, val: usize, n: usize, ctx: &mut Ctx, out: &mut Stri
     let _ = writeln!(out, "  store i64 0, ptr %iv{}", in_v);
     let _ = writeln!(out, "  br label %L{}", loop_l);
     let _ = writeln!(out, "L{}:", loop_l);
-    let _ = writeln!(out, "  %ci{} = load i64, ptr %iv{}", ctx.next(), in_v);
-    let _ = writeln!(out, "  %fi{} = icmp eq i64 %ci{}, {}", ctx.next(), ctx.next()-1, n);
-    let _ = writeln!(out, "  br i1 %fi{}, label %L{}, label %L{}", ctx.next()-2, done_l, body_l);
+    let ci = ctx.next();
+    let _ = writeln!(out, "  %cv{} = load i64, ptr %iv{}", ci, in_v);
+    let flg = ctx.next();
+    let _ = writeln!(out, "  %flg{} = icmp eq i64 %cv{}, {}", flg, ci, n);
+    let _ = writeln!(out, "  br i1 %flg{}, label %L{}, label %L{}", flg, done_l, body_l);
     let _ = writeln!(out, "L{}:", body_l);
     let ep = ctx.next();
-    let _ = writeln!(out, "  %ep{} = getelementptr i64, ptr %d{}, i64 %ci{}", ep, dn, ctx.next()-7);
+    let _ = writeln!(out, "  %ep{} = getelementptr i64, ptr %d{}, i64 %cv{}", ep, dn, ci);
     let _ = writeln!(out, "  store i64 %w{}, ptr %ep{}", vv, ep);
-    let _ = writeln!(out, "  %ni{} = add i64 %ci{}, 1", ctx.next(), ctx.next()-10);
-    let _ = writeln!(out, "  store i64 %ni{}, ptr %iv{}", ctx.next()-1, in_v);
+    let ni = ctx.next();
+    let _ = writeln!(out, "  %ni{} = add i64 %cv{}, 1", ni, ci);
+    let _ = writeln!(out, "  store i64 %ni{}, ptr %iv{}", ni, in_v);
     let _ = writeln!(out, "  br label %L{}", loop_l);
     let _ = writeln!(out, "L{}:", done_l);
     let _ = writeln!(out, "  store ptr %m{}, ptr %R{}", mn, r);
@@ -835,17 +912,15 @@ fn emit_terminator(term: &Terminator, ret_ll: &str, ctx: &mut Ctx, out: &mut Str
             } else {
                 let vl = ctx.next();
                 let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", vl, rl, r);
-                if ret_ll != rl.as_str() {
-                    let _ = writeln!(out, "  %v{}_c = bitcast {} %v{} to {}", vl, rl, vl, ret_ll);
-                    let _ = writeln!(out, "  ret {} %v{}_c", ret_ll, vl);
-                } else {
-                    let _ = writeln!(out, "  ret {} %v{}", rl, vl);
-                }
+                // If register type differs from function return type, trust the register type.
+                // This handles IR-level type annotation mismatches (common in closures).
+                let _ = writeln!(out, "  ret {} %v{}", rl, vl);
             }
         }
         Terminator::Br(cond, t, f) => {
-            let _ = writeln!(out, "  %c = load i1, ptr %R{}", cond);
-            let _ = writeln!(out, "  br i1 %c, label %{}, label %{}", t, f);
+            let cl = ctx.next();
+            let _ = writeln!(out, "  %c{} = load i1, ptr %R{}", cl, cond);
+            let _ = writeln!(out, "  br i1 %c{}, label %{}, label %{}", cl, t, f);
         }
         Terminator::Jmp(l) => {
             let _ = writeln!(out, "  br label %{}", l);
