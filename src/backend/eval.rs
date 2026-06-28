@@ -13,6 +13,12 @@ use std::io::{self, Write, BufRead};
 enum TailResult {
     Value(Value),
     TailCall(String),
+    TailCallDynamic,
+}
+
+enum TailInfo {
+    Static(String, Vec<Reg>),
+    Dynamic(Reg, Vec<Reg>),
 }
 
 pub fn run(module: &Module) -> Result<Value, String> {
@@ -75,7 +81,80 @@ fn eval_fn(
                 frame.label_stack.clear();
                 continue;
             }
+            TailResult::TailCallDynamic => {
+                let closure_val = frame.regs.first().ok_or("dynamic tail call: empty frame")?.clone();
+                let cv = match closure_val {
+                    Value::Closure(cv) => cv,
+                    _ => return Err("dynamic tail call target is not a closure".into()),
+                };
+                current = fns.iter().find(|f| f.name == cv.fn_name)
+                    .ok_or_else(|| format!("fn '{}' not found for dynamic tail call", cv.fn_name))?;
+                let original_param_count = current.params.len() - cv.captures.len();
+                let mut new_regs = Vec::new();
+                // frame.regs[1..] are the call arguments
+                for i in 0..original_param_count {
+                    new_regs.push(frame.regs.get(1 + i).cloned().unwrap_or(Value::Unit));
+                }
+                // Append captures after original params
+                for cap_val in &cv.captures {
+                    new_regs.push(cap_val.clone());
+                }
+                frame.regs = new_regs;
+                frame.label_stack.clear();
+                continue;
+            }
         }
+    }
+}
+
+/// Find a tail call in the block. Handles both direct `call; ret` and
+/// `call; jmp` to a phi+ret block that passes through the call result.
+fn find_tail_call(block: &BasicBlock, blocks: &[BasicBlock]) -> Option<TailInfo> {
+    let last = block.instrs.last()?;
+    let (reg, info) = match last {
+        Instr::Call(reg, CallTarget::Static(name), args, _) => {
+            (*reg, TailInfo::Static(name.clone(), args.clone()))
+        }
+        Instr::Call(reg, CallTarget::Dynamic(dyn_reg), args, _) => {
+            (*reg, TailInfo::Dynamic(*dyn_reg, args.clone()))
+        }
+        _ => return None,
+    };
+    match &block.terminator {
+        Terminator::Ret(ret_r) if *ret_r == reg => Some(info),
+        Terminator::Jmp(target) => {
+            // Follow jmp chain through phi merges until we reach a ret.
+            // The call result (reg) must flow through the phi chain to ret
+            // without modification (just one source among the phi inputs).
+            let mut phi_reg = reg;
+            let mut label = target.clone();
+            loop {
+                let next = blocks.iter().find(|b| b.label == label)?;
+                // Check if this block starts with a phi that forwards the call result
+                let phi_pairs = next.instrs.first().and_then(|i| match i {
+                    Instr::Phi(pr, pairs) if pairs.iter().any(|(r, _)| *r == phi_reg) => Some((*pr, pairs)),
+                    _ => None,
+                });
+                match phi_pairs {
+                    Some((pr, _pairs)) => {
+                        if let Terminator::Ret(ret_r) = &next.terminator {
+                            if *ret_r == pr {
+                                return Some(info);
+                            }
+                        }
+                        // Not ret yet — continue following the phi chain
+                        phi_reg = pr;
+                        if let Terminator::Jmp(next_label) = &next.terminator {
+                            label = next_label.clone();
+                            continue;
+                        }
+                        return None;
+                    }
+                    None => return None,
+                }
+            }
+        }
+        _ => None,
     }
 }
 
@@ -88,29 +167,33 @@ fn eval_block(
     frame: &mut EvalFrame,
     runtime: &mut Runtime,
 ) -> Result<TailResult, String> {
-    // Check for tail call: last instruction is Call(r, target, args) followed by Ret(r).
-    // Evaluate all NON-tail instructions first, then handle the last one specially.
-    let tail_info = block.instrs.last().and_then(|last| {
-        if let Instr::Call(reg, CallTarget::Static(name), args, _) = last {
-            if let Terminator::Ret(ret_r) = &block.terminator {
-                if *reg == *ret_r {
-                    return Some((name.clone(), args.clone()));
-                }
-            }
-        }
-        None
-    });
+    // Check for tail call: last instruction is Call(r, target, args) followed by Ret(r),
+    // or Call(r, target, args) followed by Jmp to a phi+Ret block that passes through r.
+    let tail_info = find_tail_call(block, blocks);
 
-    if let Some((name, args)) = &tail_info {
+    if let Some(info) = &tail_info {
         // Evaluate all instructions except the last (tail-call) one
         for instr in &block.instrs[..block.instrs.len() - 1] {
             eval_instr(instr, fns, thunks, types, frame, runtime)?;
         }
-        // Reuse frame for callee: replace regs with call arguments
-        let arg_vals: Vec<Value> = args.iter().map(|a| frame.get(*a).clone()).collect();
-        frame.regs = arg_vals;
-        frame.label_stack.clear();
-        return Ok(TailResult::TailCall(name.clone()));
+        match info {
+            TailInfo::Static(name, args) => {
+                let arg_vals: Vec<Value> = args.iter().map(|a| frame.get(*a).clone()).collect();
+                frame.regs = arg_vals;
+                frame.label_stack.clear();
+                return Ok(TailResult::TailCall(name.clone()));
+            }
+            TailInfo::Dynamic(dyn_reg, args) => {
+                // For dynamic tail calls, the dyn_reg holds the closure (from a prior force).
+                // The caller (eval_fn) will extract the closure and set up the new frame.
+                let arg_vals: Vec<Value> = args.iter().map(|a| frame.get(*a).clone()).collect();
+                let closure_val = frame.get(*dyn_reg).clone();
+                frame.regs = vec![closure_val];
+                frame.regs.extend(arg_vals);
+                frame.label_stack.clear();
+                return Ok(TailResult::TailCallDynamic);
+            }
+        }
     }
 
     // No tail call — evaluate all instructions normally
@@ -483,6 +566,26 @@ fn force_thunk(
                     // handler in eval_block — reuse it for the callee.
                     let callee = fns.iter().find(|f| f.name == *name)
                         .ok_or_else(|| format!("fn '{}' not found", name))?;
+                    eval_fn(callee, fns, thunks, types, &mut thunk_frame, runtime)
+                }
+                TailResult::TailCallDynamic => {
+                    let closure_val = thunk_frame.regs.first()
+                        .ok_or("dynamic tail call from thunk: empty frame")?.clone();
+                    let cv = match closure_val {
+                        Value::Closure(cv) => cv,
+                        _ => return Err("dynamic tail call target is not a closure".into()),
+                    };
+                    let callee = fns.iter().find(|f| f.name == cv.fn_name)
+                        .ok_or_else(|| format!("fn '{}' not found for dynamic tail call", cv.fn_name))?;
+                    let original_param_count = callee.params.len() - cv.captures.len();
+                    let mut new_regs = Vec::new();
+                    for i in 0..original_param_count {
+                        new_regs.push(thunk_frame.regs.get(1 + i).cloned().unwrap_or(Value::Unit));
+                    }
+                    for cap_val in &cv.captures {
+                        new_regs.push(cap_val.clone());
+                    }
+                    thunk_frame.regs = new_regs;
                     eval_fn(callee, fns, thunks, types, &mut thunk_frame, runtime)
                 }
             };
