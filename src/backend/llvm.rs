@@ -14,6 +14,7 @@ pub fn generate(module: &Module) -> Result<String, String> {
     // Build function parameter type map
     for f in &module.fns {
         ctx.fn_params.insert(f.name.clone(), f.params.iter().map(|(_, t)| t.clone()).collect());
+        ctx.fn_returns.insert(f.name.clone(), f.return_type.clone());
     }
     // Also thunks (they take no params)
     for t in &module.thunks {
@@ -65,6 +66,7 @@ struct Ctx {
     current_block_label: Option<String>,
     phi_load_stores: Vec<(usize, usize, String)>,
     fn_params: HashMap<String, Vec<IrType>>,
+    fn_returns: HashMap<String, IrType>,
 }
 
 impl Ctx {
@@ -94,7 +96,7 @@ impl Ctx {
             if all_self { is_recursive.insert(e.name.clone()); }
         }
 
-        Ctx { types: HashMap::new(), enum_names, is_generic, is_recursive, rec_fields, label: 0, label_map: HashMap::new(), current_block_label: None, phi_load_stores: Vec::new(), fn_params: HashMap::new() }
+        Ctx { types: HashMap::new(), enum_names, is_generic, is_recursive, rec_fields, label: 0, label_map: HashMap::new(), current_block_label: None, phi_load_stores: Vec::new(), fn_params: HashMap::new(), fn_returns: HashMap::new() }
     }
 
     fn set(&mut self, r: usize, ty: IrType) { self.types.insert(r, ty); }
@@ -143,6 +145,18 @@ fn llvm_ty(ty: &IrType, rec: &HashSet<(String, usize)>, is_rec_type: &HashSet<St
 
 fn is_aggregate(ty: &IrType) -> bool {
     matches!(ty, IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) | IrType::Array(_, _))
+}
+
+fn boundary_type(ty: &IrType) -> String {
+    if is_aggregate(ty) { "ptr".into() }
+    else {
+        match ty {
+            IrType::Bool => "i1".into(),
+            IrType::Char => "i32".into(),
+            IrType::Unit => "void".into(),
+            _ => "i64".into(),
+        }
+    }
 }
 
 fn is_generic_name(name: &str) -> bool {
@@ -428,24 +442,28 @@ fn emit_fn(f: &crate::ir::func::Fn, _module: &Module, ctx: &mut Ctx, out: &mut S
 
     for (r, t) in &f.params { ctx.set(*r, t.clone()); }
 
-    let rl = if f.return_type == IrType::Unit {
+    let ret_reg = f.blocks.iter()
+        .find_map(|b| if let Terminator::Ret(r) = &b.terminator { Some(*r) } else { None })
+        .unwrap_or(0);
+    let ret_ty = ctx.get(ret_reg);
+    let is_sret = is_aggregate(&ret_ty);
+    let rl = if f.return_type == IrType::Unit && !is_sret {
+        "void".into()
+    } else if is_sret {
         "void".into()
     } else {
-        // Find the actual return register type from the last Ret terminator
-        let ret_reg = f.blocks.iter()
-            .find_map(|b| if let Terminator::Ret(r) = &b.terminator { Some(*r) } else { None })
-            .unwrap_or(0);
-        let actual_rl = ctx.ll(ret_reg);
-        // Use actual register type, not the function's declared type
-        // (IR-level type annotations may be inaccurate for closures)
-        actual_rl
+        boundary_type(&ret_ty)
     };
-    let params: Vec<String> = f.params.iter().map(|(r, t)| {
+    let mut all_params: Vec<String> = Vec::new();
+    if is_sret {
+        let sret_ll = ctx.ll(ret_reg);
+        all_params.push(format!("ptr sret({}) %retval", sret_ll));
+    }
+    for (r, t) in &f.params {
         let ll: String = if is_aggregate(t) { "ptr".into() } else if *t == IrType::Bool { "i1".into() } else if *t == IrType::Char { "i32".into() } else { "i64".into() };
-        format!("{} %arg{}", ll, r)
-    }).collect();
-
-    writeln!(out, "define {} @{}({}) {{", rl, f.name, params.join(", ")).ok();
+        all_params.push(format!("{} %arg{}", ll, r));
+    }
+    writeln!(out, "define {} @{}({}) {{", rl, f.name, all_params.join(", ")).ok();
 
     for (bi, b) in f.blocks.iter().enumerate() {
         ctx.current_block_label = Some(b.label.clone());
@@ -467,7 +485,16 @@ fn emit_fn(f: &crate::ir::func::Fn, _module: &Module, ctx: &mut Ctx, out: &mut S
         for instr in &b.instrs {
             if !matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
         }
-        emit_terminator(&b.terminator, &rl, ctx, out).map_err(|e| e.to_string())?;
+        if is_sret && matches!(&b.terminator, Terminator::Ret(r)) {
+            let r = if let Terminator::Ret(r) = &b.terminator { *r } else { 0 };
+            let ll = ctx.ll(r);
+            let vl = ctx.next();
+            writeln!(out, "  %v{} = load {}, ptr %R{}", vl, ll, r).ok();
+            writeln!(out, "  store {} %v{}, ptr %retval", ll, vl).ok();
+            writeln!(out, "  ret void").ok();
+        } else {
+            emit_terminator(&b.terminator, &rl, ctx, out).map_err(|e| e.to_string())?;
+        }
     }
     writeln!(out, "}}\n").ok();
     Ok(())
@@ -599,27 +626,34 @@ fn emit_phi_load_stores(ctx: &mut Ctx, out: &mut String) {
 fn emit_call(r: usize, target: &CallTarget, args: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
     match target {
         CallTarget::Static(name) => {
-            // Use the callee's parameter types, not the argument register types
             let param_tys = ctx.fn_params.get(name.as_str()).cloned().unwrap_or_default();
-            let mut av = Vec::new();
+            let ret_ty = ctx.fn_returns.get(name.as_str()).cloned().unwrap_or(IrType::Int);
+            let is_sret = is_aggregate(&ret_ty);
+            let mut all_args: Vec<String> = Vec::new();
+            // Build call arguments
+            if is_sret {
+                let slot_ll = llvm_ty(&ret_ty, &ctx.rec_fields, &ctx.is_recursive);
+                all_args.push(format!("ptr sret({}) %slot_r{}", slot_ll, r));
+                writeln!(out, "  %slot_r{} = alloca {}", r, slot_ll).ok();
+            }
             for (i, a) in args.iter().enumerate() {
                 let li = ctx.next();
-                // Use callee parameter type, fall back to register type
                 let ll = param_tys.get(i)
-                    .map(|t| {
-                        let l = llvm_ty(t, &ctx.rec_fields, &ctx.is_recursive);
-                        // Aggregates are passed as ptr
-                        if is_aggregate(t) { "ptr".to_string() } else { l }
-                    })
+                    .map(|t| if is_aggregate(t) { "ptr".to_string() } else { boundary_type(t) })
                     .unwrap_or_else(|| ctx.ll(*a));
                 let _ = writeln!(out, "  %a{} = load {}, ptr %R{}", li, ll, a);
-                av.push(format!("{} %a{}", ll, li));
+                all_args.push(format!("{} %a{}", ll, li));
             }
             let ci = ctx.next();
-            let rl = ctx.ll(r);
-            let _ = writeln!(out, "  %c{} = call {} @{}({})", ci, rl, name, av.join(", "));
-            if rl != "void" && rl != "%Unit" {
-                let _ = writeln!(out, "  store {} %c{}, ptr %R{}", rl, ci, r);
+            let call_ret_ll = if is_sret { "void".to_string() } else { ctx.ll(r) };
+            if is_sret {
+                let _ = writeln!(out, "  call void @{}({})", name, all_args.join(", "));
+                let _ = writeln!(out, "  store ptr %slot_r{}, ptr %R{}", r, r);
+            } else {
+                let _ = writeln!(out, "  %c{} = call {} @{}({})", ci, call_ret_ll, name, all_args.join(", "));
+                if call_ret_ll != "void" && call_ret_ll != "%Unit" {
+                    let _ = writeln!(out, "  store {} %c{}, ptr %R{}", call_ret_ll, ci, r);
+                }
             }
         }
         CallTarget::Dynamic(_) => { let _ = writeln!(out, "  ;; dynamic call"); }
@@ -719,8 +753,7 @@ fn emit_field(r: usize, base: usize, idx: usize, ctx: &mut Ctx, out: &mut String
 fn emit_struct_cons(r: usize, fields: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
     let n = fields.len();
     let pn = ctx.next();
-    let _ = writeln!(out, "  %p{} = call ptr @malloc(i64 {})", pn, (n * 8) as i64);
-    oom_check(&format!("%p{}", pn), out, ctx);
+    let _ = writeln!(out, "  %p{} = alloca i8, i64 {}", pn, (n * 8) as i64);
     for (i, f) in fields.iter().enumerate() {
         let fi = ctx.next();
         let vi = ctx.next();
@@ -748,8 +781,7 @@ fn emit_struct_update(r: usize, base: usize, fidx: usize, val: usize, ctx: &mut 
 
 fn emit_enum_cons(r: usize, _ename: &str, _variant: &str, fields: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
     let pn = ctx.next();
-    let _ = writeln!(out, "  %p{} = call ptr @malloc(i64 16)", pn);
-    oom_check(&format!("%p{}", pn), out, ctx);
+    let _ = writeln!(out, "  %p{} = alloca i8, i64 16", pn);
     let tn = ctx.next();
     let _ = writeln!(out, "  %t{} = getelementptr i64, ptr %p{}, i32 0", tn, pn);
     let _ = writeln!(out, "  store i64 0, ptr %t{}", tn);
