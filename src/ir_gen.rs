@@ -477,6 +477,7 @@ impl<'a> IrGenerator<'a> {
                             // any Force), but the LLVM backend needs valid blocks to compile.
                             if let Some(t) = self.module.thunks.iter_mut().find(|t| t.name == thunk_name) {
                                 let mut db = BasicBlock::new("entry".into());
+                                db.instrs.push(Instr::Lit(0, IrLitValue::Int(0)));
                                 db.terminator = Terminator::Ret(0);
                                 t.blocks.push(db);
                             }

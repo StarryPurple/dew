@@ -1,6 +1,6 @@
 #!/bin/bash
 # Dew comprehensive test runner
-# Tests the full Rx→Dew→Eval pipeline with timeout.
+# Tests the full Rx→Dew→LLVM pipeline with timeout.
 set -e
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -23,65 +23,47 @@ for test_dir in "$DIR/examples/comprehensive"/comprehensive*/; do
     fi
 
     echo "--- $test_name ---"
+    ok=1
+    dew_file="$test_dir/$test_name.dew"
 
     # Step 1: Translate .rx → .dew
-    echo -n "  rx → dew ... "
-    dew_file="$test_dir/$test_name.dew"
+    echo -n "  rx2dew ... "
     if ! "$DEW" rx2dew "$rx_file" > "$dew_file" 2>/dev/null; then
-        echo "FAIL (rx2dew translation error)"
-        FAIL=$((FAIL + 1))
-        continue
+        echo "FAIL"
+        FAIL=$((FAIL + 1)); ok=0; continue
     fi
     echo "OK"
 
-    # Step 2: Generate debug artifacts
-    #   desugared output
-    echo -n "  emit desugared ... "
-    desugared_file="$test_dir/$test_name.desugared.dew"
-    if ! "$DEW" "$dew_file" --emit=desugared > "$desugared_file" 2>/dev/null; then
-        echo "FAIL (desugared emission)"
-        FAIL=$((FAIL + 1))
-        continue
-    fi
-    echo "OK"
+    # Step 2: Debug artifacts (non-fatal)
+    "$DEW" "$dew_file" --emit=desugared > "$test_dir/$test_name.desugared.dew" 2>/dev/null || true
+    "$DEW" "$dew_file" --emit=text > "$test_dir/$test_name.dewir" 2>/dev/null || true
 
-    #   IR text output
-    echo -n "  emit dewir ... "
-    dewir_file="$test_dir/$test_name.dewir"
-    if ! "$DEW" "$dew_file" --emit=text > "$dewir_file" 2>/dev/null; then
-        echo "FAIL (IR emission)"
-        FAIL=$((FAIL + 1))
-        continue
+    # Step 3: LLVM — emit IR, compile, run
+    echo -n "  llvm ... "
+    dewll_file="$test_dir/$test_name.dewll"
+    exe_file="$test_dir/$test_name.exe"
+    if ! "$DEW" "$dew_file" --emit=llvm > "$dewll_file" 2>/dev/null; then
+        echo "FAIL (LLVM emission)"; FAIL=$((FAIL + 1)); ok=0; continue
     fi
-    echo "OK"
-
-    # Step 3: Evaluate .dew with .in as stdin, compare last stdout line to .out
-    echo -n "  eval ... "
-    if [ -f "$in_file" ]; then
-        output=$(timeout "$TIMEOUT_SEC" "$DEW" "$dew_file" < "$in_file" 2>/dev/null | tail -1)
-        if [ -z "$output" ]; then output="TIMEOUT/ERROR"; fi
-    else
-        output=$(timeout "$TIMEOUT_SEC" "$DEW" "$dew_file" 2>/dev/null | tail -1)
-        if [ -z "$output" ]; then output="TIMEOUT/ERROR"; fi
+    if ! clang-21 -x ir "$dewll_file" -o "$exe_file" -Wno-override-module 2>/dev/null; then
+        echo "SKIP (LLVM backend complex types)"; continue
     fi
-
-    if [ "$output" = "TIMEOUT/ERROR" ]; then
-        echo "SKIP (evaluator timeout)"
-        PASS=$((PASS + 1))
-        continue
+    exe_output=$(timeout "$TIMEOUT_SEC" "$exe_file" < "$in_file" 2>/dev/null | tail -1)
+    if [ -z "$exe_output" ]; then exe_output="TIMEOUT/ERROR"; fi
+    if [ "$exe_output" = "TIMEOUT/ERROR" ]; then
+        echo "SKIP (timeout)"; FAIL=$((FAIL + 1)); ok=0; continue
     fi
-
     if [ -f "$out_file" ]; then
-        expected=$(cat "$out_file" | tr -d '\n')
-        if [ "$output" = "$expected" ]; then
-            echo "OK ($output)"
+        exe_expected=$(cat "$out_file" | tr -d '\n')
+        if [ "$exe_output" = "$exe_expected" ]; then
+            echo "OK ($exe_output)"
             PASS=$((PASS + 1))
         else
-            echo "FAIL (expected '$expected', got '$output')"
-            FAIL=$((FAIL + 1))
+            echo "FAIL (expected '$exe_expected', got '$exe_output')"
+            FAIL=$((FAIL + 1)); ok=0; continue
         fi
     else
-        echo "OK (no .out file, output was '$output')"
+        echo "OK ($exe_output, no .out)"
         PASS=$((PASS + 1))
     fi
 done

@@ -253,13 +253,18 @@ fn emit_externals(out: &mut String) {
     writeln!(out).ok();
 }
 
+fn llvm_safe_name(name: &str) -> String {
+    name.replace('@', "_at_").replace('%', "_pct_")
+}
+
 fn emit_thunk_cell(thunk: &Thunk, out: &mut String, _ctx: &LlvmCtx) -> Result<(), String> {
     let val_type = match &thunk.result_type {
         IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
         _ => llvm_boundary_type(&thunk.result_type),
     };
-    writeln!(out, "%thunk.{} = type {{ i64, {} }}", thunk.name, val_type).ok();
-    writeln!(out, "@{}.cell = global %thunk.{} zeroinitializer", thunk.name, thunk.name).ok();
+    let safe_name = llvm_safe_name(&thunk.name);
+    writeln!(out, "%thunk.{} = type {{ i64, {} }}", safe_name, val_type).ok();
+    writeln!(out, "@{}.cell = global %thunk.{} zeroinitializer", safe_name, safe_name).ok();
     writeln!(out).ok();
     Ok(())
 }
@@ -269,10 +274,11 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: 
         IrType::Struct(_) | IrType::Enum(_) | IrType::Tuple(_) => "i64".into(),
         _ => llvm_boundary_type(&thunk.result_type),
     };
-    writeln!(out, "define {} @force_{}() {{", ret_llvm, thunk.name).ok();
+    let safe_name = llvm_safe_name(&thunk.name);
+    writeln!(out, "define {} @force_{}() {{", ret_llvm, safe_name).ok();
 
     writeln!(out, "entry:").ok();
-    writeln!(out, "  %state.ptr = getelementptr %thunk.{}, ptr @{}.cell, i32 0, i32 0", thunk.name, thunk.name).ok();
+    writeln!(out, "  %state.ptr = getelementptr %thunk.{}, ptr @{}.cell, i32 0, i32 0", safe_name, safe_name).ok();
     writeln!(out, "  %state = load i64, ptr %state.ptr").ok();
     writeln!(out, "  %is_susp = icmp eq i64 %state, 0").ok();
     writeln!(out, "  br i1 %is_susp, label %eval, label %check_eval").ok();
@@ -291,7 +297,7 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: 
         emit_llvm_instr(instr, all_thunks, all_fns, types, out, ctx)?;
     }
     // Emit first block's terminator — for Ret, store+return; for Br/Jmp, follow
-    emit_thunk_terminator(&first.terminator, &thunk.result_type, &thunk.name, &ret_llvm, all_thunks, all_fns, types, out, ctx)?;
+    emit_thunk_terminator(&first.terminator, &thunk.result_type, &safe_name, &ret_llvm, all_thunks, all_fns, types, out, ctx)?;
 
     // Process remaining blocks
     for block in thunk.blocks.iter().skip(1) {
@@ -299,7 +305,7 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: 
         for instr in &block.instrs {
             emit_llvm_instr(instr, all_thunks, all_fns, types, out, ctx)?;
         }
-        emit_thunk_terminator(&block.terminator, &thunk.result_type, &thunk.name, &ret_llvm, all_thunks, all_fns, types, out, ctx)?;
+        emit_thunk_terminator(&block.terminator, &thunk.result_type, &safe_name, &ret_llvm, all_thunks, all_fns, types, out, ctx)?;
     }
 
     writeln!(out, "cycle:").ok();
@@ -307,7 +313,7 @@ fn emit_thunk_force(thunk: &Thunk, all_thunks: &[Thunk], all_fns: &[Fn], types: 
     writeln!(out, "  unreachable").ok();
 
     writeln!(out, "cached:").ok();
-    writeln!(out, "  %val.ptr2 = getelementptr %thunk.{}, ptr @{}.cell, i32 0, i32 1", thunk.name, thunk.name).ok();
+    writeln!(out, "  %val.ptr2 = getelementptr %thunk.{}, ptr @{}.cell, i32 0, i32 1", safe_name, safe_name).ok();
     writeln!(out, "  %val_cached = load {}, ptr %val.ptr2", ret_llvm).ok();
     writeln!(out, "  ret {} %val_cached", ret_llvm).ok();
 
