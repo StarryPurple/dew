@@ -48,8 +48,13 @@ else
     echo "     FAIL (IR)"; exit 1
 fi
 
-# Step 4: LLVM (removed for rewrite)
-echo "  4) llvm ... SKIP (backend under rewrite)"
+# Step 4: LLVM IR
+echo "  4) llvm ... "
+if "$DEW" "$dew_file" --emit=llvm > "$test_dir/$test_name.dew.ll" 2>/dev/null; then
+    echo "     OK -> $test_dir/$test_name.dew.ll"
+else
+    echo "     FAIL (LLVM emission)"; exit 1
+fi
 
 echo ""
 echo "=== $test_name: ALL PASS ==="

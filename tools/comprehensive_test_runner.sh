@@ -38,8 +38,13 @@ for test_dir in "$DIR/examples/comprehensive"/comprehensive*/; do
     "$DEW" "$dew_file" --emit=desugared > "$test_dir/$test_name.desugared.dew" 2>/dev/null || true
     "$DEW" "$dew_file" --emit=text > "$test_dir/$test_name.dewir" 2>/dev/null || true
 
-    # Step 3: LLVM (removed for rewrite)
-    echo -n "  llvm ... SKIP (backend under rewrite)"
+    # Step 3: LLVM IR
+    echo -n "  llvm ... "
+    if "$DEW" "$dew_file" --emit=llvm > "$test_dir/$test_name.dew.ll" 2>/dev/null; then
+        echo "OK"
+    else
+        echo "FAIL"
+    fi
 done
 
 echo ""
