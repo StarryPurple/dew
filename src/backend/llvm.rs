@@ -11,6 +11,14 @@ use std::fmt::Write;
 pub fn generate(module: &Module) -> Result<String, String> {
     let mut out = String::new();
     let mut ctx = Ctx::new(&module.types);
+    // Build function parameter type map
+    for f in &module.fns {
+        ctx.fn_params.insert(f.name.clone(), f.params.iter().map(|(_, t)| t.clone()).collect());
+    }
+    // Also thunks (they take no params)
+    for t in &module.thunks {
+        ctx.fn_params.insert(t.name.clone(), vec![]);
+    }
 
     writeln!(out, "%Unit = type {{}}").ok();
     writeln!(out, "%thunk = type {{ i64, i64 }}").ok();
@@ -56,6 +64,7 @@ struct Ctx {
     label_map: HashMap<String, String>,
     current_block_label: Option<String>,
     phi_load_stores: Vec<(usize, usize, String)>,
+    fn_params: HashMap<String, Vec<IrType>>,
 }
 
 impl Ctx {
@@ -85,7 +94,7 @@ impl Ctx {
             if all_self { is_recursive.insert(e.name.clone()); }
         }
 
-        Ctx { types: HashMap::new(), enum_names, is_generic, is_recursive, rec_fields, label: 0, label_map: HashMap::new(), current_block_label: None, phi_load_stores: Vec::new() }
+        Ctx { types: HashMap::new(), enum_names, is_generic, is_recursive, rec_fields, label: 0, label_map: HashMap::new(), current_block_label: None, phi_load_stores: Vec::new(), fn_params: HashMap::new() }
     }
 
     fn set(&mut self, r: usize, ty: IrType) { self.types.insert(r, ty); }
@@ -233,8 +242,9 @@ fn scan_instr(instr: &Instr, ctx: &mut Ctx) {
 
 fn result_reg(instr: &Instr) -> usize {
     match instr {
-        Instr::Lit(r,_) | Instr::Stdout(r) | Instr::Stdin(r) | Instr::Lambda(r,_,_)
-        | Instr::Call(r,_,_,_) | Instr::Force(r,_)
+        Instr::Stdout(_) => 0, // Stdout doesn't produce a result — it only reads
+        Instr::Stdin(r) => *r,
+        Instr::Lit(r,_) | Instr::Lambda(r,_,_) | Instr::Call(r,_,_,_) | Instr::Force(r,_)
         | Instr::Add(r,_,_) | Instr::Sub(r,_,_) | Instr::Mul(r,_,_) | Instr::Div(r,_,_) | Instr::Rem(r,_,_)
         | Instr::BitAnd(r,_,_) | Instr::BitOr(r,_,_) | Instr::BitXor(r,_,_) | Instr::Shl(r,_,_) | Instr::Shr(r,_,_)
         | Instr::Lt(r,_,_) | Instr::Gt(r,_,_) | Instr::Le(r,_,_) | Instr::Ge(r,_,_) | Instr::Eq(r,_,_) | Instr::Ne(r,_,_)
@@ -589,10 +599,19 @@ fn emit_phi_load_stores(ctx: &mut Ctx, out: &mut String) {
 fn emit_call(r: usize, target: &CallTarget, args: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
     match target {
         CallTarget::Static(name) => {
+            // Use the callee's parameter types, not the argument register types
+            let param_tys = ctx.fn_params.get(name.as_str()).cloned().unwrap_or_default();
             let mut av = Vec::new();
             for (i, a) in args.iter().enumerate() {
                 let li = ctx.next();
-                let ll = ctx.ll(*a);
+                // Use callee parameter type, fall back to register type
+                let ll = param_tys.get(i)
+                    .map(|t| {
+                        let l = llvm_ty(t, &ctx.rec_fields, &ctx.is_recursive);
+                        // Aggregates are passed as ptr
+                        if is_aggregate(t) { "ptr".to_string() } else { l }
+                    })
+                    .unwrap_or_else(|| ctx.ll(*a));
                 let _ = writeln!(out, "  %a{} = load {}, ptr %R{}", li, ll, a);
                 av.push(format!("{} %a{}", ll, li));
             }
@@ -821,7 +840,7 @@ fn emit_array_fill(r: usize, val: usize, n: usize, ctx: &mut Ctx, out: &mut Stri
     let pi = ctx.next();
     let _ = writeln!(out, "  br label %L{}", loop_l);
     let _ = writeln!(out, "L{}:", loop_l);
-    let _ = writeln!(out, "  %iv{} = phi i64 [0, %entry], [%next{}, %L{}]", pi, pi, body_l);
+    let _ = writeln!(out, "  %iv{} = phi i64 [0, %{}], [%next{}, %L{}]", pi, ctx.real_label("entry"), pi, body_l);
     let flg = ctx.next();
     let _ = writeln!(out, "  %flg{} = icmp eq i64 %iv{}, {}", flg, pi, n);
     let _ = writeln!(out, "  br i1 %flg{}, label %L{}, label %L{}", flg, done_l, body_l);
