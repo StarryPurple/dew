@@ -34,8 +34,12 @@ fn collect_borrow_vars_impl(expr: &Expr, vars: &mut HashSet<String>) {
         }
         Expr::If(i) => {
             collect_borrow_vars_impl(&i.condition, vars);
-            collect_borrow_vars_impl(&i.then_branch, vars);
-            if let Some(eb) = &i.else_branch { collect_borrow_vars_impl(eb, vars); }
+            // Only recurse into body if the if has no borrow scope of its own.
+            // If it has if_borrow/else_borrow, those vars are handled by that scope.
+            if i.if_borrow.is_empty() && i.else_borrow.as_ref().map_or(true, |v| v.is_empty()) {
+                collect_borrow_vars_impl(&i.then_branch, vars);
+                if let Some(eb) = &i.else_branch { collect_borrow_vars_impl(eb, vars); }
+            }
         }
         Expr::Match(m) => {
             collect_borrow_vars_impl(&m.scrutinee, vars);
@@ -43,7 +47,13 @@ fn collect_borrow_vars_impl(expr: &Expr, vars: &mut HashSet<String>) {
         }
         Expr::Fn(f) => collect_borrow_vars_impl(&f.body, vars),
         Expr::Fix(f) => collect_borrow_vars_impl(&f.body, vars),
-        Expr::While(w) => collect_borrow_vars_impl(&w.body, vars),
+        Expr::While(w) => {
+            collect_borrow_vars_impl(&w.condition, vars);
+            // Only recurse into body if the while has no borrow scope of its own.
+            if w.borrow_vars.is_empty() {
+                collect_borrow_vars_impl(&w.body, vars);
+            }
+        }
         Expr::Loop(l) => collect_borrow_vars_impl(&l.body, vars),
         Expr::ForIn(fi) => collect_borrow_vars_impl(&fi.body, vars),
         Expr::Pipeline(pi) => {
@@ -141,7 +151,22 @@ fn validate_borrow_scopes(expr: &Expr, diag: &mut DiagnosticCollector) {
             }
             validate_borrow_scopes_impl(&i.then_branch, diag);
             if let Some(eb) = &i.else_branch {
-                // Also validate else-borrow if present
+                // Validate else-borrow declarations for the else branch
+                let else_declared: HashSet<String> = i.else_borrow.as_ref()
+                    .map(|v| v.iter().map(|id| id.name.clone()).collect())
+                    .unwrap_or_else(|| {
+                        if i.if_borrow.is_empty() { HashSet::new() }
+                        else { i.if_borrow.iter().map(|v| v.name.clone()).collect() }
+                    });
+                let else_used = collect_borrow_vars(eb);
+                for uv in &else_used {
+                    if !else_declared.contains(uv.as_str()) {
+                        diag.error("E003",
+                            format!("'{}' used with & in else-borrow body but not declared", uv),
+                            Some(i.span));
+                    }
+                }
+                // Also validate else-if chain
                 if let Expr::If(inner_if) = eb.as_ref() {
                     if let Some(ref ebv) = inner_if.else_borrow {
                         let declared: HashSet<String> = ebv.iter().map(|v| v.name.clone()).collect();

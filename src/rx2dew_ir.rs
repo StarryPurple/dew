@@ -117,7 +117,22 @@ impl Ctx {
     fn emit_program(&mut self, prog: &Program, out: &mut String) {
         // Collect consts
         for d in &prog.decls { if let Decl::Const { name, value } = d { self.const_values.insert(name.clone(), value.clone()); } }
-        // Emit ControlFlow enum (needed by while borrow)
+        // Pre-pass: register all function/method borrow params so call sites
+        // can resolve them regardless of declaration order.
+        for d in &prog.decls {
+            match d {
+                Decl::Impl { struct_name, methods } => {
+                    for m in methods {
+                        self.register_fn_borrow_params(struct_name, m);
+                    }
+                }
+                Decl::Fn(fd) => {
+                    self.register_fn_borrow_params("", fd);
+                }
+                _ => {}
+            }
+        }
+        // Emit ControlFlow enum
         out.push_str("enum __ControlFlow(T) {\n  __Done(T),\n  __Continue(T),\n}\n\n");
         // Emit structs
         for d in &prog.decls {
@@ -159,6 +174,25 @@ impl Ctx {
         }
     }
 
+    fn register_fn_borrow_params(&mut self, struct_name: &str, fd: &FnDecl) {
+        let name = if struct_name.is_empty() { fd.name.clone() } else { format!("{}_{}", struct_name, fd.name) };
+        let mut borrow_flags = Vec::new();
+        if fd.has_self {
+            let is_ref = self.method_ref_self.get(&name).copied().unwrap_or(false);
+            borrow_flags.push(is_ref);
+        }
+        for (_pn, pt) in &fd.params {
+            let mt = self.const_propagate_str(pt);
+            borrow_flags.push(mt.starts_with("&mut "));
+        }
+        self.fn_borrow_params.insert(name.clone(), borrow_flags.clone());
+        let mut borrow_names = Vec::new();
+        for ((pn, _), b) in fd.params.iter().zip(borrow_flags.iter().skip(if fd.has_self { 1 } else { 0 })) {
+            if *b { borrow_names.push(pn.clone()); }
+        }
+        self.fn_borrow_param_names.insert(name.clone(), borrow_names);
+    }
+
     fn emit_fn_decl(&mut self, struct_name: &str, fd: &FnDecl, out: &mut String) {
         self.var_types.clear();
         let name = if struct_name.is_empty() { fd.name.clone() } else { format!("{}_{}", struct_name, fd.name) };
@@ -188,22 +222,6 @@ impl Ctx {
             }
             self.var_types.insert(pn.clone(), self.map_type(&mt));
         }
-        // Track borrow params for call-site & emission
-        let mut borrow_flags = Vec::new();
-        if fd.has_self {
-            let is_ref = self.method_ref_self.get(&name).copied().unwrap_or(false);
-            borrow_flags.push(is_ref);
-        }
-        for (pn, pt) in &fd.params {
-            let mt = self.const_propagate_str(pt);
-            borrow_flags.push(mt.starts_with("&mut "));
-        }
-        self.fn_borrow_params.insert(name.clone(), borrow_flags.clone());
-        let mut borrow_names = Vec::new();
-        for ((pn, _), b) in fd.params.iter().zip(borrow_flags.iter().skip(if fd.has_self { 1 } else { 0 })) {
-            if *b { borrow_names.push(pn.clone()); }
-        }
-        self.fn_borrow_param_names.insert(name.clone(), borrow_names);
         self.current_fn_name = name.clone();
 
         let ret = self.map_type(&self.const_propagate_str(&fd.ret_type));
@@ -516,16 +534,74 @@ impl Ctx {
                     self.collect_carried(then_body, acc);
                     if let Some(eb) = else_body { self.collect_carried(eb, acc); }
                 }
+                Stmt::While { body, .. } => {
+                    self.collect_carried(body, acc);
+                }
                 _ => {}
             }
         }
         // Carry borrow params that are used as function call arguments inside
-        // the loop body (e.g., update(&seg_pool, &seg_cnt, ...)). Only borrow
-        // params of the enclosing function are carried; immutable refs (pass-by-value)
-        // and local variables are NOT — they become free variables captured by the
-        // while-loop closure.
+        // the loop body
         for name in &self.borrow_params_used_in_stmts(stmts) {
             if !acc.contains(name) { acc.push(name.clone()); }
+        }
+        // Also carry enclosing function parameters used in the body as free
+        // variables (read-only access), so the while-loop closure captures them.
+        for s in stmts {
+            self.collect_fn_param_refs(s, acc);
+        }
+    }
+
+    fn collect_fn_param_refs(&self, stmt: &Stmt, acc: &mut Vec<String>) {
+        let fn_param_names: Vec<String> = self.var_types.keys()
+            .filter(|k| {
+                // Only function params: known before the while loop, not defined in while body
+                self.fn_borrow_param_names.get(&self.current_fn_name)
+                    .map_or(true, |bn| !bn.contains(k))
+            })
+            .cloned()
+            .collect();
+        let refs = match stmt {
+            Stmt::Expr(e) | Stmt::Return(Some(e)) => self.collect_var_refs(e),
+            Stmt::Assign { rhs, .. } => self.collect_var_refs(rhs),
+            Stmt::Let { init, .. } => init.as_ref().map(|e| self.collect_var_refs(e)).unwrap_or_default(),
+            Stmt::If { cond, then_body, else_body } => {
+                let mut v = self.collect_var_refs(cond);
+                for s in then_body { v.extend(self.collect_var_refs_stmt(s)); }
+                if let Some(eb) = else_body { for s in eb { v.extend(self.collect_var_refs_stmt(s)); } }
+                v
+            }
+            Stmt::While { cond, body } => {
+                let mut v = self.collect_var_refs(cond);
+                for s in body { v.extend(self.collect_var_refs_stmt(s)); }
+                v
+            }
+            _ => vec![],
+        };
+        for r in &refs {
+            if fn_param_names.contains(r) && !acc.contains(r) {
+                acc.push(r.clone());
+            }
+        }
+    }
+
+    fn collect_var_refs_stmt(&self, stmt: &Stmt) -> Vec<String> {
+        match stmt {
+            Stmt::Expr(e) | Stmt::Return(Some(e)) => self.collect_var_refs(e),
+            Stmt::Assign { rhs, .. } => self.collect_var_refs(rhs),
+            Stmt::Let { init, .. } => init.as_ref().map(|e| self.collect_var_refs(e)).unwrap_or_default(),
+            Stmt::If { cond, then_body, else_body } => {
+                let mut v = self.collect_var_refs(cond);
+                for s in then_body { v.extend(self.collect_var_refs_stmt(s)); }
+                if let Some(eb) = else_body { for s in eb { v.extend(self.collect_var_refs_stmt(s)); } }
+                v
+            }
+            Stmt::While { cond, body } => {
+                let mut v = self.collect_var_refs(cond);
+                for s in body { v.extend(self.collect_var_refs_stmt(s)); }
+                v
+            }
+            _ => vec![],
         }
     }
 
@@ -677,7 +753,7 @@ impl Ctx {
                 // Handle `getInt()` builtin
                 if let Expr::Ident(s) = func.as_ref() {
                     if s == "getInt" { return "(stdin(0) as Int)".into(); }
-                    if s == "printlnInt" { if let Some(a) = args.first() { return format!("{} -> stdout; '\\n' -> stdout;", self.emit_expr(a)); } }
+                    if s == "printlnInt" { if let Some(a) = args.first() { return format!("{{ {} -> stdout; '\\n' -> stdout }}", self.emit_expr(a)); } }
                     if s == "exit" { return String::new(); }
                     // Direct function call — add & for borrow params
                     let borrow_info = self.fn_borrow_params.get(s);
@@ -801,7 +877,40 @@ impl Ctx {
             Expr::Block(stmts) => {
                 let mut r = "{\n".to_string();
                 for s in stmts {
-                    r.push_str(&format!("    {};\n", self.emit_expr(&stmt_to_expr(s))));
+                    match s {
+                        Stmt::Let { name, ty, init, .. } => {
+                            let dew_ty = if ty.is_empty() { "Int".into() } else { self.map_type(ty) };
+                            if let Some(e) = init {
+                                r.push_str(&format!("    def {} = {};\n", name, self.emit_expr(e)));
+                            } else {
+                                r.push_str(&format!("    def {}: {};\n", name, dew_ty));
+                            }
+                        }
+                        Stmt::If { .. } => {
+                            r.push_str(&format!("  {}\n", self.emit_expr(&stmt_to_expr(s))));
+                        }
+                        Stmt::Expr(e) => {
+                            let es = self.emit_expr(e);
+                            if es.ends_with('}') {
+                                r.push_str(&format!("    {}\n", es));
+                            } else {
+                                r.push_str(&format!("    {};\n", es));
+                            }
+                        }
+                        Stmt::Return(Some(e)) => {
+                            r.push_str(&format!("    {}\n", self.emit_expr(e)));
+                        }
+                        Stmt::Return(None) => {
+                            r.push_str("    Unit\n");
+                        }
+                        Stmt::While { cond, body } => {
+                            let cs = self.emit_expr(cond);
+                            r.push_str(&format!("    while ({}) {{ ... }}\n", cs));
+                        }
+                        _ => {
+                            r.push_str("    0;\n");
+                        }
+                    }
                 }
                 r.push_str("  }");
                 r
@@ -923,6 +1032,18 @@ impl Ctx {
 fn stmt_to_expr(stmt: &Stmt) -> Expr {
     match stmt {
         Stmt::Expr(e) | Stmt::Return(Some(e)) => e.clone(),
+        Stmt::If { cond, then_body, else_body } => Expr::If {
+            cond: Box::new(cond.clone()),
+            then_body: then_body.clone(),
+            else_body: else_body.clone().unwrap_or_default(),
+        },
+        Stmt::Let { name, ty, init, .. } => {
+            // Wrap in a block: { def name = init; 0 }
+            Expr::Block(vec![
+                Stmt::Let { name: name.clone(), mutable: false, ty: ty.clone(), init: init.clone() },
+                Stmt::Expr(Expr::Int(0)),
+            ])
+        }
         _ => Expr::Int(0),
     }
 }
@@ -948,7 +1069,7 @@ fn is_get_int(expr: &Expr) -> bool {
 fn extract_root(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Ident(n) => Some(n.clone()),
-        Expr::Index(obj, _) | Expr::Field(obj, _) | Expr::Deref(obj) => extract_root(obj),
+        Expr::Index(obj, _) | Expr::Field(obj, _) | Expr::Deref(obj) | Expr::Ref(obj) => extract_root(obj),
         _ => None,
     }
 }
