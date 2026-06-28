@@ -127,8 +127,6 @@ fn is_generic_name(name: &str) -> bool {
 
 fn skip_fn(f: &crate::ir::func::Fn) -> bool {
     if f.name == "main" { return false; }
-    // Skip functions returning tuples with Unit — type emission not yet supported
-    if matches!(&f.return_type, IrType::Tuple(ts) if ts.contains(&IrType::Unit)) { return true; }
     // Skip generic struct/enum return types — would need monomorphization
     if matches!(&f.return_type, IrType::Struct(n) | IrType::Enum(n) if n.len() == 1) { return true; }
     // Skip Affine type
@@ -324,7 +322,13 @@ fn emit_thunk(t: &Thunk, _module: &Module, ctx: &mut Ctx, out: &mut String) -> R
     emit_allocas(&t.blocks, &[], ctx, out);
     for b in &t.blocks {
         if b.label != "entry" { writeln!(out, "{}:", b.label).ok(); }
-        for instr in &b.instrs { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
+        // Emit phis first, then non-phis
+        for instr in &b.instrs {
+            if matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
+        }
+        for instr in &b.instrs {
+            if !matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
+        }
         if let Terminator::Ret(r) = &b.terminator {
             write_cache_val(*r, &safe, out, ctx).map_err(|e| e.to_string())?;
             write_return_from_cache(*r, out, ctx).map_err(|e| e.to_string())?;
@@ -421,7 +425,14 @@ fn emit_fn(f: &crate::ir::func::Fn, _module: &Module, ctx: &mut Ctx, out: &mut S
                 writeln!(out, "  store {} %arg{}, ptr %R{}", ll, r, r).map_err(|e| e.to_string())?;
             }
         }
-        for instr in &b.instrs { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
+        // Emit phi instructions first (LLVM requires phis at block start),
+        // then all non-phi instructions.
+        for instr in &b.instrs {
+            if matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
+        }
+        for instr in &b.instrs {
+            if !matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
+        }
         emit_terminator(&b.terminator, &rl, ctx, out).map_err(|e| e.to_string())?;
     }
     writeln!(out, "}}\n").ok();
