@@ -51,8 +51,9 @@ fn run(args: &[String]) -> Result<i32, String> {
         path => {
             let emit_text = args.iter().any(|a| a == "--emit=text");
             let emit_json = args.iter().any(|a| a == "--emit=json");
+            let emit_llvm = args.iter().any(|a| a == "--emit=llvm");
             let emit_desugared = args.iter().any(|a| a == "--emit=desugared");
-            run_file(path, emit_text, emit_json, emit_desugared)
+            run_file(path, emit_text, emit_json, emit_llvm, emit_desugared)
         }
     }
 }
@@ -83,7 +84,7 @@ fn compile(src: &str) -> Result<(dew::ir::module::Module, DiagnosticCollector), 
     Ok((module, diag))
 }
 
-fn run_file(path: &str, emit_text: bool, emit_json: bool, emit_desugared: bool) -> Result<i32, String> {
+fn run_file(path: &str, emit_text: bool, emit_json: bool, emit_llvm: bool, emit_desugared: bool) -> Result<i32, String> {
     let user_src = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path, e))?;
     let mut diag = DiagnosticCollector::new();
     // Register both source files so error display can look up the right one
@@ -126,6 +127,13 @@ fn run_file(path: &str, emit_text: bool, emit_json: bool, emit_desugared: bool) 
 
     if emit_json {
         println!("{}", serde_json::to_string_pretty(&module).map_err(|e| format!("json: {}", e))?);
+        return Ok(0);
+    }
+
+    // --emit=llvm: print LLVM IR, then exit
+    if emit_llvm {
+        let llvm_ir = backend::llvm::generate(&module)?;
+        println!("{}", llvm_ir);
         return Ok(0);
     }
 

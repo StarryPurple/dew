@@ -2,3 +2,4 @@
 // LLVM IR backend was removed for rewrite.
 
 pub mod eval;
+pub mod llvm;
