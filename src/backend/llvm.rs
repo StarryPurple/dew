@@ -29,7 +29,8 @@ pub fn generate(module: &Module) -> Result<String, String> {
     emit_types(module, &mut ctx, &mut out).map_err(|e| e.to_string())?;
 
     for t in &module.thunks {
-        writeln!(out, "@{}.cell = global %thunk zeroinitializer", t.name).ok();
+        let safe = t.name.replace('@', "_at_").replace('%', "_pct_");
+        writeln!(out, "@{}.cell = global %thunk zeroinitializer", safe).ok();
     }
     writeln!(out).ok();
 
@@ -267,7 +268,8 @@ fn emit_thunk(t: &Thunk, _module: &Module, ctx: &mut Ctx, out: &mut String) -> R
 
     writeln!(out, "define {} @force_{}() {{", rl, safe).ok();
     writeln!(out, "entry:").ok();
-    writeln!(out, "  %sp = getelementptr %thunk, ptr @{}.cell, i32 0, i32 0", t.name).ok();
+    writeln!(out, "  %sp = getelementptr %thunk, ptr @{}.cell, i32 0, i32 0", safe).ok();
+    writeln!(out, "  %cp = getelementptr %thunk, ptr @{}.cell, i32 0, i32 1", safe).ok();
     writeln!(out, "  %st = load i64, ptr %sp").ok();
     writeln!(out, "  %sus = icmp eq i64 %st, 0").ok();
     writeln!(out, "  br i1 %sus, label %eval, label %chk").ok();
@@ -281,12 +283,11 @@ fn emit_thunk(t: &Thunk, _module: &Module, ctx: &mut Ctx, out: &mut String) -> R
         if b.label != "entry" { writeln!(out, "{}:", b.label).ok(); }
         for instr in &b.instrs { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
         if let Terminator::Ret(r) = &b.terminator {
-            write_cache_val(*r, t.name.as_str(), out, ctx).map_err(|e| e.to_string())?;
+            write_cache_val(*r, &safe, out, ctx).map_err(|e| e.to_string())?;
             write_return_from_cache(*r, out, ctx).map_err(|e| e.to_string())?;
         }
     }
     writeln!(out, "cached:").ok();
-    writeln!(out, "  %cp = getelementptr %thunk, ptr @{}.cell, i32 0, i32 1", t.name).ok();
     write_return_from_cache(0, out, ctx).map_err(|e| e.to_string())?;
     writeln!(out, "cycle:").ok();
     writeln!(out, "  call void @llvm.trap()").ok();
@@ -318,23 +319,25 @@ fn write_cache_val(r: usize, name: &str, out: &mut String, ctx: &mut Ctx) -> Res
 fn write_return_from_cache(r: usize, out: &mut String, ctx: &mut Ctx) -> Result<(), String> {
     let ty = ctx.get(r);
     let rl = ctx.ll(r);
+    let cv = ctx.next();
+    let rv = ctx.next();
     if rl == "void" || rl == "%Unit" {
         writeln!(out, "  ret void").map_err(|e| e.to_string())?;
     } else if is_aggregate(&ty) {
-        writeln!(out, "  %cached_i64 = load i64, ptr %cp").map_err(|e| e.to_string())?;
-        writeln!(out, "  %ret_v = inttoptr i64 %cached_i64 to ptr").map_err(|e| e.to_string())?;
-        writeln!(out, "  ret ptr %ret_v").map_err(|e| e.to_string())?;
+        writeln!(out, "  %ci{} = load i64, ptr %cp", cv).map_err(|e| e.to_string())?;
+        writeln!(out, "  %rv{} = inttoptr i64 %ci{} to ptr", rv, cv).map_err(|e| e.to_string())?;
+        writeln!(out, "  ret ptr %rv{}", rv).map_err(|e| e.to_string())?;
     } else if rl == "i1" {
-        writeln!(out, "  %cached_i64 = load i64, ptr %cp").map_err(|e| e.to_string())?;
-        writeln!(out, "  %ret_v = trunc i64 %cached_i64 to i1").map_err(|e| e.to_string())?;
-        writeln!(out, "  ret i1 %ret_v").map_err(|e| e.to_string())?;
+        writeln!(out, "  %ci{} = load i64, ptr %cp", cv).map_err(|e| e.to_string())?;
+        writeln!(out, "  %rv{} = trunc i64 %ci{} to i1", rv, cv).map_err(|e| e.to_string())?;
+        writeln!(out, "  ret i1 %rv{}", rv).map_err(|e| e.to_string())?;
     } else if rl == "i32" {
-        writeln!(out, "  %cached_i64 = load i64, ptr %cp").map_err(|e| e.to_string())?;
-        writeln!(out, "  %ret_v = trunc i64 %cached_i64 to i32").map_err(|e| e.to_string())?;
-        writeln!(out, "  ret i32 %ret_v").map_err(|e| e.to_string())?;
+        writeln!(out, "  %ci{} = load i64, ptr %cp", cv).map_err(|e| e.to_string())?;
+        writeln!(out, "  %rv{} = trunc i64 %ci{} to i32", rv, cv).map_err(|e| e.to_string())?;
+        writeln!(out, "  ret i32 %rv{}", rv).map_err(|e| e.to_string())?;
     } else {
-        writeln!(out, "  %ret_v = load i64, ptr %cp").map_err(|e| e.to_string())?;
-        writeln!(out, "  ret i64 %ret_v").map_err(|e| e.to_string())?;
+        writeln!(out, "  %rv{} = load i64, ptr %cp", rv).map_err(|e| e.to_string())?;
+        writeln!(out, "  ret i64 %rv{}", rv).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -401,6 +404,20 @@ fn emit_instr(instr: &Instr, ctx: &mut Ctx, out: &mut String) -> Result<(), Stri
         Instr::Phi(r,pairs) => emit_phi(*r, pairs, ctx, out),
         Instr::Call(r,target,args,_) => emit_call(*r, target, args, ctx, out),
         Instr::Force(r,target) => emit_force(*r, target, ctx, out),
+        Instr::Field(r,base,idx,_) => emit_field(*r,*base,*idx,ctx,out),
+        Instr::StructCons(r,_,fields) => emit_struct_cons(*r,fields,ctx,out),
+        Instr::StructUpdate(r,base,fidx,val,_,_) => emit_struct_update(*r,*base,*fidx,*val,ctx,out),
+        Instr::EnumCons(r,ename,variant,fields) => emit_enum_cons(*r,ename,variant,fields,ctx,out),
+        Instr::EnumDisc(r,reg) => emit_enum_disc(*r,*reg,ctx,out),
+        Instr::EnumProj(r,_,_ename,_variant,idx,reg) => emit_enum_proj(*r,*idx,*reg,ctx,out),
+        Instr::ArrayLit(r,_,elems) => emit_array_lit(*r,elems,ctx,out),
+        Instr::ArrayFill(r,_,val,n) => emit_array_fill(*r,*val,*n,ctx,out),
+        Instr::ArrayAccess(r,_,arr,idx) => emit_array_access(*r,*arr,*idx,ctx,out),
+        Instr::ArrayUpdate(r,_,arr,idx,val,_) => emit_array_update(*r,*arr,*idx,*val,ctx,out),
+        Instr::TupleLit(r,_,elems) => emit_tuple_lit(*r,elems,ctx,out),
+        Instr::TupleUpdate(r,tup,idx,val,_) => emit_tuple_update(*r,*tup,*idx,*val,ctx,out),
+        Instr::Move(r,from) => emit_move(*r,*from,ctx,out),
+        Instr::Update(_,_) => Ok(()),  // no-op for LLVM
         _ => { writeln!(out, "  ;; skip {:?}", instr).map_err(|e| e.to_string()) }
     }
 }
@@ -516,6 +533,226 @@ fn emit_force(r: usize, target: &ForceTarget, ctx: &mut Ctx, out: &mut String) -
     }
 }
 
+fn emit_field(r: usize, base: usize, idx: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let pl = ctx.next();
+    let fl = ctx.next();
+    let vl = ctx.next();
+    let rl = ctx.ll(base);
+    let _ = writeln!(out, "  %p{} = load ptr, ptr %R{}", pl, base);
+    if rl.starts_with('%') {
+        let _ = writeln!(out, "  %f{} = getelementptr inbounds {}, ptr %p{}, i32 0, i32 {}", fl, rl, pl, idx);
+    } else {
+        let _ = writeln!(out, "  %f{} = getelementptr i64, ptr %p{}, i32 {}", fl, pl, idx);
+    }
+    let out_ll = ctx.ll(r);
+    let _ = writeln!(out, "  %v{} = load {}, ptr %f{}", vl, out_ll, fl);
+    let _ = writeln!(out, "  store {} %v{}, ptr %R{}", out_ll, vl, r);
+    Ok(())
+}
+
+fn emit_struct_cons(r: usize, fields: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let n = fields.len();
+    let _ = writeln!(out, "  %ptr = call ptr @malloc(i64 {})", (n * 8) as i64);
+    let _ = writeln!(out, "  %isnull = icmp eq ptr %ptr, null");
+    let oom_l = ctx.next();
+    let ok_l = ctx.next();
+    let _ = writeln!(out, "  br i1 %isnull, label %oom{}, label %ok{}", oom_l, ok_l);
+    let _ = writeln!(out, "oom{}:", oom_l);
+    let _ = writeln!(out, "  call void @llvm.trap()");
+    let _ = writeln!(out, "  unreachable");
+    let _ = writeln!(out, "ok{}:", ok_l);
+    for (i, f) in fields.iter().enumerate() {
+        let ft = ctx.ll(*f);
+        let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %ptr, i32 {}", i, ft, i);
+        let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", i, ft, f);
+        let _ = writeln!(out, "  store {} %v{}, ptr %f{}", ft, i, i);
+    }
+    let _ = writeln!(out, "  store ptr %ptr, ptr %R{}", r);
+    Ok(())
+}
+
+fn emit_struct_update(r: usize, base: usize, fidx: usize, val: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let _ = writeln!(out, "  %bp = load ptr, ptr %R{}", base);
+    let ft = ctx.ll(val);
+    let _ = writeln!(out, "  %f = getelementptr {}, ptr %bp, i32 {}", ft, fidx);
+    let _ = writeln!(out, "  %vv = load {}, ptr %R{}", ft, val);
+    let _ = writeln!(out, "  store {} %vv, ptr %f", ft);
+    let _ = writeln!(out, "  store ptr %bp, ptr %R{}", r);
+    Ok(())
+}
+
+fn emit_enum_cons(r: usize, _ename: &str, _variant: &str, fields: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    // Simplified: store tag (0) in field 0, payload in field 1+ if any
+    let _ = writeln!(out, "  %ptr = call ptr @malloc(i64 16)");
+    let _ = writeln!(out, "  %isnull = icmp eq ptr %ptr, null");
+    let oom_l = ctx.next();
+    let ok_l = ctx.next();
+    let _ = writeln!(out, "  br i1 %isnull, label %oom{}, label %ok{}", oom_l, ok_l);
+    let _ = writeln!(out, "oom{}:", oom_l);
+    let _ = writeln!(out, "  call void @llvm.trap()");
+    let _ = writeln!(out, "  unreachable");
+    let _ = writeln!(out, "ok{}:", ok_l);
+    let _ = writeln!(out, "  %tp = getelementptr i64, ptr %ptr, i32 0");
+    let _ = writeln!(out, "  store i64 0, ptr %tp");
+    if let Some(f) = fields.first() {
+        let _ = writeln!(out, "  %pp = getelementptr i8, ptr %ptr, i32 8");
+        let _ = writeln!(out, "  %pc = bitcast ptr %pp to ptr");
+        let _ = writeln!(out, "  %vv = load i64, ptr %R{}", f);
+        let _ = writeln!(out, "  store i64 %vv, ptr %pc");
+    }
+    let _ = writeln!(out, "  store ptr %ptr, ptr %R{}", r);
+    Ok(())
+}
+
+fn emit_enum_disc(r: usize, reg: usize, ctx: &Ctx, out: &mut String) -> Result<(), String> {
+    let _ = writeln!(out, "  %ptr = load ptr, ptr %R{}", reg);
+    let _ = writeln!(out, "  %tp = getelementptr i64, ptr %ptr, i32 0");
+    let _ = writeln!(out, "  %tag = load i64, ptr %tp");
+    let _ = writeln!(out, "  store i64 %tag, ptr %R{}", r);
+    Ok(())
+}
+
+fn emit_enum_proj(r: usize, idx: usize, reg: usize, ctx: &Ctx, out: &mut String) -> Result<(), String> {
+    let _ = writeln!(out, "  %ptr = load ptr, ptr %R{}", reg);
+    let _ = writeln!(out, "  %pp = getelementptr i8, ptr %ptr, i32 8");
+    let _ = writeln!(out, "  %pc = bitcast ptr %pp to ptr");
+    let ft = ctx.ll(r);
+    let _ = writeln!(out, "  %f = getelementptr {}, ptr %pc, i32 {}", ft, idx);
+    let _ = writeln!(out, "  %v = load {}, ptr %f", ft);
+    let _ = writeln!(out, "  store {} %v, ptr %R{}", ft, r);
+    Ok(())
+}
+
+fn emit_array_lit(r: usize, elems: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let n = elems.len();
+    let ne = n as i64;
+    let _ = writeln!(out, "  %meta = call ptr @malloc(i64 16)");
+    let _ = writeln!(out, "  %isnull = icmp eq ptr %meta, null");
+    let oom_l = ctx.next();
+    let ok_l = ctx.next();
+    let _ = writeln!(out, "  br i1 %isnull, label %oom{}, label %ok{}", oom_l, ok_l);
+    let _ = writeln!(out, "oom{}:", oom_l);
+    let _ = writeln!(out, "  call void @llvm.trap()");
+    let _ = writeln!(out, "  unreachable");
+    let _ = writeln!(out, "ok{}:", ok_l);
+    let _ = writeln!(out, "  %data = call ptr @malloc(i64 {})", ne * 8);
+    let _ = writeln!(out, "  %fp = getelementptr ptr, ptr %meta, i32 0");
+    let _ = writeln!(out, "  store ptr %data, ptr %fp");
+    let _ = writeln!(out, "  %fl = getelementptr i64, ptr %meta, i32 1");
+    let _ = writeln!(out, "  store i64 {}, ptr %fl", n);
+    for (i, e) in elems.iter().enumerate() {
+        let ei = ctx.next();
+        let vi = ctx.next();
+        let ft = ctx.ll(*e);
+        let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %data, i32 {}", ei, ft, i);
+        let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", vi, ft, e);
+        let _ = writeln!(out, "  store {} %v{}, ptr %f{}", ft, vi, ei);
+    }
+    let _ = writeln!(out, "  store ptr %meta, ptr %R{}", r);
+    Ok(())
+}
+
+fn emit_array_fill(r: usize, val: usize, n: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let ne = n as i64;
+    let _ = writeln!(out, "  %meta = call ptr @malloc(i64 16)");
+    let _ = writeln!(out, "  %isnull = icmp eq ptr %meta, null");
+    let oom_l = ctx.next();
+    let ok_l = ctx.next();
+    let _ = writeln!(out, "  br i1 %isnull, label %oom{}, label %ok{}", oom_l, ok_l);
+    let _ = writeln!(out, "oom{}:", oom_l);
+    let _ = writeln!(out, "  call void @llvm.trap()");
+    let _ = writeln!(out, "  unreachable");
+    let _ = writeln!(out, "ok{}:", ok_l);
+    let _ = writeln!(out, "  %data = call ptr @malloc(i64 {})", ne * 8);
+    let _ = writeln!(out, "  %fp = getelementptr ptr, ptr %meta, i32 0");
+    let _ = writeln!(out, "  store ptr %data, ptr %fp");
+    let _ = writeln!(out, "  %fl = getelementptr i64, ptr %meta, i32 1");
+    let _ = writeln!(out, "  store i64 {}, ptr %fl", n);
+    let _ = writeln!(out, "  %vv = load i64, ptr %R{}", val);
+    let _ = writeln!(out, "  %i = alloca i64");
+    let loop_l = ctx.next();
+    let done_l = ctx.next();
+    let body_l = ctx.next();
+    let _ = writeln!(out, "  store i64 0, ptr %i");
+    let _ = writeln!(out, "  br label %L{}", loop_l);
+    let _ = writeln!(out, "L{}:", loop_l);
+    let _ = writeln!(out, "  %ci = load i64, ptr %i");
+    let _ = writeln!(out, "  %done = icmp eq i64 %ci, {}", n);
+    let _ = writeln!(out, "  br i1 %done, label %L{}, label %L{}", done_l, body_l);
+    let _ = writeln!(out, "L{}:", body_l);
+    let _ = writeln!(out, "  %ep = getelementptr i64, ptr %data, i64 %ci");
+    let _ = writeln!(out, "  store i64 %vv, ptr %ep");
+    let _ = writeln!(out, "  %ni = add i64 %ci, 1");
+    let _ = writeln!(out, "  store i64 %ni, ptr %i");
+    let _ = writeln!(out, "  br label %L{}", loop_l);
+    let _ = writeln!(out, "L{}:", done_l);
+    let _ = writeln!(out, "  store ptr %meta, ptr %R{}", r);
+    Ok(())
+}
+
+fn emit_array_access(r: usize, arr: usize, idx: usize, ctx: &Ctx, out: &mut String) -> Result<(), String> {
+    let _ = writeln!(out, "  %mp = load ptr, ptr %R{}", arr);
+    let _ = writeln!(out, "  %fdp = getelementptr ptr, ptr %mp, i32 0");
+    let _ = writeln!(out, "  %dp = load ptr, ptr %fdp");
+    let _ = writeln!(out, "  %iv = load i64, ptr %R{}", idx);
+    let ft = ctx.ll(r);
+    let _ = writeln!(out, "  %ep = getelementptr {}, ptr %dp, i64 %iv", ft);
+    let _ = writeln!(out, "  %v = load {}, ptr %ep", ft);
+    let _ = writeln!(out, "  store {} %v, ptr %R{}", ft, r);
+    Ok(())
+}
+
+fn emit_array_update(r: usize, arr: usize, idx: usize, val: usize, ctx: &Ctx, out: &mut String) -> Result<(), String> {
+    let _ = writeln!(out, "  %mp = load ptr, ptr %R{}", arr);
+    let _ = writeln!(out, "  %fdp = getelementptr ptr, ptr %mp, i32 0");
+    let _ = writeln!(out, "  %dp = load ptr, ptr %fdp");
+    let _ = writeln!(out, "  %iv = load i64, ptr %R{}", idx);
+    let ft = ctx.ll(val);
+    let _ = writeln!(out, "  %ep = getelementptr {}, ptr %dp, i64 %iv", ft);
+    let _ = writeln!(out, "  %vv = load {}, ptr %R{}", ft, val);
+    let _ = writeln!(out, "  store {} %vv, ptr %ep", ft);
+    let _ = writeln!(out, "  store ptr %mp, ptr %R{}", r);
+    Ok(())
+}
+
+fn emit_tuple_lit(r: usize, elems: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let n = elems.len();
+    let _ = writeln!(out, "  %ptr = call ptr @malloc(i64 {})", (n * 8) as i64);
+    let _ = writeln!(out, "  %isnull = icmp eq ptr %ptr, null");
+    let oom_l = ctx.next();
+    let ok_l = ctx.next();
+    let _ = writeln!(out, "  br i1 %isnull, label %oom{}, label %ok{}", oom_l, ok_l);
+    let _ = writeln!(out, "oom{}:", oom_l);
+    let _ = writeln!(out, "  call void @llvm.trap()");
+    let _ = writeln!(out, "  unreachable");
+    let _ = writeln!(out, "ok{}:", ok_l);
+    for (i, e) in elems.iter().enumerate() {
+        let ft = ctx.ll(*e);
+        let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %ptr, i32 {}", i, ft, i);
+        let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", i, ft, e);
+        let _ = writeln!(out, "  store {} %v{}, ptr %f{}", ft, i, i);
+    }
+    let _ = writeln!(out, "  store ptr %ptr, ptr %R{}", r);
+    Ok(())
+}
+
+fn emit_tuple_update(r: usize, tup: usize, idx: usize, val: usize, ctx: &Ctx, out: &mut String) -> Result<(), String> {
+    let _ = writeln!(out, "  %tp = load ptr, ptr %R{}", tup);
+    let ft = ctx.ll(val);
+    let _ = writeln!(out, "  %f = getelementptr {}, ptr %tp, i32 {}", ft, idx);
+    let _ = writeln!(out, "  %vv = load {}, ptr %R{}", ft, val);
+    let _ = writeln!(out, "  store {} %vv, ptr %f", ft);
+    let _ = writeln!(out, "  store ptr %tp, ptr %R{}", r);
+    Ok(())
+}
+
+fn emit_move(r: usize, from: usize, ctx: &Ctx, out: &mut String) -> Result<(), String> {
+    let ft = ctx.ll(from);
+    let _ = writeln!(out, "  %v = load {}, ptr %R{}", ft, from);
+    let _ = writeln!(out, "  store {} %v, ptr %R{}", ft, r);
+    Ok(())
+}
+
 fn emit_terminator(term: &Terminator, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
     match term {
         Terminator::Ret(r) => {
@@ -523,8 +760,9 @@ fn emit_terminator(term: &Terminator, ctx: &mut Ctx, out: &mut String) -> Result
             if rl == "void" || rl == "%Unit" {
                 let _ = writeln!(out, "  ret void");
             } else {
-                let _ = writeln!(out, "  %v = load {}, ptr %R{}", rl, r);
-                let _ = writeln!(out, "  ret {} %v", rl);
+                let vl = ctx.next();
+                let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", vl, rl, r);
+                let _ = writeln!(out, "  ret {} %v{}", rl, vl);
             }
         }
         Terminator::Br(cond, t, f) => {
