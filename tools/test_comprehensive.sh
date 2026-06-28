@@ -48,36 +48,8 @@ else
     echo "     FAIL (IR)"; exit 1
 fi
 
-# Step 4: LLVM — emit IR, compile, run
-echo "  4) llvm ... "
-dewll_file="$test_dir/$test_name.dewll"
-exe_file="$test_dir/$test_name.exe"
-if "$DEW" "$dew_file" --emit=llvm > "$dewll_file" 2>/dev/null; then
-    echo "     emit OK -> $dewll_file"
-else
-    echo "     FAIL (LLVM emission)"; exit 1
-fi
-if clang-21 -x ir "$dewll_file" -o "$exe_file" -Wno-override-module 2>&1; then
-    echo "     compile OK -> $exe_file"
-else
-    echo "     SKIP (LLVM backend cannot handle complex types in this program)"
-    echo "     Use tree-walking evaluator for simple programs or fix LLVM backend."
-    exit 0
-fi
-exe_output=$(timeout "$TIMEOUT_SEC" "$exe_file" < "$in_file" 2>/dev/null | tail -1 || echo "TIMEOUT/ERROR")
-if [ "$exe_output" = "TIMEOUT/ERROR" ]; then
-    echo "     SKIP (runtime timeout)"
-elif [ -f "$out_file" ]; then
-    exe_expected=$(cat "$out_file" | tr -d '\n')
-    if [ "$exe_output" = "$exe_expected" ]; then
-        echo "     OK (output: $exe_output)"
-    else
-        echo "     FAIL (expected '$exe_expected', got '$exe_output')"
-        exit 1
-    fi
-else
-    echo "     OK (output: $exe_output, no .out)"
-fi
+# Step 4: LLVM (removed for rewrite)
+echo "  4) llvm ... SKIP (backend under rewrite)"
 
 echo ""
 echo "=== $test_name: ALL PASS ==="

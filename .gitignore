@@ -23,5 +23,3 @@ target/
 vscode-dew/
 *.desugared.dew
 *.dewir
-*.dewll
-*.exe

@@ -1,8 +1,7 @@
 # Dew IR Specification
 
 > **Canonical specification** for the Dew Thunk Graph IR.
-> All primitives use `snake_case` naming. Backends: tree-walking evaluator (dev), LLVM IR (production).
-> Last updated: 2026-06-17.
+> Last updated: 2026-06-28.
 
 - [§1 Architecture](#1-architecture)
 - [§2 Module](#2-module)
@@ -17,13 +16,8 @@
 - [§10 Text Format](#10-text-format)
 - [§11 JSON](#11-json-serialization)
 - [§12 Optimizations](#12-optimization-levels)
-- [§13 Backends](#13-backends)
-  - [§13.1 Tree-Walking Evaluator](#131-tree-walking-evaluator-development)
-  - [§13.2 LLVM IR Backend](#132-llvm-ir-backend-production)
-    - [§13.2.9 Register Type Tracking](#1329-register-type-tracking)
-    - [§13.2.10 Compilation Pipeline Integration](#13210-compilation-pipeline-integration)
-- [§14 Source → IR Examples](#14-source--ir-examples)
-- [§15 Future Work](#15-future-work)
+- [§13 Source → IR Examples](#13-source--ir-examples)
+- [§14 Future Work](#14-future-work)
 
 The Dew IR is a flat, label-based, SSA-like intermediate representation. It has two kinds of top-level definitions: **fns** (ordinary functions) and **thunks** (lazy memoized values).
 
@@ -32,11 +26,8 @@ The Dew IR is a flat, label-based, SSA-like intermediate representation. It has 
 ## 1. Architecture
 
 ```
-Dew Source → ... → IR Gen → Module ──► Evaluator (tree-walking, development)
-                                    ──► LLVM IR (optimization + codegen, production)
-**Two backends, one IR.** The IR is the single source of truth between the Dew type checker and both execution targets. The tree-walking evaluator is for development and testing — it directly interprets IR instructions in Rust. The LLVM backend translates IR to LLVM IR for optimized native code generation. Both consume the same module format.
-
-> **Why LLVM IR, not direct asm?** Direct rv64gc/x86-64 codegen requires handwriting register allocation, stack layout, ABI compliance, and all optimizations (inlining, constant folding, dead code elimination). LLVM provides all of this for free. The translation layer maps Dew IR constructs to LLVM primitives: thunks → `switch` + `phi`, closures → `struct{ptr, ptr}`, aggregates → LLVM `insertvalue`/`extractvalue`. The translation is ~10% of the effort of a native asm backend.
+Dew Source → ... → IR Gen → Module ──► Evaluator (tree-walking)
+**One backend: the tree-walking evaluator.** The IR is the single source of truth. All interpretation happens directly on the IR instructions in Rust.
 
 | Level | Type | Description |
 |-------|------|-------------|
@@ -48,8 +39,6 @@ Dew Source → ... → IR Gen → Module ──► Evaluator (tree-walking, deve
 
 **No pointers, no addresses, no `alloca`.** The Dew IR is a pure functional intermediate representation. All safety analysis (affine checking, provenance tracking, pointer aliasing) occurs in the type system layer above the IR. The IR sees only verified, safe computation.
 
-- **Memory allocation** is owned by the asm backend. `struct_cons` and `array_lit` produce values; the backend determines layout from the module's type table.
-- **Scalar values are 64-bit** in registers (`Int`, `Bool`, `Char`, pointers). Aggregates (structs, tuples, arrays) are stack-allocated. Memory layout comes from the type table at codegen time.
 - **Type annotations on variable-output instructions.** Instructions whose output type depends on context (`fetch`, `call`, `lambda`, `tuple_lit`, etc.) carry `{Type}` annotations. Fixed-output instructions (`add` → always Int, `lt` → always Bool) omit the annotation.
 
 ---
@@ -227,7 +216,8 @@ All instructions follow SSA form: `%dest = op arg1 arg2 ...`.
 | `lit` | `%r = lit true` | Load Bool literal (`true` = 1, `false` = 0) |
 | `lit` | `%r = lit '字'` | Load Char literal (Unicode scalar value) |
 
-> **Why `lit` exists despite LLVM not needing it.** LLVM allows immediate operands on any instruction (`add i64 %0, 42`). Dew IR requires all operands to be registers — `lit` is the only way to introduce a constant. This keeps the evaluator simple: every instruction operand is a `Reg`, never an immediate. The asm backend folds `lit`+`add` into `addi` as an independent optimization pass, not as an IR concern.
+
+
 >
 > All literal values are 64-bit. `Bool` and `Char` literals are syntactic sugar for their integer representations — the type table determines how they are stored in memory (1 byte for Bool, 4 bytes for Char), but in registers they occupy a full 64-bit GPR.
 
@@ -397,7 +387,6 @@ fn @make_handler(%0: Config) {
 
 `call %f %a %b` performs a dynamic call through a closure. The evaluator unpacks the closure value `%f` into `(code_ptr, env)`, installs the environment as the first implicit parameter, and jumps to `code_ptr`.
 
-> **Why two forms?** Static calls are simpler and faster — no unpacking, no indirection. Dynamic calls are necessary for higher-order functions where the callee is not known until runtime. The IR distinguishes them so the LLVM backend emits `call @name` (static) vs indirect `call` (dynamic).
 
 #### `force` — Lazy Thunk Evaluation
 
@@ -425,7 +414,6 @@ fn @call_and_force(%0: Int) {
 }
 ```
 
-> **Why two forms?** `force @name` is a static reference — the thunk identity is known at IR-gen time. `force{T} %r` is dynamic — the thunk identity flows through a register. Both use the same 3-state FSM but target different addressing modes. The LLVM backend lowers both to the same `load`-tag-`switch` pattern; the only difference is whether the thunk cell address is a global symbol or a computed pointer.
 
 ### 8.4 Arithmetic
 
@@ -526,7 +514,7 @@ place{T} %base .x [%i] .y // chained: navigate then replace
 
 > **Why both?** `place` handles arbitrary chained paths (`%base .a [0] .b .0`), which no specialized instruction covers. Specialized forms are sugar that the IR generator can choose for simple cases — they document intent and enable pattern-matched backend optimizations. Both lower to the same copy-on-write logic in the evaluator.
 
-> **Why not LLVM's `getelementptr`?** GEP computes addresses; `load`/`store` access memory. Dew has no mutable memory — all values are immutable. `fetch`/`place` operate on values, not addresses. No pointers, no loads, no stores — this is a functional IR.
+> `fetch`/`place` operate on values, not addresses. No pointers, no loads, no stores — this is a functional IR.
 
 ### 8.9 Structure Construction
 
@@ -667,7 +655,7 @@ For single-payload variants, the field name is omitted (implicit `.0`):
 %5 = enum_proj{Int} @Option::Some %1    // single-payload — field name omitted
 ```
 
-> **Why field-by-field extraction?** Multi-field variants require individual field access. Extracting all fields into a tuple first (`enum_proj {...} @Variant %e` → tuple, then `field` on the tuple) would introduce an anonymous tuple type that doesn't exist in Dew source. Projecting field-by-field keeps the IR flat and avoids phantom intermediate types. Each `enum_proj` is a single offset-and-load operation in the LLVM backend.
+> Multi-field variants require individual field access. Extracting all fields into a tuple first would introduce an anonymous tuple type that doesn't exist in Dew source. Projecting field-by-field keeps the IR flat.
 
 #### `array_lit` / `array_fill` — Array Construction
 
@@ -818,429 +806,13 @@ Example type table entry:
 
 > O1 is intentionally conservative. No speculative optimizations.
 
-**Future:** Register-pair passing for ≤2-field aggregates. LLVM's ABI lowering can be tuned to pass small structs in registers rather than on the stack. This is a codegen option, not an IR change.
+
 
 ---
 
-## 13. Backends
-
-### 13.1 Tree-Walking Evaluator (Development)
-
-The evaluator is a Rust program that directly interprets IR instructions. It maintains a register file (`Vec<Value>`), walks basic blocks, and dispatches on instruction variants. Used for development, testing, and `--emit=text` debugging.
-
-**fn call:** pushes a new evaluation frame with the callee's blocks and register file.  
-**thunk force:** checks the thunk cell's state tag — `suspended` → evaluate, `evaluating` → cycle error, `evaluated` → return cached.  
-**heap allocation:** closures (`lambda`) allocate on the Rust heap via `Box`; thunk cells are `HashMap<Name, ThunkState>` entries.
-
-### 13.2 LLVM IR Backend (Production)
-
-The LLVM backend translates the Dew IR module to LLVM IR for optimized native code generation. This section provides a complete, compiler-ready mapping from every Dew IR construct to its LLVM IR equivalent.
-
-#### 13.2.1 Type Mapping
-
-Dew IR types map to LLVM types as follows. All scalars use their natural LLVM widths — the Dew IR "64-bit register" convention is an IR abstraction; the LLVM backend emits proper types and LLVM handles narrowing/widening during optimization.
-
-| Dew IR Type | LLVM Type | Notes |
-|-------------|-----------|-------|
-| `Int` | `i64` | Signed 64-bit integer |
-| `Bool` | `i1` | LLVM native boolean; `true` = 1, `false` = 0 |
-| `Char` | `i32` | Unicode scalar value |
-| `Unit` | `void` (return), `{}` (struct member) | Zero-width; eliminated at codegen |
-| `struct Point { x: Int, y: Int }` | `%Point = type { i64, i64 }` | Fields in declaration order |
-| `enum Option { None, Some(Int) }` | `%Option = type { i64, i64 }` | `{ tag, max_payload }` |
-| `enum Event { KeyPress { key: Char, modifiers: Int }, Quit }` | `%Event = type { i64, %Event.KeyPress }` | Tag + variant payload struct |
-| `(Int, Bool)` | `type { i64, i1 }` | Anonymous LLVM struct |
-| `Array(T, N)` | `[N × LLVM(T)]` | E.g., `Array(Int, 3)` → `[3 x i64]` |
-| `fn(T...) → R` (function pointer) | `ptr` | Opaque pointer; `call` resolves the signature |
-
-> **Enum layout.** The enum type uses `{ tag: i64, payload: max_variant_type }`. For single-payload variants, the payload is the value type (e.g., `i64` for `Some(Int)`). For multi-field variants, the payload is an LLVM struct (e.g., `{ i32, i64 }` for `KeyPress`). Zero-payload variants use the tag alone; the payload field is never read for those variants. Discriminant tags are assigned automatically in declaration order (0, 1, 2, ...).
-
-#### 13.2.2 Module Structure
-
-A Dew IR module lowers to an LLVM module as follows:
-
-| Dew IR | LLVM IR |
-|--------|---------|
-| Module (types + fns + thunks) | LLVM `Module` with type definitions, function definitions, and global thunk cells |
-| Type table entries | LLVM `%T = type { ... }` at module scope |
-| Each `fn @name` | `define LLVM(R) @name(LLVM(T0) %0, ...)` |
-| Each `thunk @x` | Global cell `@x.cell` + `define LLVM(T) @force_x()` force function |
-| Entry `@main` | `@main` is called/forced as the program entry |
-
-**Fn lowering:**
-
-```
-;; Dew IR:
-fn @add(%0: Int, %1: Int) { ... ret{Int} %r }
-
-;; LLVM IR:
-define i64 @add(i64 %0, i64 %1) {
-  ...
-  ret i64 %r
-}
-
-;; Dew IR (IO fn, Unit return):
-fn @main() { ... }    ;; implicit Unit return
-
-;; LLVM IR:
-define void @main() {
-  ...
-  ret void
-}
-```
-
-#### 13.2.3 Thunk Lowering (3-State FSM)
-
-Each thunk becomes two LLVM artifacts: a **global cell** for the cached value, and a **force function** that implements the 3-state finite state machine.
-
-**Thunk cell type (per thunk):**
-```
-;; For thunk @x of type T:
-%thunk.x = type { i64, LLVM(T) }
-;; field 0: state (0 = suspended, 1 = evaluating, 2 = evaluated)
-;; field 1: cached value
-
-@x.cell = global %thunk.x zeroinitializer
-```
-
-**Force function (generated per thunk):**
-```
-define i64 @force_x() {
-entry:
-  %state.ptr = getelementptr %thunk.x, ptr @x.cell, i32 0, i32 0
-  %state = load i64, ptr %state.ptr
-
-  ;; Check state
-  %is_suspended = icmp eq i64 %state, 0
-  br i1 %is_suspended, label %evaluate, label %check_evaluating
-
-check_evaluating:
-  %is_evaluating = icmp eq i64 %state, 1
-  br i1 %is_evaluating, label %cycle_error, label %return_cached
-
-evaluate:
-  ;; Transition to evaluating
-  store i64 1, ptr %state.ptr
-
-  ;; --- thunk body: Dew IR blocks translated inline here ---
-  %result = ...  ;; body computation, ends with ret{Int} %result
-
-  ;; Store result and mark evaluated
-  %val.ptr = getelementptr %thunk.x, ptr @x.cell, i32 0, i32 1
-  store i64 %result, ptr %val.ptr
-  store i64 2, ptr %state.ptr
-  ret i64 %result
-
-cycle_error:
-  call void @llvm.trap()
-  unreachable
-
-return_cached:
-  %val.ptr2 = getelementptr %thunk.x, ptr @x.cell, i32 0, i32 1
-  %cached = load i64, ptr %val.ptr2
-  ret i64 %cached
-}
-```
-
-**`force @name`** (static thunk) lowers to a direct call:
-```
-;; %0 = force{T} @x
-%0 = call LLVM(T) @force_x()
-```
-
-**`force{T} %r`** (dynamic thunk reference) lowers to a call through pointer when `%r` holds a thunk cell address. The thunk reference type is `ptr` (pointer to `%thunk.T`). The force function signature is unified per type, so the translator emits:
-```
-;; %1 = force{T} %r  — %r is ptr to %thunk.T
-;; The thunk cell has a function pointer at a known offset, or
-;; the force is dispatched through a form function table.
-```
-
-> **Feasibility:** Thunk lowering requires a generated force function per thunk. The 3-state FSM maps cleanly to LLVM's `load`/`store`/`br`/`switch`. `llvm.trap()` is used for cycle detection — it terminates the process on detecting `evaluating → force` self-reference. This is a standard intrinsic available on all LLVM targets.
-
-#### 13.2.4 Instruction Translation — Complete Reference
-
-##### Literals (§8.1)
-
-| Dew IR | LLVM IR | Notes |
-|--------|---------|-------|
-| `%r = lit 42` | `%r = add i64 0, 42` or folded | Dew IR requires register operands; LLVM folds constants |
-| `%r = lit true` | `%r = add i1 0, true` or folded | Bool literal → `i1 true` / `i1 false` |
-| `%r = lit '字'` | `%r = add i32 0, 23383` or folded | Unicode scalar → `i32` |
-
-> LLVM allows immediate operands on instructions, so `lit` is typically constant-folded: `%r = add %a, 42` becomes `add i64 %a, 42` directly, eliminating the `lit` instruction. The translator emits SSA values from `lit` as LLVM constants (`i64 42`, `i1 true`, `i32 23383`).
-
-##### I/O (§8.2)
-
-I/O maps to C standard library calls. The LLVM backend declares the needed C functions and links against libc.
-
-| Dew IR | LLVM IR |
-|--------|---------|
-| `stdout{Int} %r` | `call i32 (ptr, ...) @printf(ptr @.fmt_int, i64 %r)` |
-| `stdout{Bool} %r` | `call i32 (ptr, ...) @printf(ptr @.fmt_bool, ptr @.str_true / @.str_false)` via `select` |
-| `stdout{Char} %r` | `call i32 @putchar(i32 %r)` |
-| `stdin{Int}` → `%r` | `%r_ptr = alloca i64` + `call i32 (ptr, ...) @scanf(ptr @.fmt_int, ptr %r_ptr)` + `%r = load` |
-| `stdin{Char}` → `%r` | `%r = call i32 @getchar()` |
-| `stdin{Bool}` → `%r` | Read string, compare to `"true"` / `"false"`, emit `i1` |
-
-Required runtime declarations:
-```
-@.fmt_int = private constant [3 x i8] c"%d\00"
-@.fmt_bool = private constant [4 x i8] c"%s\00"
-@.str_true = private constant [5 x i8] c"true\00"
-@.str_false = private constant [6 x i8] c"false\00"
-declare i32 @printf(ptr, ...)
-declare i32 @scanf(ptr, ...)
-declare i32 @putchar(i32)
-declare i32 @getchar()
-```
-
-> `stdin`/`stdout` for `Unit` is a compile error. `stdout` for struct/enum/tuple/array types is unsupported — only primitives are I/O-capable.
-
-##### Functions (§8.3)
-
-| Dew IR | LLVM IR |
-|--------|---------|
-| `%r = lambda{T} @inner(%c0, %c1)` | See §13.2.5 Closure Lowering |
-| `%r = call{T} @name %a %b` | `%r = call LLVM(T) @name(LLVM(TA) %a, LLVM(TB) %b)` |
-| `%r = call{T} %f %a %b` | See §13.2.5 Dynamic Call |
-| `%r = force{T} @name` | `%r = call LLVM(T) @force_name()` |
-| `%r = force{T} %reg` | See §13.2.3 — dispatch through thunk pointer |
-
-##### Arithmetic (§8.4)
-
-All arithmetic operates on `i64` operands producing `i64`:
-
-| Dew IR | LLVM IR |
-|--------|---------|
-| `%r = add %a %b` | `%r = add i64 %a, %b` |
-| `%r = sub %a %b` | `%r = sub i64 %a, %b` |
-| `%r = mul %a %b` | `%r = mul i64 %a, %b` |
-| `%r = div %a %b` | `%r = sdiv i64 %a, %b` |
-| `%r = rem %a %b` | `%r = srem i64 %a, %b` |
-
-##### Comparison (§8.5)
-
-All comparisons produce `i1`:
-
-| Dew IR | LLVM IR |
-|--------|---------|
-| `%r = lt %a %b` | `%r = icmp slt i64 %a, %b` |
-| `%r = gt %a %b` | `%r = icmp sgt i64 %a, %b` |
-| `%r = le %a %b` | `%r = icmp sle i64 %a, %b` |
-| `%r = ge %a %b` | `%r = icmp sge i64 %a, %b` |
-| `%r = eq %a %b` | `%r = icmp eq i64 %a, %b` |
-| `%r = ne %a %b` | `%r = icmp ne i64 %a, %b` |
-
-##### Logic (§8.6)
-
-Logic operates on `i1` operands producing `i1`:
-
-| Dew IR | LLVM IR |
-|--------|---------|
-| `%r = and %a %b` | `%r = and i1 %a, %b` |
-| `%r = or %a %b` | `%r = or i1 %a, %b` |
-| `%r = not %a` | `%r = xor i1 %a, true` |
-
-##### Control Flow (§8.7)
-
-| Dew IR | LLVM IR |
-|--------|---------|
-| `%r = phi{T} [%v1, L1] [%v2, L2]` | `%r = phi LLVM(T) [ %v1, %L1 ], [ %v2, %L2 ]` |
-
-##### Memory Access — fetch / place (§8.8)
-
-| Dew IR | LLVM IR |
-|--------|---------|
-| `%r = fetch{T} %base .x` | `%r = extractvalue LLVM(BaseTy) %base, field_index` |
-| `%r = fetch{T} %base .0` | `%r = extractvalue LLVM(TupTy) %base, 0` |
-| `%r = fetch{T} %base [%i]` | `alloca` + `store` base + `getelementptr` + `load` (variable index) |
-| `%r = place{T} %base .x = %v` | `%r = insertvalue LLVM(BaseTy) %base, LLVM(T) %v, field_index` |
-| `%r = place{T} %base .0 = %v` | `%r = insertvalue LLVM(TupTy) %base, LLVM(T) %v, 0` |
-| `%r = place{T} %base [%i] = %v` | `alloca` + `store` base + `getelementptr` + `store` %v + `load` (variable index) |
-
-> **Variable-index array access requires memory operations.** LLVM's `extractvalue`/`insertvalue` require constant indices. For `[%i]` with a runtime index, the translator must emit `alloca` + `store` + `getelementptr` + `load`/`store`. LLVM's `mem2reg` pass promotes these to SSA when the index is constant-foldable; for truly variable indices, the memory operations remain. This is a standard LLVM pattern — not a limitation of either IR.
-
-##### Structure Construction (§8.9)
-
-| Dew IR | LLVM IR |
-|--------|---------|
-| `%r = field{T} %e .x` | `%r = extractvalue LLVM(StructTy) %e, field_index` |
-| `%r = struct_cons{Point} @Point %x %y` | `%r = insertvalue %Point undef, i64 %x, 0` + `%r = insertvalue %Point %r, i64 %y, 1` |
-| `%r = enum_cons{Option} @Option::Some %v` | `%r0 = insertvalue %Option undef, i64 1, 0` + `%r1 = insertvalue %Option %r0, i64 %v, 1` |
-| `%r = enum_cons{Event} @Event::KeyPress %k %m` | `%p0 = insertvalue %Event.KeyPress undef, i32 %k, 0` + `%p1 = insertvalue %Event.KeyPress %p0, i64 %m, 1` + `%r0 = insertvalue %Event undef, i64 0, 0` + `%r1 = insertvalue %Event %r0, %Event.KeyPress %p1, 1` |
-| `%r = enum_disc %e` | `%r = extractvalue LLVM(EnumTy) %e, 0` |
-| `%r = enum_proj{T} @Option::Some %e` | `%r = extractvalue LLVM(EnumTy) %e, 1` |
-| `%r = enum_proj{T} @Event::KeyPress .key %e` | `%p = extractvalue LLVM(EnumTy) %e, 1` + `%r = extractvalue %Event.KeyPress %p, key_index` |
-| `%r = array_lit{Array(Int,3)} %a %b %c` | `%r0 = insertvalue [3 x i64] undef, i64 %a, 0` + `%r1 = insertvalue [3 x i64] %r0, i64 %b, 1` + `%r2 = insertvalue [3 x i64] %r1, i64 %c, 2` |
-| `%r = array_fill{Array(Int,N)} %v N` | Loop: `alloca [N x i64]` + `store %v` in each slot via GEP + `load` |
-| `%r = tuple_lit{(Int,Int)} %a %b` | `%r0 = insertvalue {i64,i64} undef, i64 %a, 0` + `%r = insertvalue {i64,i64} %r0, i64 %b, 1` |
-
-##### Structure Update (§8.10)
-
-| Dew IR | LLVM IR |
-|--------|---------|
-| `%r = struct_update{T} %s .x=%v` | `%r = insertvalue LLVM(StructTy) %s, LLVM(T) %v, field_index` |
-| `%r = array_access{T} %a %i` | `alloca` + `store` + `getelementptr` + `load` (variable index) |
-| `%r = array_access{T} %a C` (constant index) | `%r = extractvalue LLVM(ArrayTy) %a, C` (constant index only) |
-| `%r = array_update{Array(T,N)} %a %i %v` | `alloca` + `store` + `getelementptr` + `store` %v + `load` |
-| `%r = tuple_update{(Int,Int)} %t .0=%v` | `%r = insertvalue {i64,i64} %t, i64 %v, 0` |
-
-#### 13.2.5 Terminator Translation
-
-| Dew IR | LLVM IR |
-|--------|---------|
-| `ret{T} %r` | `ret LLVM(T) %r` |
-| `ret{Unit}` | `ret void` |
-| `br %cond L_then L_else` | `br i1 %cond, label %L_then, label %L_else` |
-| `jmp L_target` | `br label %L_target` |
-
-#### 13.2.6 Closure Lowering
-
-**Closure type.** Each `lambda` site defines a unique LLVM struct type for the closure environment:
-```
-;; For lambda with 2 captures: %c0: Int, %c1: Int
-%closure.inner = type { ptr, i64, i64 }
-;; field 0: function pointer
-;; field 1..N: captured values
-```
-
-**Closure construction (`lambda`):**
-```
-;; %0 = lambda{() -> Int} @inner(%c0, %c1)
-;; 1. Allocate heap memory
-%size = add i64 0, 24              ;; sizeof(closure) — computed at compile time
-%env = call ptr @malloc(i64 %size)
-
-;; 2. Store function pointer
-%fn.field = getelementptr %closure.inner, ptr %env, i32 0, i32 0
-store ptr @inner, ptr %fn.field
-
-;; 3. Store captured values
-%cap0.field = getelementptr %closure.inner, ptr %env, i32 0, i32 1
-store i64 %c0, ptr %cap0.field
-%cap1.field = getelementptr %closure.inner, ptr %env, i32 0, i32 2
-store i64 %c1, ptr %cap1.field
-
-;; %0 now holds ptr %env (the closure)
-```
-
-**Static call (`call @name`):**
-```
-;; %r = call{Int} @add %a %b
-%r = call i64 @add(i64 %a, i64 %b)
-```
-
-**Dynamic call (`call %f`):**
-```
-;; %r = call{Int} %f %a %b
-;; %f is a closure ptr
-;; 1. Extract function pointer from closure
-%fn.ptr.field = getelementptr %closure.inner, ptr %f, i32 0, i32 0
-%fn = load ptr, ptr %fn.ptr.field
-
-;; 2. Environment is the closure itself (passed as first arg to lifted fn)
-;; 3. Indirect call
-%r = call i64 %fn(ptr %f, i64 %a, i64 %b)
-```
-
-> **Calling convention.** After closure conversion, the lifted `fn @inner` receives the environment as its first parameter. The dynamic call site passes the closure pointer `%f` as the env argument. LLVM's tail-call optimization applies when `call %f` is the final instruction before `ret`.
-
-#### 13.2.7 Runtime Support
-
-The following runtime symbols must be available to the linked program. For the LLVM backend, these are declared as external symbols and resolved by linking against libc.
-
-| Symbol | Purpose | Declaration |
-|--------|---------|-------------|
-| `malloc` | Heap allocation for closures | `declare ptr @malloc(i64)` |
-| `free` | (Future) Deallocation | `declare void @free(ptr)` |
-| `printf` | `stdout` output | `declare i32 @printf(ptr, ...)` |
-| `scanf` | `stdin` input | `declare i32 @scanf(ptr, ...)` |
-| `putchar` | `stdout{Char}` | `declare i32 @putchar(i32)` |
-| `getchar` | `stdin{Char}` | `declare i32 @getchar()` |
-| `llvm.trap` | Cycle detection in thunks | LLVM intrinsic, always available |
-
-#### 13.2.8 Feasibility Assessment
-
-| Concern | Verdict | Notes |
-|---------|---------|-------|
-| **Thunk FSM** | ✅ Feasible | 3-state FSM lowers to `load` + `switch`/`br`. `llvm.trap()` handles cycle detection. LLVM can inline the force function when the thunk is used in only one location. |
-| **Closure heap allocation** | ✅ Feasible | Standard `malloc` + struct pattern. LLVM can devirtualize indirect calls when the closure type is known. Stack allocation (future O1) would replace `malloc` with `alloca`. |
-| **Variable-index array access** | ✅ Feasible | Requires `alloca` + `store` + `GEP` + `load`/`store`. LLVM's `mem2reg` promotes to SSA when the index is constant. For variable indices, memory operations remain — standard LLVM behavior. |
-| **Enum tagged unions** | ✅ Feasible | LLVM `insertvalue`/`extractvalue` handle tagged unions cleanly. LLVM optimizes across extract-insert chains. |
-| **`Unit` type** | ✅ Feasible | `void` for returns, `{}` for struct members. Functions returning `Unit` emit `ret void`. Structs with `Unit` fields omit the field. |
-| **Copy-on-write** | ✅ Feasible | LLVM's value semantics (`insertvalue` creates a copy) naturally implement CoW. LLVM's GVN and mem2reg eliminate redundant copies. |
-| **Tail-call optimization** | ✅ Feasible | LLVM's `musttail` marker or standard tail-call detection applies to self-recursive calls at tail position. |
-| **Multi-target** | ✅ Feasible | LLVM handles x86-64, ARM64, RISC-V, and others uniformly. No target-specific code in the Dew IR → LLVM IR translator. |
-| **No garbage collection** | ✅ Feasible | Aligns with Dew's design — no tracing GC. `malloc` without `free` is acceptable for closures (leaked on process exit). Future: arena allocation or `free` when affine tracking proves single-use. |
-
-> **All mappings are verified against LLVM 18+ semantics.** No Dew IR construct requires LLVM features beyond standard, stable IR. The translator is a simple recursive walk over the Dew IR module emitting the corresponding LLVM text.
-
-#### 13.2.9 Register Type Tracking
-
-The LLVM backend must know the LLVM type of each register to emit correct `extractvalue`/`insertvalue` instructions. Unlike the evaluator (which uses `enum Value` for runtime dispatch), LLVM requires static type agreement between instructions.
-
-**Problem.** Dew IR packs all values into virtual registers (`Reg = usize`) without type annotations. Struct fields, enum payloads, and tuple elements are all `%r42`. The LLVM backend previously defaulted to `i64` for all register types, causing type mismatches:
-
-```llvm
-; ERROR: %r0 is %struct.Point, not i64
-%r1 = extractvalue i64 %r0, 0
-```
-
-**Solution: register type map.** A `HashMap<Reg, IrType>` in the LLVM context tracks the Dew IR type of each register. When an instruction writes a result register, the type is recorded. Subsequent instructions reference it.
-
-```rust
-struct LlvmCtx {
-    reg_types: HashMap<Reg, IrType>,  // register → Dew IR type
-    // ...
-}
-```
-
-Each instruction emit records its result type. Field access and enum projection use the tracked type to emit the correct LLVM aggregate type:
-
-```llvm
-; After tracking: ctx.reg_types[%0] = Struct("Point")
-; Field access correctly uses the struct type:
-%r1 = extractvalue %struct.Point %r0, 0
-```
-
-**Implementation rules:**
-
-| Instruction | Records Reg Type |
-|------------|------------------|
-| `Lit` | Int, Bool, or Char |
-| `StructCons` | Struct(name) |
-| `EnumCons` | Enum(name) |
-| `Field` | Field type (from StructDef) |
-| `EnumProj` | Field type (from EnumDef) |
-| `Call` | Function return type |
-| `Add/Sub/Mul/Div/Rem` | Int |
-| `Lt/Gt/Le/Ge/Eq/Ne` | Bool |
-| `And/Or/Not` | Bool |
-| `Force` | Thunk result type |
-| `ArrayLit/ArrayFill` | Array(T, N) |
-| `TupleLit` | Tuple(elements) |
-| `StructUpdate` | Same as base (Struct) |
-| `Move` | Same as source |
-
-**Generic type monomorphization.** Structs and enums with type parameters (e.g., `affine struct Affine(T) { data: T }`) produce forward-reference LLVM types (`%struct.T`) that cannot be compiled. The backend resolves concrete type instantiations by scanning function bodies for `EnumCons`/`StructCons` instructions and emits monomorphized type definitions for each concrete parameter.
-
-> **Design choice: emit-time monomorphization vs pre-pass.** A two-pass approach (scan all IR, collect concrete types, then emit) would be cleaner but adds complexity for a text-emitting backend. The current single-pass approach with type accumulation via `reg_types` is simpler and sufficient for the translation layer. The cost is that generic type definitions must be discovered dynamically during instruction emission — if a type is referenced but never constructed in the current function, its LLVM definition is omitted.
-
-#### 13.2.10 Compilation Pipeline Integration
-
-The LLVM backend supports two modes via CLI flags:
-
-| Flag | Behavior |
-|------|----------|
-| `--emit=llvm` | Print LLVM IR text to stdout |
-| `--backend=llvm` | Compile LLVM IR via `clang` to an executable, run it, capture stdout + exit code |
-
-The `--backend=llvm` path writes the generated LLVM IR to a temporary file, invokes `clang -x ir <file> -o <out>`, executes the binary, and returns the exit code. This enables end-to-end testing of the LLVM codegen without an external build step.
-
-> **Why clang, not llc?** `clang` automatically links the C runtime (`libc`) which provides `printf`/`scanf` used by the `stdout`/`stdin` IR instructions. Using `llc` would require a separate `ld` invocation with explicit library paths. `clang` handles this transparently.
 ---
 
-## 14. Source → IR Examples
+## 13. Source → IR Examples
 
 ### 14.1 Simple Arithmetic (main)
 
@@ -1437,7 +1009,7 @@ fn @main() {
     stdout{Int} %7
 }
 ```
-> `enum_disc` reads the variant tag; `enum_proj` extracts the payload. LLVM lowering: disc → `extractvalue` at index 0, proj → `extractvalue` at index 1.
+> `enum_disc` reads the variant tag; `enum_proj` extracts the payload.
 
 ### 14.9 Anonymous Recursion (fix)
 
@@ -1483,7 +1055,7 @@ fn @main() {
     stdout{Int} %1
 }
 ```
-> `fix` is syntactic sugar for a named recursive function. The compiler generates a unique name (`@fix_anon`), lifts the body to a top-level `fn`, and replaces every occurrence of `loop` with the generated name. Tail-call optimization applies to the self-call in `L_recurse` — the LLVM backend emits a tail call when the call is the final instruction before `ret`.
+> `fix` is syntactic sugar for a named recursive function. The compiler generates a unique name, lifts the body to a top-level `fn`, and replaces every occurrence of `loop` with the generated name.
 
 ---
 
@@ -1550,6 +1122,6 @@ The `drop` instruction would be:
 drop{T} %r          // deallocate or finalize the affine value in %r
 ```
 
-The instruction would carry a type annotation `{T}` so the backend knows what to deallocate. For LLVM lowering, `drop` of a struct with affine fields would call the type-specific destructor; for stack-allocated values, it would be a no-op.
+The instruction would carry a type annotation `{T}` so the backend knows what to deallocate.
 
 This is deferred because the current design relies entirely on compile-time affine tracking with no runtime cleanup path. Adding `drop` would require defining implicit drop insertion points in the IR generator, which is a cross-cutting change affecting every control flow construct.

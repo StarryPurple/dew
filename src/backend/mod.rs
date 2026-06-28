@@ -1,5 +1,4 @@
-// Backends for the Dew compiler.
-// Two backends: tree-walking evaluator (dev) and LLVM IR (production).
+// Backend: tree-walking evaluator.
+// LLVM IR backend was removed for rewrite.
 
 pub mod eval;
-pub mod llvm;

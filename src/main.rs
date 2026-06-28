@@ -51,10 +51,8 @@ fn run(args: &[String]) -> Result<i32, String> {
         path => {
             let emit_text = args.iter().any(|a| a == "--emit=text");
             let emit_json = args.iter().any(|a| a == "--emit=json");
-            let emit_llvm = args.iter().any(|a| a == "--emit=llvm");
             let emit_desugared = args.iter().any(|a| a == "--emit=desugared");
-            let use_llvm = args.iter().any(|a| a == "--backend=llvm");
-            run_file(path, emit_text, emit_json, emit_llvm, emit_desugared, use_llvm)
+            run_file(path, emit_text, emit_json, emit_desugared)
         }
     }
 }
@@ -85,7 +83,7 @@ fn compile(src: &str) -> Result<(dew::ir::module::Module, DiagnosticCollector), 
     Ok((module, diag))
 }
 
-fn run_file(path: &str, emit_text: bool, emit_json: bool, emit_llvm: bool, emit_desugared: bool, use_llvm: bool) -> Result<i32, String> {
+fn run_file(path: &str, emit_text: bool, emit_json: bool, emit_desugared: bool) -> Result<i32, String> {
     let user_src = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {}", path, e))?;
     let mut diag = DiagnosticCollector::new();
     // Register both source files so error display can look up the right one
@@ -131,25 +129,14 @@ fn run_file(path: &str, emit_text: bool, emit_json: bool, emit_llvm: bool, emit_
         return Ok(0);
     }
 
-    if emit_text || (!use_llvm && !emit_llvm) {
+    // Default: evaluate or emit text/json
+    if emit_text {
         let ir_text = display::display(&module);
-        if emit_text {
-            println!("{}", ir_text);
-            return Ok(0);
-        }
+        println!("{}", ir_text);
+        return Ok(0);
     }
 
-    if emit_llvm || use_llvm {
-        let llvm_ir = backend::llvm::generate(&module)?;
-        if emit_llvm {
-            println!("{}", llvm_ir);
-            return Ok(0);
-        }
-        // Compile LLVM IR to executable and run
-        return run_llvm(&llvm_ir);
-    }
-
-    // Default: evaluate
+    // Evaluate
     match backend::eval::run(&module) {
         Ok(val) => {
             match val {
@@ -177,40 +164,6 @@ fn run_eval(expr: &str) -> Result<i32, String> {
     Ok(0)
 }
 
-fn run_llvm(llvm_ir: &str) -> Result<i32, String> {
-    use std::process::Command;
-    let dir = std::env::temp_dir();
-    let ir_path = dir.join("dew_llvm.ll");
-    let exe_path = dir.join("dew_llvm_out");
-    fs::write(&ir_path, llvm_ir).map_err(|e| format!("write IR: {}", e))?;
-    let compile = Command::new("clang")
-        .arg("-x").arg("ir")
-        .arg(&ir_path)
-        .arg("-o").arg(&exe_path)
-        .arg("-Wno-override-module")
-        .status()
-        .map_err(|e| format!("clang not found or failed: {}", e))?;
-    if !compile.success() {
-        // Fallback: try cc
-        let cc = Command::new("cc")
-            .arg("-x").arg("c")
-            .arg("-")
-            .arg("-o").arg(&exe_path)
-            .status();
-        if cc.is_err() || !cc.unwrap().success() {
-            let _ = fs::remove_file(&ir_path);
-            return Err("LLVM compilation failed (install clang)".into());
-        }
-    }
-    let run = Command::new(&exe_path)
-        .output()
-        .map_err(|e| format!("run exe: {}", e))?;
-    let _ = fs::remove_file(&ir_path);
-    let _ = fs::remove_file(&exe_path);
-    io::stdout().write_all(&run.stdout).ok();
-    io::stderr().write_all(&run.stderr).ok();
-    Ok(run.status.code().unwrap_or(0))
-}
 
 fn run_repl() -> Result<i32, String> {
     println!("Dew REPL v0.1.0");

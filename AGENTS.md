@@ -14,7 +14,7 @@ This document is the entry point for **how we build the Dew programming language
 | [Language Spec](docs/design/dew-lang.md) | Complete Dew language specification (live, single-file) | Any language design or implementation question |
 | [IR Spec](docs/design/dew-ir.md) | Thunk Graph IR specification | Implementing any compiler pass involving IR |
 | [Lang → IR Impl](docs/design/dew-lang-impl.md) | How each language feature lowers to Dew IR | Understanding the compiler pipeline for a specific feature |
-| [IR → LLVM Impl](docs/design/dew-ir-impl.md) | How Dew IR translates to LLVM IR and evaluator | Implementing backend or understanding evaluation |
+| [IR → LLVM Impl](docs/design/dew-ir-impl.md) | (Under rewrite) | LLVM backend implementation |
 | [Rx↔Dew Interop](docs/design/rx-dew-interop.md) | Rx ↔ Dew translation rules and architecture | Working on cross-language translation |
 | [Language Design](docs/methodology/language-design.md) | How to design language features, type rules, syntax | Proposing any new feature or type system change |
 | [Compiler Engineering](docs/methodology/compiler-engineering.md) | Pipeline architecture, IR design, verification | Implementing any compiler pass or IR change |

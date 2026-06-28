@@ -8,8 +8,7 @@ A pure functional, statically-typed programming language with **lazy evaluation*
 dew <file>                   # Compile and evaluate a .dew program
 dew <file> --emit=text       # Print the Thunk Graph IR
 dew <file> --emit=json       # Print the IR as JSON
-dew <file> --emit=llvm       # Print LLVM IR translation
-dew <file> --backend=llvm    # Compile LLVM IR via clang and execute
+dew <file> --emit=desugared  # Print desugared AST
 dew <file> --opt=0|1         # Optimization level (default: 0)
 dew lsp                      # Start Language Server Protocol server
 ```
@@ -23,9 +22,6 @@ dew examples/pass/basics/arithmetic.dew
 
 # Inspect the intermediate representation
 dew examples/pass/basics/arithmetic.dew --emit=text
-
-# Generate LLVM IR
-dew examples/pass/basics/arithmetic.dew --backend=llvm
 ```
 
 ### Test Suite
@@ -42,7 +38,6 @@ cargo test
 
 ```
 Source → Parser → Desugar → NameRes → TypeCheck → Strictness → IR Gen → Eval
-                                                                      ↘ LLVM IR
 ```
 
 ### Backends
@@ -50,8 +45,7 @@ Source → Parser → Desugar → NameRes → TypeCheck → Strictness → IR Ge
 | Backend | Command | Status |
 |---------|---------|--------|
 | Tree-Walking Evaluator | `dew <file>` | ✅ Complete |
-| LLVM IR Print | `dew <file> --emit=llvm` | ✅ All 30+ instructions |
-| LLVM Compile+Run | `dew <file> --backend=llvm` | ✅ Basic programs (req. clang) |
+| LLVM IR | (in development) | 🔶 Rewrite in progress |
 
 ## Language Specification
 
@@ -60,6 +54,4 @@ See [`docs/design/dew-lang.md`](docs/design/dew-lang.md) for the complete langua
 ## Test Coverage
 
 ```
-126 e2e + 61 unit — all green
-54 Small / 46 Medium / 5 Large (three-tier)
-```
+155 e2e — all green
