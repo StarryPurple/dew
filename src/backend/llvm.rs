@@ -143,8 +143,10 @@ fn has_generic_field(s: &StructDef) -> bool {
 // ── Types ──────────────────────────────────────────────────────────
 
 fn emit_types(module: &Module, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let mut emitted = HashSet::new();
     for s in &module.types.structs {
         if ctx.is_generic.contains(&s.name) || is_generic_name(&s.name) || has_generic_field(s) { continue; }
+        if !emitted.insert(s.name.clone()) { continue; }
         let fields: Vec<String> = s.fields.iter().enumerate().map(|(fi, (_, ft))| {
             if ctx.rec_fields.contains(&(s.name.clone(), fi)) { "ptr".into() }
             else { llvm_ty(ft, &ctx.rec_fields, &ctx.is_recursive) }
@@ -153,6 +155,7 @@ fn emit_types(module: &Module, ctx: &mut Ctx, out: &mut String) -> Result<(), St
     }
     for e in &module.types.enums {
         if is_generic_name(&e.name) { continue; }
+        if !emitted.insert(e.name.clone()) { continue; }
         let max = e.variants.iter().map(|v| v.fields.iter().map(|(_, t)| elem_size(t)).sum::<i64>()).max().unwrap_or(0);
         let pty = if max > 0 { format!("[{} x i8]", max) } else { String::new() };
         writeln!(out, "%enum.{} = type {{ i64, {} }}", e.name, pty).ok();
@@ -183,8 +186,23 @@ fn oom_check(ptr: &str, out: &mut String, ctx: &mut Ctx) {
 }
 
 fn scan(blocks: &[crate::ir::block::BasicBlock], ctx: &mut Ctx) {
+    // Pass 1: register types for Call instructions (explicit return type annotation)
     for b in blocks {
-        for instr in &b.instrs { scan_instr(instr, ctx); }
+        for instr in &b.instrs {
+            if let Instr::Call(_, _, _, _) = instr { scan_instr(instr, ctx); }
+        }
+    }
+    // Pass 2: register types for everything except Phi
+    for b in blocks {
+        for instr in &b.instrs {
+            if !matches!(instr, Instr::Call(_, _, _, _) | Instr::Phi(_, _)) { scan_instr(instr, ctx); }
+        }
+    }
+    // Pass 3: register types for Phi (all sources should now be resolved)
+    for b in blocks {
+        for instr in &b.instrs {
+            if let Instr::Phi(_, _) = instr { scan_instr(instr, ctx); }
+        }
     }
 }
 
@@ -479,10 +497,13 @@ fn emit_not(r: usize, a: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), S
 }
 
 fn emit_phi(r: usize, pairs: &[(usize, String)], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
-    let ll = ctx.ll(r);
+    let ty = ctx.get(r);
+    let ll = if is_aggregate(&ty) { "ptr".into() } else { ctx.ll(r) };
     let inc: Vec<String> = pairs.iter().map(|(v, l)| format!("%R{}, %{}", v, l)).collect();
-    writeln!(out, "  %v{} = phi {} [{}]", ctx.next(), ll, inc.join("], [")).map_err(|e| e.to_string()).map_err(|e| e.to_string())?;
-    writeln!(out, "  store {} %v{}, ptr %R{}", ll, ctx.next()-1, r).map_err(|e| e.to_string())
+    let cv = ctx.next();
+    writeln!(out, "  %v{} = phi {} [{}]", cv, ll, inc.join("], [")).ok();
+    writeln!(out, "  store {} %v{}, ptr %R{}", ll, cv, r).ok();
+    Ok(())
 }
 
 fn emit_call(r: usize, target: &CallTarget, args: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
@@ -552,197 +573,241 @@ fn emit_field(r: usize, base: usize, idx: usize, ctx: &mut Ctx, out: &mut String
 
 fn emit_struct_cons(r: usize, fields: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
     let n = fields.len();
-    let _ = writeln!(out, "  %ptr = call ptr @malloc(i64 {})", (n * 8) as i64);
-    let _ = writeln!(out, "  %isnull = icmp eq ptr %ptr, null");
+    let pn = ctx.next();
+    let _ = writeln!(out, "  %p{} = call ptr @malloc(i64 {})", pn, (n * 8) as i64);
+    let _ = writeln!(out, "  %n{} = icmp eq ptr %p{}, null", pn, pn);
     let oom_l = ctx.next();
     let ok_l = ctx.next();
-    let _ = writeln!(out, "  br i1 %isnull, label %oom{}, label %ok{}", oom_l, ok_l);
+    let _ = writeln!(out, "  br i1 %n{}, label %oom{}, label %ok{}", pn, oom_l, ok_l);
     let _ = writeln!(out, "oom{}:", oom_l);
     let _ = writeln!(out, "  call void @llvm.trap()");
     let _ = writeln!(out, "  unreachable");
     let _ = writeln!(out, "ok{}:", ok_l);
     for (i, f) in fields.iter().enumerate() {
+        let fi = ctx.next();
+        let vi = ctx.next();
         let ft = ctx.ll(*f);
-        let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %ptr, i32 {}", i, ft, i);
-        let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", i, ft, f);
-        let _ = writeln!(out, "  store {} %v{}, ptr %f{}", ft, i, i);
+        let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %p{}, i32 {}", fi, ft, pn, i);
+        let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", vi, ft, f);
+        let _ = writeln!(out, "  store {} %v{}, ptr %f{}", ft, vi, fi);
     }
-    let _ = writeln!(out, "  store ptr %ptr, ptr %R{}", r);
+    let _ = writeln!(out, "  store ptr %p{}, ptr %R{}", pn, r);
     Ok(())
 }
 
 fn emit_struct_update(r: usize, base: usize, fidx: usize, val: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
-    let _ = writeln!(out, "  %bp = load ptr, ptr %R{}", base);
+    let bn = ctx.next();
+    let fn_ = ctx.next();
+    let vn = ctx.next();
+    let _ = writeln!(out, "  %b{} = load ptr, ptr %R{}", bn, base);
     let ft = ctx.ll(val);
-    let _ = writeln!(out, "  %f = getelementptr {}, ptr %bp, i32 {}", ft, fidx);
-    let _ = writeln!(out, "  %vv = load {}, ptr %R{}", ft, val);
-    let _ = writeln!(out, "  store {} %vv, ptr %f", ft);
-    let _ = writeln!(out, "  store ptr %bp, ptr %R{}", r);
+    let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %b{}, i32 {}", fn_, ft, bn, fidx);
+    let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", vn, ft, val);
+    let _ = writeln!(out, "  store {} %v{}, ptr %f{}", ft, vn, fn_);
+    let _ = writeln!(out, "  store ptr %b{}, ptr %R{}", bn, r);
     Ok(())
 }
 
 fn emit_enum_cons(r: usize, _ename: &str, _variant: &str, fields: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
-    // Simplified: store tag (0) in field 0, payload in field 1+ if any
-    let _ = writeln!(out, "  %ptr = call ptr @malloc(i64 16)");
-    let _ = writeln!(out, "  %isnull = icmp eq ptr %ptr, null");
+    let pn = ctx.next();
+    let _ = writeln!(out, "  %p{} = call ptr @malloc(i64 16)", pn);
+    let _ = writeln!(out, "  %n{} = icmp eq ptr %p{}, null", pn, pn);
     let oom_l = ctx.next();
     let ok_l = ctx.next();
-    let _ = writeln!(out, "  br i1 %isnull, label %oom{}, label %ok{}", oom_l, ok_l);
+    let _ = writeln!(out, "  br i1 %n{}, label %oom{}, label %ok{}", pn, oom_l, ok_l);
     let _ = writeln!(out, "oom{}:", oom_l);
     let _ = writeln!(out, "  call void @llvm.trap()");
     let _ = writeln!(out, "  unreachable");
     let _ = writeln!(out, "ok{}:", ok_l);
-    let _ = writeln!(out, "  %tp = getelementptr i64, ptr %ptr, i32 0");
-    let _ = writeln!(out, "  store i64 0, ptr %tp");
+    let tn = ctx.next();
+    let _ = writeln!(out, "  %t{} = getelementptr i64, ptr %p{}, i32 0", tn, pn);
+    let _ = writeln!(out, "  store i64 0, ptr %t{}", tn);
     if let Some(f) = fields.first() {
-        let _ = writeln!(out, "  %pp = getelementptr i8, ptr %ptr, i32 8");
-        let _ = writeln!(out, "  %pc = bitcast ptr %pp to ptr");
-        let _ = writeln!(out, "  %vv = load i64, ptr %R{}", f);
-        let _ = writeln!(out, "  store i64 %vv, ptr %pc");
+        let p2 = ctx.next();
+        let pc = ctx.next();
+        let _ = writeln!(out, "  %p{} = getelementptr i8, ptr %p{}, i32 8", p2, pn);
+        let _ = writeln!(out, "  %c{} = bitcast ptr %p{} to ptr", pc, p2);
+        let _ = writeln!(out, "  %v{} = load i64, ptr %R{}", ctx.next(), f);
+        let _ = writeln!(out, "  store i64 %v{}, ptr %c{}", ctx.next()-1, pc);
     }
-    let _ = writeln!(out, "  store ptr %ptr, ptr %R{}", r);
+    let _ = writeln!(out, "  store ptr %p{}, ptr %R{}", pn, r);
     Ok(())
 }
 
-fn emit_enum_disc(r: usize, reg: usize, ctx: &Ctx, out: &mut String) -> Result<(), String> {
-    let _ = writeln!(out, "  %ptr = load ptr, ptr %R{}", reg);
-    let _ = writeln!(out, "  %tp = getelementptr i64, ptr %ptr, i32 0");
-    let _ = writeln!(out, "  %tag = load i64, ptr %tp");
-    let _ = writeln!(out, "  store i64 %tag, ptr %R{}", r);
+fn emit_enum_disc(r: usize, reg: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let pn = ctx.next();
+    let tn = ctx.next();
+    let _ = writeln!(out, "  %p{} = load ptr, ptr %R{}", pn, reg);
+    let _ = writeln!(out, "  %t{} = getelementptr i64, ptr %p{}, i32 0", tn, pn);
+    let _ = writeln!(out, "  %v{} = load i64, ptr %t{}", ctx.next(), tn);
+    let _ = writeln!(out, "  store i64 %v{}, ptr %R{}", ctx.next()-1, r);
     Ok(())
 }
 
-fn emit_enum_proj(r: usize, idx: usize, reg: usize, ctx: &Ctx, out: &mut String) -> Result<(), String> {
-    let _ = writeln!(out, "  %ptr = load ptr, ptr %R{}", reg);
-    let _ = writeln!(out, "  %pp = getelementptr i8, ptr %ptr, i32 8");
-    let _ = writeln!(out, "  %pc = bitcast ptr %pp to ptr");
+fn emit_enum_proj(r: usize, idx: usize, reg: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let pn = ctx.next();
+    let _ = writeln!(out, "  %p{} = load ptr, ptr %R{}", pn, reg);
+    let pp = ctx.next();
+    let pc = ctx.next();
+    let _ = writeln!(out, "  %p{} = getelementptr i8, ptr %p{}, i32 8", pp, pn);
+    let _ = writeln!(out, "  %c{} = bitcast ptr %p{} to ptr", pc, pp);
     let ft = ctx.ll(r);
-    let _ = writeln!(out, "  %f = getelementptr {}, ptr %pc, i32 {}", ft, idx);
-    let _ = writeln!(out, "  %v = load {}, ptr %f", ft);
-    let _ = writeln!(out, "  store {} %v, ptr %R{}", ft, r);
+    let fn_ = ctx.next();
+    let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %c{}, i32 {}", fn_, ft, pc, idx);
+    let _ = writeln!(out, "  %v{} = load {}, ptr %f{}", ctx.next(), ft, fn_);
+    let _ = writeln!(out, "  store {} %v{}, ptr %R{}", ft, ctx.next()-1, r);
     Ok(())
 }
 
 fn emit_array_lit(r: usize, elems: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
     let n = elems.len();
     let ne = n as i64;
-    let _ = writeln!(out, "  %meta = call ptr @malloc(i64 16)");
-    let _ = writeln!(out, "  %isnull = icmp eq ptr %meta, null");
+    let mn = ctx.next();
+    let dn = ctx.next();
+    let _ = writeln!(out, "  %m{} = call ptr @malloc(i64 16)", mn);
+    let _ = writeln!(out, "  %n{} = icmp eq ptr %m{}, null", mn, mn);
     let oom_l = ctx.next();
     let ok_l = ctx.next();
-    let _ = writeln!(out, "  br i1 %isnull, label %oom{}, label %ok{}", oom_l, ok_l);
+    let _ = writeln!(out, "  br i1 %n{}, label %oom{}, label %ok{}", mn, oom_l, ok_l);
     let _ = writeln!(out, "oom{}:", oom_l);
     let _ = writeln!(out, "  call void @llvm.trap()");
     let _ = writeln!(out, "  unreachable");
     let _ = writeln!(out, "ok{}:", ok_l);
-    let _ = writeln!(out, "  %data = call ptr @malloc(i64 {})", ne * 8);
-    let _ = writeln!(out, "  %fp = getelementptr ptr, ptr %meta, i32 0");
-    let _ = writeln!(out, "  store ptr %data, ptr %fp");
-    let _ = writeln!(out, "  %fl = getelementptr i64, ptr %meta, i32 1");
-    let _ = writeln!(out, "  store i64 {}, ptr %fl", n);
+    let _ = writeln!(out, "  %d{} = call ptr @malloc(i64 {})", dn, ne * 8);
+    let fp = ctx.next();
+    let _ = writeln!(out, "  %f{} = getelementptr ptr, ptr %m{}, i32 0", fp, mn);
+    let _ = writeln!(out, "  store ptr %d{}, ptr %f{}", dn, fp);
+    let fl = ctx.next();
+    let _ = writeln!(out, "  %f{} = getelementptr i64, ptr %m{}, i32 1", fl, mn);
+    let _ = writeln!(out, "  store i64 {}, ptr %f{}", n, fl);
     for (i, e) in elems.iter().enumerate() {
         let ei = ctx.next();
         let vi = ctx.next();
         let ft = ctx.ll(*e);
-        let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %data, i32 {}", ei, ft, i);
-        let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", vi, ft, e);
-        let _ = writeln!(out, "  store {} %v{}, ptr %f{}", ft, vi, ei);
+        let _ = writeln!(out, "  %g{} = getelementptr {}, ptr %d{}, i32 {}", ei, ft, dn, i);
+        let _ = writeln!(out, "  %w{} = load {}, ptr %R{}", vi, ft, e);
+        let _ = writeln!(out, "  store {} %w{}, ptr %g{}", ft, vi, ei);
     }
-    let _ = writeln!(out, "  store ptr %meta, ptr %R{}", r);
+    let _ = writeln!(out, "  store ptr %m{}, ptr %R{}", mn, r);
     Ok(())
 }
 
 fn emit_array_fill(r: usize, val: usize, n: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
     let ne = n as i64;
-    let _ = writeln!(out, "  %meta = call ptr @malloc(i64 16)");
-    let _ = writeln!(out, "  %isnull = icmp eq ptr %meta, null");
+    let dn = ctx.next();
+    let mn = ctx.next();
+    let _ = writeln!(out, "  %m{} = call ptr @malloc(i64 16)", mn);
+    let _ = writeln!(out, "  %k{} = icmp eq ptr %m{}, null", mn, mn);
     let oom_l = ctx.next();
     let ok_l = ctx.next();
-    let _ = writeln!(out, "  br i1 %isnull, label %oom{}, label %ok{}", oom_l, ok_l);
+    let _ = writeln!(out, "  br i1 %k{}, label %oom{}, label %ok{}", mn, oom_l, ok_l);
     let _ = writeln!(out, "oom{}:", oom_l);
     let _ = writeln!(out, "  call void @llvm.trap()");
     let _ = writeln!(out, "  unreachable");
     let _ = writeln!(out, "ok{}:", ok_l);
-    let _ = writeln!(out, "  %data = call ptr @malloc(i64 {})", ne * 8);
-    let _ = writeln!(out, "  %fp = getelementptr ptr, ptr %meta, i32 0");
-    let _ = writeln!(out, "  store ptr %data, ptr %fp");
-    let _ = writeln!(out, "  %fl = getelementptr i64, ptr %meta, i32 1");
-    let _ = writeln!(out, "  store i64 {}, ptr %fl", n);
-    let _ = writeln!(out, "  %vv = load i64, ptr %R{}", val);
-    let _ = writeln!(out, "  %i = alloca i64");
+    let _ = writeln!(out, "  %d{} = call ptr @malloc(i64 {})", dn, ne * 8);
+    let fp = ctx.next();
+    let _ = writeln!(out, "  %f{} = getelementptr ptr, ptr %m{}, i32 0", fp, mn);
+    let _ = writeln!(out, "  store ptr %d{}, ptr %f{}", dn, fp);
+    let fl = ctx.next();
+    let _ = writeln!(out, "  %f{} = getelementptr i64, ptr %m{}, i32 1", fl, mn);
+    let _ = writeln!(out, "  store i64 {}, ptr %f{}", n, fl);
+    let vv = ctx.next();
+    let _ = writeln!(out, "  %w{} = load i64, ptr %R{}", vv, val);
+    let in_v = ctx.next();
     let loop_l = ctx.next();
     let done_l = ctx.next();
     let body_l = ctx.next();
-    let _ = writeln!(out, "  store i64 0, ptr %i");
+    let _ = writeln!(out, "  %iv{} = alloca i64", in_v);
+    let _ = writeln!(out, "  store i64 0, ptr %iv{}", in_v);
     let _ = writeln!(out, "  br label %L{}", loop_l);
     let _ = writeln!(out, "L{}:", loop_l);
-    let _ = writeln!(out, "  %ci = load i64, ptr %i");
-    let _ = writeln!(out, "  %done = icmp eq i64 %ci, {}", n);
-    let _ = writeln!(out, "  br i1 %done, label %L{}, label %L{}", done_l, body_l);
+    let _ = writeln!(out, "  %ci{} = load i64, ptr %iv{}", ctx.next(), in_v);
+    let _ = writeln!(out, "  %fi{} = icmp eq i64 %ci{}, {}", ctx.next(), ctx.next()-1, n);
+    let _ = writeln!(out, "  br i1 %fi{}, label %L{}, label %L{}", ctx.next()-2, done_l, body_l);
     let _ = writeln!(out, "L{}:", body_l);
-    let _ = writeln!(out, "  %ep = getelementptr i64, ptr %data, i64 %ci");
-    let _ = writeln!(out, "  store i64 %vv, ptr %ep");
-    let _ = writeln!(out, "  %ni = add i64 %ci, 1");
-    let _ = writeln!(out, "  store i64 %ni, ptr %i");
+    let ep = ctx.next();
+    let _ = writeln!(out, "  %ep{} = getelementptr i64, ptr %d{}, i64 %ci{}", ep, dn, ctx.next()-7);
+    let _ = writeln!(out, "  store i64 %w{}, ptr %ep{}", vv, ep);
+    let _ = writeln!(out, "  %ni{} = add i64 %ci{}, 1", ctx.next(), ctx.next()-10);
+    let _ = writeln!(out, "  store i64 %ni{}, ptr %iv{}", ctx.next()-1, in_v);
     let _ = writeln!(out, "  br label %L{}", loop_l);
     let _ = writeln!(out, "L{}:", done_l);
-    let _ = writeln!(out, "  store ptr %meta, ptr %R{}", r);
+    let _ = writeln!(out, "  store ptr %m{}, ptr %R{}", mn, r);
     Ok(())
 }
 
-fn emit_array_access(r: usize, arr: usize, idx: usize, ctx: &Ctx, out: &mut String) -> Result<(), String> {
-    let _ = writeln!(out, "  %mp = load ptr, ptr %R{}", arr);
-    let _ = writeln!(out, "  %fdp = getelementptr ptr, ptr %mp, i32 0");
-    let _ = writeln!(out, "  %dp = load ptr, ptr %fdp");
-    let _ = writeln!(out, "  %iv = load i64, ptr %R{}", idx);
+fn emit_array_access(r: usize, arr: usize, idx: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let mp = ctx.next();
+    let fdp = ctx.next();
+    let dp = ctx.next();
+    let iv = ctx.next();
+    let ep = ctx.next();
+    let vn = ctx.next();
+    let _ = writeln!(out, "  %m{} = load ptr, ptr %R{}", mp, arr);
+    let _ = writeln!(out, "  %f{} = getelementptr ptr, ptr %m{}, i32 0", fdp, mp);
+    let _ = writeln!(out, "  %d{} = load ptr, ptr %f{}", dp, fdp);
+    let _ = writeln!(out, "  %i{} = load i64, ptr %R{}", iv, idx);
     let ft = ctx.ll(r);
-    let _ = writeln!(out, "  %ep = getelementptr {}, ptr %dp, i64 %iv", ft);
-    let _ = writeln!(out, "  %v = load {}, ptr %ep", ft);
-    let _ = writeln!(out, "  store {} %v, ptr %R{}", ft, r);
+    let _ = writeln!(out, "  %e{} = getelementptr {}, ptr %d{}, i64 %i{}", ep, ft, dp, iv);
+    let _ = writeln!(out, "  %w{} = load {}, ptr %e{}", vn, ft, ep);
+    let _ = writeln!(out, "  store {} %w{}, ptr %R{}", ft, vn, r);
     Ok(())
 }
 
-fn emit_array_update(r: usize, arr: usize, idx: usize, val: usize, ctx: &Ctx, out: &mut String) -> Result<(), String> {
-    let _ = writeln!(out, "  %mp = load ptr, ptr %R{}", arr);
-    let _ = writeln!(out, "  %fdp = getelementptr ptr, ptr %mp, i32 0");
-    let _ = writeln!(out, "  %dp = load ptr, ptr %fdp");
-    let _ = writeln!(out, "  %iv = load i64, ptr %R{}", idx);
+fn emit_array_update(r: usize, arr: usize, idx: usize, val: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let mp = ctx.next();
+    let fdp = ctx.next();
+    let dp = ctx.next();
+    let iv = ctx.next();
+    let ep = ctx.next();
+    let vn = ctx.next();
+    let _ = writeln!(out, "  %m{} = load ptr, ptr %R{}", mp, arr);
+    let _ = writeln!(out, "  %f{} = getelementptr ptr, ptr %m{}, i32 0", fdp, mp);
+    let _ = writeln!(out, "  %d{} = load ptr, ptr %f{}", dp, fdp);
+    let _ = writeln!(out, "  %i{} = load i64, ptr %R{}", iv, idx);
     let ft = ctx.ll(val);
-    let _ = writeln!(out, "  %ep = getelementptr {}, ptr %dp, i64 %iv", ft);
-    let _ = writeln!(out, "  %vv = load {}, ptr %R{}", ft, val);
-    let _ = writeln!(out, "  store {} %vv, ptr %ep", ft);
-    let _ = writeln!(out, "  store ptr %mp, ptr %R{}", r);
+    let _ = writeln!(out, "  %e{} = getelementptr {}, ptr %d{}, i64 %i{}", ep, ft, dp, iv);
+    let _ = writeln!(out, "  %w{} = load {}, ptr %R{}", vn, ft, val);
+    let _ = writeln!(out, "  store {} %w{}, ptr %e{}", ft, vn, ep);
+    let _ = writeln!(out, "  store ptr %m{}, ptr %R{}", mp, r);
     Ok(())
 }
 
 fn emit_tuple_lit(r: usize, elems: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
     let n = elems.len();
-    let _ = writeln!(out, "  %ptr = call ptr @malloc(i64 {})", (n * 8) as i64);
-    let _ = writeln!(out, "  %isnull = icmp eq ptr %ptr, null");
+    let pn = ctx.next();
+    let _ = writeln!(out, "  %p{} = call ptr @malloc(i64 {})", pn, (n * 8) as i64);
+    let _ = writeln!(out, "  %z{} = icmp eq ptr %p{}, null", pn, pn);
     let oom_l = ctx.next();
     let ok_l = ctx.next();
-    let _ = writeln!(out, "  br i1 %isnull, label %oom{}, label %ok{}", oom_l, ok_l);
+    let _ = writeln!(out, "  br i1 %z{}, label %oom{}, label %ok{}", pn, oom_l, ok_l);
     let _ = writeln!(out, "oom{}:", oom_l);
     let _ = writeln!(out, "  call void @llvm.trap()");
     let _ = writeln!(out, "  unreachable");
     let _ = writeln!(out, "ok{}:", ok_l);
     for (i, e) in elems.iter().enumerate() {
+        let fi = ctx.next();
+        let vi = ctx.next();
         let ft = ctx.ll(*e);
-        let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %ptr, i32 {}", i, ft, i);
-        let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", i, ft, e);
-        let _ = writeln!(out, "  store {} %v{}, ptr %f{}", ft, i, i);
+        let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %p{}, i32 {}", fi, ft, pn, i);
+        let _ = writeln!(out, "  %w{} = load {}, ptr %R{}", vi, ft, e);
+        let _ = writeln!(out, "  store {} %w{}, ptr %f{}", ft, vi, fi);
     }
-    let _ = writeln!(out, "  store ptr %ptr, ptr %R{}", r);
+    let _ = writeln!(out, "  store ptr %p{}, ptr %R{}", pn, r);
     Ok(())
 }
 
-fn emit_tuple_update(r: usize, tup: usize, idx: usize, val: usize, ctx: &Ctx, out: &mut String) -> Result<(), String> {
-    let _ = writeln!(out, "  %tp = load ptr, ptr %R{}", tup);
+fn emit_tuple_update(r: usize, tup: usize, idx: usize, val: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let tn = ctx.next();
+    let fn_ = ctx.next();
+    let vn = ctx.next();
+    let _ = writeln!(out, "  %t{} = load ptr, ptr %R{}", tn, tup);
     let ft = ctx.ll(val);
-    let _ = writeln!(out, "  %f = getelementptr {}, ptr %tp, i32 {}", ft, idx);
-    let _ = writeln!(out, "  %vv = load {}, ptr %R{}", ft, val);
-    let _ = writeln!(out, "  store {} %vv, ptr %f", ft);
-    let _ = writeln!(out, "  store ptr %tp, ptr %R{}", r);
+    let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %t{}, i32 {}", fn_, ft, tn, idx);
+    let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", vn, ft, val);
+    let _ = writeln!(out, "  store {} %v{}, ptr %f{}", ft, vn, fn_);
+    let _ = writeln!(out, "  store ptr %t{}, ptr %R{}", tn, r);
     Ok(())
 }
 
