@@ -362,12 +362,16 @@ impl<'a> IrGenerator<'a> {
                             arg_reg
                         }
                         "stdin" => {
-                            // For &n -> stdin, read into the variable's register
+                            // Use the borrow variable's register if available
+                            // (so the evaluator writes directly to the right slot).
+                            // For LLVM SSA, the Lit(def) and Stdin share the same
+                            // register number — the evaluator handles this fine
+                            // as sequential writes; LLVM backend handles it via
+                            // %r{r}_stdin naming to avoid SSA conflicts.
                             let arg_reg = if let Some(arg) = c.args.first() {
                                 match arg {
                                     ExprArg::Value(e) => self.compile_expr(e, block),
                                     ExprArg::Borrow(b) => {
-                                        // Find the root variable's register
                                         let name = &b.lvalue.root.name;
                                         if let Some(&reg) = self.var_map.get(name) {
                                             reg

@@ -480,14 +480,10 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             }
         }
         Instr::Stdin(r) => { ctx.set_reg(*r, IrType::Int);
-            // Use a dedicated temp register to avoid conflicts with preceding
-            // instructions that may have defined %r{r} earlier in the same block.
-            writeln!(out, "  %r{}_val = add i64 0, 0", r).ok();
             let ptr = ctx.arena_alloc(8, out);
             writeln!(out, "  store i64 0, ptr {}", ptr).ok();
             writeln!(out, "  call i32 (ptr, ...) @scanf(ptr @.fmt_int, ptr {})", ptr).ok();
-            writeln!(out, "  %r{}_raw = load i64, ptr {}", r, ptr).ok();
-            writeln!(out, "  %r{} = add i64 %r{}_raw, 0", r, r).ok();
+            writeln!(out, "  %r{} = load i64, ptr {}", r, ptr).ok();
         }
         Instr::Phi(r, pairs) => {
             let p: Vec<String> = pairs.iter().map(|(v, l)| format!("%r{}, %{}", v, l)).collect();
@@ -705,30 +701,37 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
         }
         Instr::StructUpdate(r, base, fidx, val, s_ty, _in_place) => {
             ctx.set_reg(*r, s_ty.clone());
-            if matches!(s_ty, IrType::Struct(name) if name == "%tuple") {
-                let n = match ctx.reg_ty(base) { IrType::Tuple(ts) => ts.len(), _ => 2 };
-                let struct_ty = format!("{{ {} }}", (0..n).map(|_| "i64").collect::<Vec<_>>().join(", "));
-                writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, base).ok();
-                writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, struct_ty, r).ok();
-                let v_i64 = as_i64(r * 1000 + fidx, *val, out, ctx);
-                writeln!(out, "  %r{}_upd = insertvalue {} %r{}_p, i64 {}, {}", r, struct_ty, r, v_i64, fidx).ok();
-                let arena_ptr = ctx.arena_alloc(n * 8, out);
-                writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr).ok();
-                writeln!(out, "  store {} %r{}_upd, ptr %r{}_cast", struct_ty, r, r).ok();
-                writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
-            } else {
-                let struct_ty = llvm_type_for(&s_ty, &ctx.enum_names);
-                writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, base).ok();
-                writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, struct_ty, r).ok();
-                writeln!(out, "  %r{}_upd = insertvalue {} %r{}_p, i64 %r{}, {}", r, struct_ty, r, val, fidx).ok();
-                let n = match &s_ty { IrType::Struct(name) => {
-                    types.structs.iter().find(|s| s.name == *name).map(|s| s.fields.len()).unwrap_or(1)
-                }, _ => 1 };
-                let arena_ptr = ctx.arena_alloc(n * 8, out);
-                writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr).ok();
-                writeln!(out, "  store {} %r{}_upd, ptr %r{}_cast", struct_ty, r, r).ok();
-                writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
-            }
+            // Determine the LLVM struct type: prefer s_ty from the instruction,
+            // fall back to reg_llvm_ty(base) for the edge case where s_ty
+            // defaulted to %tuple/i64 due to missing reg_struct info.
+            let struct_ty = match &s_ty {
+                IrType::Struct(name) if name == "%tuple" => {
+                    let n = match ctx.reg_ty(base) { IrType::Tuple(ts) => ts.len(), _ => 2 };
+                    format!("{{ {} }}", (0..n).map(|_| "i64").collect::<Vec<_>>().join(", "))
+                }
+                IrType::Struct(name) => {
+                    if ctx.enum_names.contains(name) {
+                        format!("%enum.{}", name)
+                    } else {
+                        format!("%struct.{}", name)
+                    }
+                }
+                _ => ctx.reg_llvm_ty(base),
+            };
+            writeln!(out, "  %r{}_ptr = inttoptr i64 %r{} to ptr", r, base).ok();
+            writeln!(out, "  %r{}_p = load {}, ptr %r{}_ptr", r, struct_ty, r).ok();
+            writeln!(out, "  %r{}_upd = insertvalue {} %r{}_p, i64 %r{}, {}", r, struct_ty, r, val, fidx).ok();
+            let n = match &s_ty { IrType::Struct(name) => {
+                types.structs.iter().find(|s| s.name == *name).map(|s| s.fields.len()).unwrap_or(1)
+            }, _ => match ctx.reg_ty(base) {
+                IrType::Tuple(ts) => ts.len(),
+                IrType::Struct(name) => types.structs.iter().find(|s| s.name == *name).map(|s| s.fields.len()).unwrap_or(1),
+                _ => 1,
+            }};
+            let arena_ptr = ctx.arena_alloc(n * 8, out);
+            writeln!(out, "  %r{}_cast = bitcast ptr {} to ptr", r, arena_ptr).ok();
+            writeln!(out, "  store {} %r{}_upd, ptr %r{}_cast", struct_ty, r, r).ok();
+            writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
         }
         Instr::ArrayLit(r, ty, elems) => {
             ctx.set_reg(*r, ty.clone());
