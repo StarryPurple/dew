@@ -95,8 +95,8 @@ fn instr_type(instr: &Instr, return_ty: &IrType) -> IrType {
         Instr::EnumCons(_, enum_name, _, _) => IrType::Enum(enum_name.clone()),
         Instr::EnumDisc(..) => IrType::Int,
         Instr::EnumProj(_, ty, _, _, _, _) => ty.clone(),
-        Instr::StructUpdate(_, _, _, _, struct_ty) => struct_ty.clone(),
-        Instr::ArrayAccess(_, ty, _, _) | Instr::ArrayUpdate(_, ty, _, _, _) => ty.clone(),
+        Instr::StructUpdate(_, _, _, _, struct_ty, _) => struct_ty.clone(),
+        Instr::ArrayAccess(_, ty, _, _) | Instr::ArrayUpdate(_, ty, _, _, _, _) => ty.clone(),
         Instr::TupleUpdate(..) => IrType::Int,
         Instr::Move(..) | Instr::Update(..) | Instr::Fetch(..) | Instr::Place(..) => IrType::Undefined,
         Instr::Lambda(..) => IrType::Undefined,
@@ -190,14 +190,14 @@ fn display_instr(instr: &Instr, return_ty: &IrType) -> String {
             format!("%{}: {} = tuple_lit {}", r, result_ty,
                 elems.iter().map(|e| format!("%{}", e)).collect::<Vec<_>>().join(" "))
         }
-        Instr::StructUpdate(r, base, field, val, _struct_ty) => {
+        Instr::StructUpdate(r, base, field, val, _struct_ty, _in_place) => {
             format!("%{}: {} = struct_update %{} .{} = %{}", r, result_ty, base, field, val)
         }
         Instr::ArrayAccess(r, _ty, arr, idx) => format!("%{}: {} = array_access %{} %{}", r, result_ty, arr, idx),
-        Instr::ArrayUpdate(r, _ty, arr, idx, val) => {
+        Instr::ArrayUpdate(r, _ty, arr, idx, val, _in_place) => {
             format!("%{}: {} = array_update %{} %{} %{}", r, result_ty, arr, idx, val)
         }
-        Instr::TupleUpdate(r, tup, idx, val) => {
+        Instr::TupleUpdate(r, tup, idx, val, _in_place) => {
             format!("%{}: {} = tuple_update %{} .{} = %{}", r, result_ty, tup, idx, val)
         }
         Instr::Move(r, from) => format!("%{}: {} = move %{}", r, result_ty, from),

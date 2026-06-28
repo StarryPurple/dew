@@ -859,7 +859,13 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
                             ExprArg::Value(e) => display_expr(e, depth),
                             ExprArg::Borrow(b) => display_borrow_expr(b),
                         }).collect();
-                        format!("{{ def rec {} = {}; {}({}) }}", name, fn_expr, name, args.join(", "))
+                        if fn_expr.contains('\n') {
+                            format!("{{\n{}def rec {} = {};\n{}{}({})\n{}}}",
+                                pad(depth + 1), name, fn_expr,
+                                pad(depth + 1), name, args.join(", "), pad(depth))
+                        } else {
+                            format!("{{ def rec {} = {}; {}({}) }}", name, fn_expr, name, args.join(", "))
+                        }
                     } else {
                         display_expr(&m.scrutinee, depth)
                     }
@@ -878,7 +884,7 @@ fn display_expr(expr: &Expr, depth: usize) -> String {
                     format!("{}{} => {}", pad(depth + 1), pat, body)
                 }
             }).collect();
-            format!("match {} {{\n{}\n{}}}", scrutinee, arms.join(",\n"), pad(depth))
+            format!("match {} {{\n{}\n{}}}", scrutinee.trim_start(), arms.join(",\n"), pad(depth))
         }
         Expr::Block(b) => {
             // Detect expanded destructure pattern:

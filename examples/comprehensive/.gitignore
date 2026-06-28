@@ -1,0 +1,7 @@
+*.dew
+*.desugared.dew
+*.dewir
+*.exe
+*.ll
+*.s
+*.dewll

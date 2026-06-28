@@ -42,10 +42,10 @@ pub enum Instr {
     ArrayLit(Reg, IrType, Vec<Reg>),
     ArrayFill(Reg, IrType, Reg, usize),
     TupleLit(Reg, IrType, Vec<Reg>),
-    StructUpdate(Reg, Reg, usize, Reg, IrType),
+    StructUpdate(Reg, Reg, usize, Reg, IrType, bool),
     ArrayAccess(Reg, IrType, Reg, Reg),
-    ArrayUpdate(Reg, IrType, Reg, Reg, Reg),
-    TupleUpdate(Reg, Reg, usize, Reg),
+    ArrayUpdate(Reg, IrType, Reg, Reg, Reg, bool),
+    TupleUpdate(Reg, Reg, usize, Reg, bool),
     Move(Reg, Reg),
     Update(Reg, ForceTarget),
 }

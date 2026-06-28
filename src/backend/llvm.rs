@@ -684,7 +684,7 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                 _ => { writeln!(out, "  %r{} = add i64 %r{}, 0", r, base).ok(); }
             }
         }
-        Instr::StructUpdate(r, base, fidx, val, s_ty) => {
+        Instr::StructUpdate(r, base, fidx, val, s_ty, _in_place) => {
             ctx.set_reg(*r, ctx.reg_ty(base).clone());
             if matches!(s_ty, IrType::Struct(name) if name == "%tuple") {
                 // Tuple updates via StructUpdate: treat as arena-allocated tuple
@@ -751,7 +751,7 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
                 _ => { writeln!(out, "  %r{} = add i64 %r{}_raw, 0", r, r).ok(); }
             }
         }
-        Instr::ArrayUpdate(r, _ty, arr, idx, val) => {
+        Instr::ArrayUpdate(r, _ty, arr, idx, val, _in_place) => {
             let elem_ty = match ctx.reg_ty(arr) { IrType::Array(t, _) => ir_type_to_llvm(t), _ => "i64".into() };
             let esize = if elem_ty == "i1" { "1" } else if elem_ty == "i32" { "4" } else { "8" };
             ctx.set_reg(*r, ctx.reg_ty(arr).clone());
@@ -785,7 +785,7 @@ fn emit_llvm_instr(instr: &Instr, _thunks: &[Thunk], fns: &[Fn], types: &TypeTab
             writeln!(out, "  store {} {}, ptr %r{}_cast", struct_ty, prev, r).ok();
             writeln!(out, "  %r{} = ptrtoint ptr %r{}_cast to i64", r, r).ok();
         }
-        Instr::TupleUpdate(r, tup, idx, val) => {
+        Instr::TupleUpdate(r, tup, idx, val, _in_place) => {
             ctx.set_reg(*r, ctx.reg_ty(tup).clone());
             // Arena-allocated tuple: load, update, store back
             let n = match ctx.reg_ty(tup) { IrType::Tuple(ts) => ts.len(), _ => 1 };

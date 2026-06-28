@@ -1,0 +1,13 @@
+// expect: 1
+// Tier: Small
+// Feature: while-borrow
+// Minimal while-borrow test: increment a variable inside the loop body.
+// Note: expect: 1 — currently outputs 0 (while body mutation not yet persisted)
+def main = fn {
+  def i = 0;
+  while (&i; i < 1) {
+    &i = i + 1;
+    continue
+  };
+  i -> stdout;
+}

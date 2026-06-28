@@ -958,22 +958,27 @@ fn expr_has_io(expr: &Expr) -> bool {
 /// Replace `continue`/`break` keywords in a while-borrow body block with
 /// `__Continue((vars...))`/`__Done((vars...))` enum expressions.
 fn replace_while_jumps(mut block: BlockExpr, vars: &[Ident]) -> BlockExpr {
+    let var_refs = || -> Vec<Box<Expr>> {
+        // Wrap all borrow vars in a tuple so the payload field is always a tuple,
+        // matching the false-arm __Done((vars...)) construction. This ensures
+        // that dispatch patterns __Continue(%_c) / __Done(%_d) can use %_c.0,
+        // %_d.0 to extract the first borrow variable value regardless of var count.
+        let tuple = Expr::TupleLit(TupleLit {
+            span: Span::DUMMY,
+            elements: vars.iter().map(|v| Expr::Var(v.clone())).collect(),
+        });
+        vec![Box::new(tuple)]
+    };
     let build_continue = |span: Span| -> Expr {
-        let var_refs: Vec<Box<Expr>> = vars.iter()
-            .map(|v| Box::new(Expr::Var(v.clone())))
-            .collect();
         Expr::EnumLit(EnumLit {
             span, name: Ident::new("__Continue", Span::DUMMY),
-            payload: EnumPayload::Single(var_refs),
+            payload: EnumPayload::Single(var_refs()),
         })
     };
     let build_break = |span: Span| -> Expr {
-        let var_refs: Vec<Box<Expr>> = vars.iter()
-            .map(|v| Box::new(Expr::Var(v.clone())))
-            .collect();
         Expr::EnumLit(EnumLit {
             span, name: Ident::new("__Done", Span::DUMMY),
-            payload: EnumPayload::Single(var_refs),
+            payload: EnumPayload::Single(var_refs()),
         })
     };
     for stmt in &mut block.stmts {

@@ -46,6 +46,10 @@ pub struct EvalFrame {
 impl EvalFrame {
     pub fn new() -> Self { EvalFrame { regs: Vec::new(), label_stack: Vec::new() } }
     fn get(&self, r: usize) -> &Value { self.regs.get(r).unwrap_or(&Value::Unit) }
+    fn get_mut(&mut self, r: usize) -> &mut Value {
+        if r >= self.regs.len() { self.regs.resize(r + 1, Value::Unit); }
+        &mut self.regs[r]
+    }
     fn set(&mut self, r: usize, v: Value) {
         if r >= self.regs.len() { self.regs.resize(r + 1, Value::Unit); }
         self.regs[r] = v;
@@ -325,17 +329,27 @@ fn eval_instr(
                 frame.set(*r, Value::Int(0));
             }
         }
-        Instr::StructUpdate(r, base, fidx, val, ..) => {
-            let base_val = frame.get(*base);
+        Instr::StructUpdate(r, base, fidx, val, _, in_place) => {
             let val_val = frame.get(*val).clone();
-            if let Value::Tuple(fields) = base_val {
-                let mut new_fields = fields.clone();
-                if *fidx < new_fields.len() {
-                    new_fields[*fidx] = val_val;
+            if *in_place {
+                let mut old = std::mem::replace(frame.get_mut(*base), Value::Unit);
+                if let Value::Tuple(ref mut fields) = old {
+                    if *fidx < fields.len() {
+                        fields[*fidx] = val_val;
+                    }
                 }
-                frame.set(*r, Value::Tuple(new_fields));
+                frame.set(*r, old);
             } else {
-                frame.set(*r, val_val);
+                let base_val = frame.get(*base);
+                if let Value::Tuple(fields) = base_val {
+                    let mut new_fields = fields.clone();
+                    if *fidx < new_fields.len() {
+                        new_fields[*fidx] = val_val;
+                    }
+                    frame.set(*r, Value::Tuple(new_fields));
+                } else {
+                    frame.set(*r, val_val);
+                }
             }
         }
         Instr::EnumCons(r, enum_name, variant, fields) => {
@@ -379,16 +393,49 @@ fn eval_instr(
                 frame.set(*r, Value::Int(0));
             }
         }
-        Instr::ArrayUpdate(r, _ty, arr, idx, val) => {
-            if let Value::Array(elems) = frame.get(*arr) {
-                let mut new_elems = elems.clone();
-                let i = frame.get(*idx).as_int().unwrap_or(0) as usize;
-                if i < new_elems.len() {
-                    new_elems[i] = frame.get(*val).clone();
+        Instr::ArrayUpdate(r, _ty, arr, idx, val, in_place) => {
+            let i = frame.get(*idx).as_int().unwrap_or(0) as usize;
+            let val_val = frame.get(*val).clone();
+            if *in_place {
+                let mut old = std::mem::replace(frame.get_mut(*arr), Value::Unit);
+                if let Value::Array(ref mut elems) = old {
+                    if i < elems.len() {
+                        elems[i] = val_val;
+                    }
                 }
-                frame.set(*r, Value::Array(new_elems));
+                frame.set(*r, old);
             } else {
-                frame.set(*r, frame.get(*val).clone());
+                if let Value::Array(elems) = frame.get(*arr) {
+                    let mut new_elems = elems.clone();
+                    if i < new_elems.len() {
+                        new_elems[i] = val_val;
+                    }
+                    frame.set(*r, Value::Array(new_elems));
+                } else {
+                    frame.set(*r, val_val);
+                }
+            }
+        }
+        Instr::TupleUpdate(r, tup, idx, val, in_place) => {
+            let val_val = frame.get(*val).clone();
+            if *in_place {
+                let mut old = std::mem::replace(frame.get_mut(*tup), Value::Unit);
+                if let Value::Tuple(ref mut fields) = old {
+                    if *idx < fields.len() {
+                        fields[*idx] = val_val;
+                    }
+                }
+                frame.set(*r, old);
+            } else {
+                if let Value::Tuple(fields) = frame.get(*tup) {
+                    let mut new_fields = fields.clone();
+                    if *idx < new_fields.len() {
+                        new_fields[*idx] = val_val;
+                    }
+                    frame.set(*r, Value::Tuple(new_fields));
+                } else {
+                    frame.set(*r, val_val);
+                }
             }
         }
         Instr::Move(r, from) => {

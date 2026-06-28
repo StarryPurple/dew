@@ -33,6 +33,7 @@ pub struct IrGenerator<'a> {
     fn_param_regs: std::collections::HashMap<String, usize>,
     reg_type: std::collections::HashMap<usize, IrType>,
     enum_instance_types: std::collections::HashMap<usize, Vec<IrType>>,
+    current_shadow_var: Option<String>,
 }
 
 impl<'a> IrGenerator<'a> {
@@ -57,10 +58,22 @@ impl<'a> IrGenerator<'a> {
             fn_param_regs: std::collections::HashMap::new(),
             reg_type: std::collections::HashMap::new(),
             enum_instance_types: std::collections::HashMap::new(),
+            current_shadow_var: None,
         }
     }
 
     pub fn generate(mut self, prog: &Program) -> Module {
+        // Register __ControlFlow enum used by while-borrow desugaring.
+        // Must be registered before processing declarations so it's available
+        // when EnumLit expressions are compiled.
+        let cf_variants = vec![
+            VariantDef { name: "__Done".into(), tag: 0, fields: vec![("0".into(), IrType::Int)] },
+            VariantDef { name: "__Continue".into(), tag: 1, fields: vec![("0".into(), IrType::Int)] },
+        ];
+        self.module.types.add_enum(EnumDef {
+            name: "__ControlFlow".into(), variants: cf_variants, size: 8,
+        });
+
         for decl in &prog.decls {
             match decl {
                 Decl::Struct(s) => self.register_struct(s),
@@ -479,8 +492,11 @@ impl<'a> IrGenerator<'a> {
                             // calls go through the thunk_names path (Force thunk + Dynamic call).
                             // The thunk is already Evaluated by the time the closure runs.
                         }
+                        // Track def name for in-place mutation optimization in Expr::Update
+                        self.current_shadow_var = Some(def.name.name.clone());
                     }
                     last_reg = self.compile_expr(&stmt.expr, block);
+                    self.current_shadow_var = None;
                     if let Some(def) = &stmt.def {
                         if def.rec {
                             if let Some(thunk_name) = self.thunk_name_map.get(&def.name.name) {
@@ -617,15 +633,23 @@ impl<'a> IrGenerator<'a> {
                 let base_r = self.compile_expr(&u.base, block);
                 let struct_name = self.reg_struct.get(&base_r).cloned()
                     .unwrap_or_else(|| "%tuple".into());
+                let is_same_var = match &*u.base {
+                    Expr::Var(v) => self.current_shadow_var.as_deref() == Some(&v.name),
+                    _ => false,
+                };
+                // in_place optimization is only safe when there's a single update,
+                // because the value expressions of subsequent updates may read the
+                // same variable — which would get Unit after the first take.
                 let mut current_r = base_r;
-                for uf in &u.updates {
+                for (i, uf) in u.updates.iter().enumerate() {
+                    let in_place = i == 0 && is_same_var && u.updates.len() == 1;
                     if let UpdateField::NamedField { name, value, .. } = uf {
                         let val_r = self.compile_expr(value, block);
                         let result_r = self.fresh_reg();
                         let fidx = self.module.types.struct_field_index(&struct_name, &name.name)
                             .unwrap_or(0);
                         let s_ty = IrType::Struct(struct_name.clone());
-                        block.instrs.push(Instr::StructUpdate(result_r, current_r, fidx, val_r, s_ty));
+                        block.instrs.push(Instr::StructUpdate(result_r, current_r, fidx, val_r, s_ty, in_place));
                         current_r = result_r;
                     }
                     if let UpdateField::ArrayIndex { index, value, .. } = uf {
@@ -634,7 +658,7 @@ impl<'a> IrGenerator<'a> {
                         let result_r = self.fresh_reg();
                         let elem_ty = self.param_array_elem_types.get(&current_r).cloned()
                             .unwrap_or(IrType::Int);
-                        block.instrs.push(Instr::ArrayUpdate(result_r, elem_ty, current_r, idx_r, val_r));
+                        block.instrs.push(Instr::ArrayUpdate(result_r, elem_ty, current_r, idx_r, val_r, in_place));
                         current_r = result_r;
                     }
                 }

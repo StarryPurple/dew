@@ -12,7 +12,7 @@ echo "=== Dew Compiler Test Runner ($MODE) ==="
 echo ""
 
 echo "--- pass/ ---"
-for file in $(find "$DIR/examples/pass" -name '*.dew' 2>/dev/null | sort); do
+for file in $(find "$DIR/examples/pass" -name '*.dew' ! -name '*.desugared.dew' 2>/dev/null | sort); do
     rel="${file#$DIR/examples/}"
     first_line=$(head -1 "$file")
     # Skip deprecated tests
@@ -34,6 +34,10 @@ for file in $(find "$DIR/examples/pass" -name '*.dew' 2>/dev/null | sort); do
         echo "FAIL (expected '$expected', got '$output')"
         FAIL=$((FAIL + 1))
     fi
+
+    # Generate debug artifacts (non-fatal)
+    "$DEW" "$file" --emit=desugared > "$file.desugared.dew" 2>/dev/null || true
+    "$DEW" "$file" --emit=text > "$file.dewir" 2>/dev/null || true
 done
 
 echo ""

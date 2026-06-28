@@ -21,3 +21,5 @@ docs/zh/
 session-*.md
 target/
 vscode-dew/
+*.desugared.dew
+*.dewir
