@@ -73,6 +73,11 @@ impl TypeTable {
     pub fn add_struct(&mut self, def: StructDef) { self.structs.push(def); }
     pub fn add_enum(&mut self, def: EnumDef) { self.enums.push(def); }
 
+    pub fn struct_field_type(&self, name: &str, idx: usize) -> Option<IrType> {
+        self.structs.iter().find(|s| s.name == name)
+            .and_then(|s| s.fields.get(idx).map(|(_, t)| t.clone()))
+    }
+
     pub fn struct_field_index(&self, name: &str, field: &str) -> Option<usize> {
         self.structs.iter().find(|s| s.name == name)
             .and_then(|s| s.fields.iter().position(|(n, _)| n == field))
