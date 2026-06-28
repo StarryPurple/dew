@@ -1,9 +1,7 @@
 // Dew IR → LLVM IR translation.
-// Based on docs/design/dew-llvm-backend.md (v2 alloca-based design).
 
 use crate::ir::instr::*;
 use crate::ir::module::Module;
-use crate::ir::thunk::Thunk;
 use crate::ir::types::*;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
@@ -11,14 +9,9 @@ use std::fmt::Write;
 pub fn generate(module: &Module) -> Result<String, String> {
     let mut out = String::new();
     let mut ctx = Ctx::new(&module.types);
-    // Build function parameter type map
     for f in &module.fns {
         ctx.fn_params.insert(f.name.clone(), f.params.iter().map(|(_, t)| t.clone()).collect());
         ctx.fn_returns.insert(f.name.clone(), f.return_type.clone());
-    }
-    // Also thunks (they take no params)
-    for t in &module.thunks {
-        ctx.fn_params.insert(t.name.clone(), vec![]);
     }
 
     writeln!(out, "%Unit = type {{}}").ok();
@@ -36,16 +29,6 @@ pub fn generate(module: &Module) -> Result<String, String> {
     writeln!(out).ok();
 
     emit_types(module, &mut ctx, &mut out).map_err(|e| e.to_string())?;
-
-    for t in &module.thunks {
-        let safe = t.name.replace('@', "_at_").replace('%', "_pct_");
-        writeln!(out, "@{}.cell = global %thunk zeroinitializer", safe).ok();
-    }
-    writeln!(out).ok();
-
-    for t in &module.thunks {
-        emit_thunk(t, module, &mut ctx, &mut out).map_err(|e| e.to_string())?;
-    }
 
     for f in &module.fns {
         if skip_fn(f) { continue; }
@@ -107,14 +90,10 @@ impl Ctx {
 
     fn next(&mut self) -> usize { let n = self.label; self.label += 1; n }
 
-    /// Map a Dew IR block label to the actual LLVM block label.
-    /// Returns the original label if no mapping exists.
     fn real_label(&self, label: &str) -> String {
         self.label_map.get(label).cloned().unwrap_or_else(|| label.to_string())
     }
 
-    /// Record that a new LLVM block label (actual) was created
-    /// after the given Dew IR label (logical).
     fn add_label_rename(&mut self, logical: &str, actual: &str) {
         self.label_map.insert(logical.to_string(), actual.to_string());
     }
@@ -127,7 +106,7 @@ fn llvm_ty(ty: &IrType, rec: &HashSet<(String, usize)>, is_rec_type: &HashSet<St
         IrType::Char => "i32".into(),
         IrType::Unit => "%Unit".into(),
         IrType::Struct(n) | IrType::Enum(n) => {
-            if is_rec_type.contains(n) || n == "%tuple" || n.starts_with('%') { "ptr".into() }
+            if is_rec_type.contains(n) || n == "%tuple" || n.starts_with('%') || n == "%thunk.cell" { "ptr".into() }
             else { format!("%struct.{}", n) }
         }
         IrType::Array(_, _) => "{ ptr, i64 }".into(),
@@ -165,9 +144,7 @@ fn is_generic_name(name: &str) -> bool {
 
 fn skip_fn(f: &crate::ir::func::Fn) -> bool {
     if f.name == "main" { return false; }
-    // Skip generic struct/enum return types — would need monomorphization
     if matches!(&f.return_type, IrType::Struct(n) | IrType::Enum(n) if n.len() == 1) { return true; }
-    // Skip Affine type
     if matches!(&f.return_type, IrType::Struct(n) if n == "Affine") { return true; }
     false
 }
@@ -219,27 +196,22 @@ fn oom_check(ptr: &str, out: &mut String, ctx: &mut Ctx) {
     writeln!(out, "  call void @llvm.trap()").ok();
     writeln!(out, "  unreachable").ok();
     writeln!(out, "ok{}:", ok).ok();
-    // Track label rename: the ok{} block replaces the current Dew IR label
-    // as the predecessor for phi instructions in successor blocks.
     if let Some(ref cur) = ctx.current_block_label {
         ctx.label_map.insert(cur.clone(), format!("ok{}", ok));
     }
 }
 
 fn scan(blocks: &[crate::ir::block::BasicBlock], ctx: &mut Ctx) {
-    // Pass 1: register types for Call instructions (explicit return type annotation)
     for b in blocks {
         for instr in &b.instrs {
             if let Instr::Call(_, _, _, _) = instr { scan_instr(instr, ctx); }
         }
     }
-    // Pass 2: register types for everything except Phi
     for b in blocks {
         for instr in &b.instrs {
             if !matches!(instr, Instr::Call(_, _, _, _) | Instr::Phi(_, _)) { scan_instr(instr, ctx); }
         }
     }
-    // Pass 3: register types for Phi (all sources should now be resolved)
     for b in blocks {
         for instr in &b.instrs {
             if let Instr::Phi(_, _) = instr { scan_instr(instr, ctx); }
@@ -256,9 +228,10 @@ fn scan_instr(instr: &Instr, ctx: &mut Ctx) {
 
 fn result_reg(instr: &Instr) -> usize {
     match instr {
-        Instr::Stdout(_) => 0, // Stdout doesn't produce a result — it only reads
+        Instr::Stdout(_) => 0,
         Instr::Stdin(r) => *r,
-        Instr::Lit(r,_) | Instr::Lambda(r,_,_) | Instr::Call(r,_,_,_) | Instr::Force(r,_)
+        Instr::Lit(r,_) | Instr::Lambda(r,_,_) | Instr::Call(r,_,_,_)
+        | Instr::Force(r,_,_) | Instr::ThunkAlloc(r,_,_)
         | Instr::Add(r,_,_) | Instr::Sub(r,_,_) | Instr::Mul(r,_,_) | Instr::Div(r,_,_) | Instr::Rem(r,_,_)
         | Instr::BitAnd(r,_,_) | Instr::BitOr(r,_,_) | Instr::BitXor(r,_,_) | Instr::Shl(r,_,_) | Instr::Shr(r,_,_)
         | Instr::Lt(r,_,_) | Instr::Gt(r,_,_) | Instr::Le(r,_,_) | Instr::Ge(r,_,_) | Instr::Eq(r,_,_) | Instr::Ne(r,_,_)
@@ -269,7 +242,7 @@ fn result_reg(instr: &Instr) -> usize {
         | Instr::ArrayFill(r,_,_,_) | Instr::TupleLit(r,_,_)
         | Instr::StructUpdate(r,_,_,_,_,_) | Instr::ArrayAccess(r,_,_,_)
         | Instr::ArrayUpdate(r,_,_,_,_,_) | Instr::TupleUpdate(r,_,_,_,_) | Instr::Move(r,_) => *r,
-        Instr::Update(_,_) => 0,
+        Instr::Update(_,_,_) => 0,
     }
 }
 
@@ -283,8 +256,9 @@ fn infer_type(instr: &Instr, ctx: &Ctx) -> IrType {
         Instr::Stdout(_) => IrType::Int,
         Instr::Stdin(_) => IrType::Int,
         Instr::Lambda(_,_,_) => IrType::Undefined,
+        Instr::ThunkAlloc(_,_,_) => IrType::Struct("%thunk.cell".into()),
         Instr::Call(_,_,_,rt) => rt.clone(),
-        Instr::Force(_,_) => IrType::Int,
+        Instr::Force(_,_,ty) => ty.clone(),
         Instr::Add(..) | Instr::Sub(..) | Instr::Mul(..) | Instr::Div(..) | Instr::Rem(..)
         | Instr::BitAnd(..) | Instr::BitOr(..) | Instr::BitXor(..) | Instr::Shl(..) | Instr::Shr(..) => IrType::Int,
         Instr::Lt(..) | Instr::Gt(..) | Instr::Le(..) | Instr::Ge(..) | Instr::Eq(..) | Instr::Ne(..)
@@ -300,7 +274,7 @@ fn infer_type(instr: &Instr, ctx: &Ctx) -> IrType {
         Instr::EnumDisc(_,_) => IrType::Int,
         Instr::EnumProj(_,ty,_,_,_,_) => ty.clone(),
         Instr::Move(r, from) => ctx.types.get(from).cloned().unwrap_or(IrType::Int),
-        Instr::Update(_,_) => IrType::Int,
+        Instr::Update(_,_,_) => IrType::Int,
     }
 }
 
@@ -309,15 +283,11 @@ fn max_reg(blocks: &[crate::ir::block::BasicBlock]) -> usize {
     for b in blocks {
         for instr in &b.instrs {
             mx = mx.max(result_reg(instr));
-            // Also include phi source registers and other register references
             if let Instr::Phi(_, pairs) = instr {
                 for (r, _) in pairs { mx = mx.max(*r); }
             }
             if let Instr::Call(_, _, args, _) = instr {
                 for a in args { mx = mx.max(*a); }
-            }
-            if let Instr::Force(_, target) = instr {
-                if let ForceTarget::Dynamic(r) = target { mx = mx.max(*r); }
             }
             if let Instr::Field(_, base, _, _) = instr { mx = mx.max(*base); }
             if let Instr::StructUpdate(_, base, _, val, _, _) = instr { mx = mx.max(*base).max(*val); }
@@ -326,6 +296,8 @@ fn max_reg(blocks: &[crate::ir::block::BasicBlock]) -> usize {
             if let Instr::ArrayAccess(_, _, arr, idx) = instr { mx = mx.max(*arr).max(*idx); }
             if let Instr::ArrayUpdate(_, _, arr, idx, val, _) = instr { mx = mx.max(*arr).max(*idx).max(*val); }
             if let Instr::Move(_, from) = instr { mx = mx.max(*from); }
+            if let Instr::Force(_, handle, _) = instr { mx = mx.max(*handle); }
+            if let Instr::Update(_, handle, val) = instr { mx = mx.max(*handle).max(*val); }
         }
     }
     mx
@@ -336,102 +308,10 @@ fn emit_allocas(blocks: &[crate::ir::block::BasicBlock], params: &[(usize, IrTyp
     for r in 0..=max {
         let ty = ctx.get(r);
         if ty == IrType::Unit { continue; }
-        // Registers used as phi sources but never defined as results default to Int
         let ety = if ty == IrType::Undefined { IrType::Int } else { ty };
         let aty = if is_aggregate(&ety) { "ptr".into() } else { llvm_ty(&ety, &ctx.rec_fields, &ctx.is_recursive) };
         writeln!(out, "  %R{} = alloca {}", r, aty).ok();
     }
-}
-
-// ── Thunk ──────────────────────────────────────────────────────────
-
-fn emit_thunk(t: &Thunk, _module: &Module, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
-    ctx.label = 0;
-    scan(&t.blocks, ctx);
-    let rl = ctx.ll(0);
-    let safe = t.name.replace('@', "_at_").replace('%', "_pct_");
-
-    writeln!(out, "define {} @force_{}() {{", rl, safe).ok();
-    writeln!(out, "entry:").ok();
-    writeln!(out, "  %sp = getelementptr %thunk, ptr @{}.cell, i32 0, i32 0", safe).ok();
-    writeln!(out, "  %cp = getelementptr %thunk, ptr @{}.cell, i32 0, i32 1", safe).ok();
-    writeln!(out, "  %st = load i64, ptr %sp").ok();
-    writeln!(out, "  %sus = icmp eq i64 %st, 0").ok();
-    writeln!(out, "  br i1 %sus, label %eval, label %chk").ok();
-    writeln!(out, "chk:").ok();
-    writeln!(out, "  %ev = icmp eq i64 %st, 1").ok();
-    writeln!(out, "  br i1 %ev, label %cycle, label %cached").ok();
-    writeln!(out, "eval:").ok();
-    writeln!(out, "  store i64 1, ptr %sp").ok();
-    emit_allocas(&t.blocks, &[], ctx, out);
-    for b in &t.blocks {
-        if b.label != "entry" { writeln!(out, "{}:", b.label).ok(); }
-        // Emit phis first, then non-phis
-        for instr in &b.instrs {
-            if matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
-        }
-        emit_phi_load_stores(ctx, out);
-        for instr in &b.instrs {
-            if !matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
-        }
-        if let Terminator::Ret(r) = &b.terminator {
-            write_cache_val(*r, &safe, out, ctx).map_err(|e| e.to_string())?;
-            write_return_from_cache(*r, out, ctx).map_err(|e| e.to_string())?;
-        }
-    }
-    writeln!(out, "cached:").ok();
-    write_return_from_cache(0, out, ctx).map_err(|e| e.to_string())?;
-    writeln!(out, "cycle:").ok();
-    writeln!(out, "  call void @llvm.trap()").ok();
-    writeln!(out, "  unreachable").ok();
-    writeln!(out, "}}\n").ok();
-    Ok(())
-}
-
-fn write_cache_val(r: usize, name: &str, out: &mut String, ctx: &mut Ctx) -> Result<(), String> {
-    let ty = ctx.get(r);
-    match &ty {
-        IrType::Bool => writeln!(out, "  %tmp = load i1, ptr %R{}", r).map_err(|e| e.to_string())?,
-        IrType::Char => writeln!(out, "  %tmp = load i32, ptr %R{}", r).map_err(|e| e.to_string())?,
-        _ if is_aggregate(&ty) => writeln!(out, "  %tmp = load ptr, ptr %R{}", r).map_err(|e| e.to_string())?,
-        _ => writeln!(out, "  %tmp = load i64, ptr %R{}", r).map_err(|e| e.to_string())?,
-    }
-    match &ty {
-        IrType::Bool => writeln!(out, "  %cv = zext i1 %tmp to i64").map_err(|e| e.to_string())?,
-        IrType::Char => writeln!(out, "  %cv = zext i32 %tmp to i64").map_err(|e| e.to_string())?,
-        _ if is_aggregate(&ty) => writeln!(out, "  %cv = ptrtoint ptr %tmp to i64").map_err(|e| e.to_string())?,
-        _ => writeln!(out, "  %cv = add i64 %tmp, 0").map_err(|e| e.to_string())?,
-    }
-    writeln!(out, "  %vp = getelementptr %thunk, ptr @{}.cell, i32 0, i32 1", name).map_err(|e| e.to_string())?;
-    writeln!(out, "  store i64 %cv, ptr %vp").map_err(|e| e.to_string())?;
-    writeln!(out, "  store i64 2, ptr %sp").map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-fn write_return_from_cache(r: usize, out: &mut String, ctx: &mut Ctx) -> Result<(), String> {
-    let ty = ctx.get(r);
-    let rl = ctx.ll(r);
-    let cv = ctx.next();
-    let rv = ctx.next();
-    if rl == "void" || rl == "%Unit" {
-        writeln!(out, "  ret void").map_err(|e| e.to_string())?;
-    } else if is_aggregate(&ty) {
-        writeln!(out, "  %ci{} = load i64, ptr %cp", cv).map_err(|e| e.to_string())?;
-        writeln!(out, "  %rv{} = inttoptr i64 %ci{} to ptr", rv, cv).map_err(|e| e.to_string())?;
-        writeln!(out, "  ret ptr %rv{}", rv).map_err(|e| e.to_string())?;
-    } else if rl == "i1" {
-        writeln!(out, "  %ci{} = load i64, ptr %cp", cv).map_err(|e| e.to_string())?;
-        writeln!(out, "  %rv{} = trunc i64 %ci{} to i1", rv, cv).map_err(|e| e.to_string())?;
-        writeln!(out, "  ret i1 %rv{}", rv).map_err(|e| e.to_string())?;
-    } else if rl == "i32" {
-        writeln!(out, "  %ci{} = load i64, ptr %cp", cv).map_err(|e| e.to_string())?;
-        writeln!(out, "  %rv{} = trunc i64 %ci{} to i32", rv, cv).map_err(|e| e.to_string())?;
-        writeln!(out, "  ret i32 %rv{}", rv).map_err(|e| e.to_string())?;
-    } else {
-        writeln!(out, "  %rv{} = load i64, ptr %cp", rv).map_err(|e| e.to_string())?;
-        writeln!(out, "  ret i64 %rv{}", rv).map_err(|e| e.to_string())?;
-    }
-    Ok(())
 }
 
 // ── Function ───────────────────────────────────────────────────────
@@ -468,20 +348,17 @@ fn emit_fn(f: &crate::ir::func::Fn, _module: &Module, ctx: &mut Ctx, out: &mut S
     for (bi, b) in f.blocks.iter().enumerate() {
         ctx.current_block_label = Some(b.label.clone());
         writeln!(out, "{}:", b.label).ok();
-        // Emit phi instructions FIRST (LLVM requires phis at block start)
         for instr in &b.instrs {
             if matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
         }
         emit_phi_load_stores(ctx, out);
-        // In the entry block, allocas and parameter stores come after phis
         if bi == 0 {
             emit_allocas(&f.blocks, &f.params, ctx, out);
             for (r, t) in &f.params {
                 let ll = if is_aggregate(t) { "ptr".to_string() } else if *t == IrType::Bool { "i1".into() } else if *t == IrType::Char { "i32".into() } else { "i64".into() };
-                writeln!(out, "  store {} %arg{}, ptr %R{}", ll, r, r).map_err(|e| e.to_string())?;
+                writeln!(out, "  store {} %arg{}, ptr %R{}", ll, r, r).ok();
             }
         }
-        // Then non-phi instructions
         for instr in &b.instrs {
             if !matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
         }
@@ -523,7 +400,7 @@ fn emit_instr(instr: &Instr, ctx: &mut Ctx, out: &mut String) -> Result<(), Stri
         Instr::Not(r,a) => emit_not(*r,*a,ctx,out),
         Instr::Phi(r,pairs) => emit_phi(*r, pairs, ctx, out),
         Instr::Call(r,target,args,_) => emit_call(*r, target, args, ctx, out),
-        Instr::Force(r,target) => emit_force(*r, target, ctx, out),
+        Instr::Force(r,handle,ty) => emit_force(*r, *handle, ty, ctx, out),
         Instr::Field(r,base,idx,_) => emit_field(*r,*base,*idx,ctx,out),
         Instr::StructCons(r,_,fields) => emit_struct_cons(*r,fields,ctx,out),
         Instr::StructUpdate(r,base,fidx,val,_,_) => emit_struct_update(*r,*base,*fidx,*val,ctx,out),
@@ -537,7 +414,8 @@ fn emit_instr(instr: &Instr, ctx: &mut Ctx, out: &mut String) -> Result<(), Stri
         Instr::TupleLit(r,_,elems) => emit_tuple_lit(*r,elems,ctx,out),
         Instr::TupleUpdate(r,tup,idx,val,_) => emit_tuple_update(*r,*tup,*idx,*val,ctx,out),
         Instr::Move(r,from) => emit_move(*r,*from,ctx,out),
-        Instr::Update(_,_) => Ok(()),  // no-op for LLVM
+        Instr::ThunkAlloc(r,_,_) => emit_thunk_alloc(*r, ctx, out),
+        Instr::Update(r,handle,val) => emit_update(*r, *handle, *val, ctx, out),
         _ => { writeln!(out, "  ;; skip {:?}", instr).map_err(|e| e.to_string()) }
     }
 }
@@ -599,9 +477,6 @@ fn emit_not(r: usize, a: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), S
 }
 
 fn emit_phi(r: usize, pairs: &[(usize, String)], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
-    // Emit only the LLVM phi instruction. The load+store is deferred
-    // to after ALL phis in the block (via emit_phi_load_stores),
-    // to prevent non-phi instructions between phi instructions.
     let ty = ctx.get(r);
     let alloca_ll = if is_aggregate(&ty) { "ptr".into() } else { ctx.ll(r) };
     if pairs.is_empty() { return Ok(()); }
@@ -630,7 +505,6 @@ fn emit_call(r: usize, target: &CallTarget, args: &[usize], ctx: &mut Ctx, out: 
             let ret_ty = ctx.fn_returns.get(name.as_str()).cloned().unwrap_or(IrType::Int);
             let is_sret = is_aggregate(&ret_ty);
             let mut all_args: Vec<String> = Vec::new();
-            // Build call arguments
             if is_sret {
                 let slot_ll = llvm_ty(&ret_ty, &ctx.rec_fields, &ctx.is_recursive);
                 all_args.push(format!("ptr sret({}) %slot_r{}", slot_ll, r));
@@ -661,32 +535,90 @@ fn emit_call(r: usize, target: &CallTarget, args: &[usize], ctx: &mut Ctx, out: 
     Ok(())
 }
 
-fn emit_force(r: usize, target: &ForceTarget, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
-    match target {
-        ForceTarget::Static(name) => {
-            let safe = name.replace('@', "_at_").replace('%', "_pct_");
-            let rl = ctx.ll(r);
-            writeln!(out, "  %f{} = call i64 @force_{}()", ctx.next(), safe).map_err(|e| e.to_string()).map_err(|e| e.to_string())?;
-            let c = ctx.next() - 1;
-            match rl.as_str() {
-                "i1" => {
-                    writeln!(out, "  %tmp = trunc i64 %f{} to i1", c).map_err(|e| e.to_string()).map_err(|e| e.to_string())?;
-                    writeln!(out, "  store i1 %tmp, ptr %R{}", r).map_err(|e| e.to_string())
-                }
-                "i32" => {
-                    writeln!(out, "  %tmp = trunc i64 %f{} to i32", c).map_err(|e| e.to_string()).map_err(|e| e.to_string())?;
-                    writeln!(out, "  store i32 %tmp, ptr %R{}", r).map_err(|e| e.to_string())
-                }
-                "i64" => writeln!(out, "  store i64 %f{}, ptr %R{}", c, r).map_err(|e| e.to_string()),
-                _ if is_aggregate(&ctx.get(r)) => {
-                    writeln!(out, "  %tmp = inttoptr i64 %f{} to ptr", c).map_err(|e| e.to_string()).map_err(|e| e.to_string())?;
-                    writeln!(out, "  store ptr %tmp, ptr %R{}", r).map_err(|e| e.to_string())
-                }
-                _ => Ok(()),
-            }
-        }
-        ForceTarget::Dynamic(_) => writeln!(out, "  ;; dynamic force").map_err(|e| e.to_string()),
+fn emit_thunk_alloc(r: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let cell = ctx.next();
+    let sp = ctx.next();
+    writeln!(out, "  %c{} = alloca %thunk, align 8", cell).ok();
+    writeln!(out, "  %s{} = getelementptr %thunk, ptr %c{}, i32 0, i32 0", sp, cell).ok();
+    writeln!(out, "  store i64 0, ptr %s{}", sp).ok();
+    writeln!(out, "  store ptr %c{}, ptr %R{}", cell, r).ok();
+    Ok(())
+}
+
+fn emit_force(r: usize, handle: usize, _ty: &IrType, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    if ctx.get(r) == IrType::Undefined && handle == 0 {
+        return Ok(());
     }
+    let cell = ctx.next();
+    let vp = ctx.next();
+    let cv = ctx.next();
+    writeln!(out, "  %c{} = load ptr, ptr %R{}", cell, handle).ok();
+    writeln!(out, "  %v{} = getelementptr %thunk, ptr %c{}, i32 0, i32 1", vp, cell).ok();
+    writeln!(out, "  %w{} = load i64, ptr %v{}", cv, vp).ok();
+    let rl = ctx.ll(r);
+    match rl.as_str() {
+        "i1" => {
+            let tmp = ctx.next();
+            writeln!(out, "  %t{} = trunc i64 %w{} to i1", tmp, cv).ok();
+            writeln!(out, "  store i1 %t{}, ptr %R{}", tmp, r).ok();
+        }
+        "i32" => {
+            let tmp = ctx.next();
+            writeln!(out, "  %t{} = trunc i64 %w{} to i32", tmp, cv).ok();
+            writeln!(out, "  store i32 %t{}, ptr %R{}", tmp, r).ok();
+        }
+        "i64" => {
+            writeln!(out, "  store i64 %w{}, ptr %R{}", cv, r).ok();
+        }
+        _ if is_aggregate(&ctx.get(r)) => {
+            let tmp = ctx.next();
+            writeln!(out, "  %t{} = inttoptr i64 %w{} to ptr", tmp, cv).ok();
+            writeln!(out, "  store ptr %t{}, ptr %R{}", tmp, r).ok();
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn emit_update(r: usize, handle: usize, val: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
+    let cell = ctx.next();
+    let vp = ctx.next();
+    let vi = ctx.next();
+    let sp = ctx.next();
+    let _ = writeln!(out, "  %c{} = load ptr, ptr %R{}", cell, handle);
+    let _ = writeln!(out, "  %v{} = getelementptr %thunk, ptr %c{}, i32 0, i32 1", vp, cell);
+    let vl = ctx.ll(val);
+    match vl.as_str() {
+        "i1" => {
+            let z = ctx.next();
+            let _ = writeln!(out, "  %x{} = load i1, ptr %R{}", vi, val);
+            let _ = writeln!(out, "  %z{} = zext i1 %x{} to i64", z, vi);
+            let _ = writeln!(out, "  store i64 %z{}, ptr %v{}", z, vp);
+        }
+        "i32" => {
+            let z = ctx.next();
+            let _ = writeln!(out, "  %x{} = load i32, ptr %R{}", vi, val);
+            let _ = writeln!(out, "  %z{} = zext i32 %x{} to i64", z, vi);
+            let _ = writeln!(out, "  store i64 %z{}, ptr %v{}", z, vp);
+        }
+        "i64" => {
+            let _ = writeln!(out, "  %x{} = load i64, ptr %R{}", vi, val);
+            let _ = writeln!(out, "  store i64 %x{}, ptr %v{}", vi, vp);
+        }
+        _ if is_aggregate(&ctx.get(val)) => {
+            let _ = writeln!(out, "  %x{} = load ptr, ptr %R{}", vi, val);
+            let _ = writeln!(out, "  %z{} = ptrtoint ptr %x{} to i64", ctx.next(), vi);
+            let _ = writeln!(out, "  store i64 %z{}, ptr %v{}", ctx.next()-1, vp);
+        }
+        _ => {
+            let _ = writeln!(out, "  %x{} = load i64, ptr %R{}", vi, val);
+            let _ = writeln!(out, "  store i64 %x{}, ptr %v{}", vi, vp);
+        }
+    }
+    let _ = writeln!(out, "  %s{} = getelementptr %thunk, ptr %c{}, i32 0, i32 0", sp, cell);
+    let _ = writeln!(out, "  store i64 2, ptr %s{}", sp);
+    let _ = writeln!(out, "  store i64 0, ptr %R{}", r);
+    Ok(())
 }
 
 fn emit_field(r: usize, base: usize, idx: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
@@ -694,9 +626,6 @@ fn emit_field(r: usize, base: usize, idx: usize, ctx: &mut Ctx, out: &mut String
     let fl = ctx.next();
     let vl = ctx.next();
     let base_ty = ctx.get(base);
-    // Determine the actual LLVM field type from the base type, not the IR annotation.
-    // For arrays { ptr, i64 }: field 0 = ptr, field 1 = i64
-    // For structs/enums/tuples: use the element type directly
     let field_ll = match &base_ty {
         IrType::Array(_, _) if idx == 0 => "ptr".to_string(),
         IrType::Array(_, _) => "i64".to_string(),
@@ -704,17 +633,12 @@ fn emit_field(r: usize, base: usize, idx: usize, ctx: &mut Ctx, out: &mut String
             if idx < ts.len() { llvm_ty(&ts[idx], &ctx.rec_fields, &ctx.is_recursive) }
             else { "i64".to_string() }
         }
-        IrType::Struct(n) => {
-            // Find the field type from the struct definition
-            "i64".to_string() // simplified: fallback to i64, will be fixed with field type lookup
-        }
-        _ => ctx.ll(r), // scalar types, use IR annotation
+        IrType::Struct(n) => "i64".to_string(),
+        _ => ctx.ll(r),
     };
     let _ = writeln!(out, "  %p{} = load ptr, ptr %R{}", pl, base);
-    // For struct/enum/tuple, use getelementptr inbounds by field index
     match &base_ty {
         IrType::Array(_, _) => {
-            // Array metadata { ptr, i64 } — access as struct fields
             if idx == 0 {
                 let _ = writeln!(out, "  %f{} = getelementptr ptr, ptr %p{}, i32 0", fl, pl);
             } else {
@@ -723,7 +647,6 @@ fn emit_field(r: usize, base: usize, idx: usize, ctx: &mut Ctx, out: &mut String
         }
         IrType::Struct(n) => {
             if n == "%tuple" || n.starts_with('%') {
-                // Generic/unknown struct — use i64 offset
                 let _ = writeln!(out, "  %f{} = getelementptr i64, ptr %p{}, i32 {}", fl, pl, idx);
             } else {
                 let st = format!("%struct.{}", n);
@@ -733,10 +656,8 @@ fn emit_field(r: usize, base: usize, idx: usize, ctx: &mut Ctx, out: &mut String
         IrType::Enum(n) => {
             let et = format!("%enum.{}", n);
             let _ = writeln!(out, "  %f{} = getelementptr inbounds {}, ptr %p{}, i32 0, i32 1", fl, et, pl);
-            // then sub-index into payload
         }
         IrType::Tuple(ts) => {
-            // Tuples are heap-allocated — index directly
             let ft = ctx.ll(base);
             let _ = writeln!(out, "  %f{} = getelementptr {}, ptr %p{}, i32 {}", fl, ft, pl, idx);
         }
@@ -830,7 +751,6 @@ fn emit_array_lit(r: usize, elems: &[usize], ctx: &mut Ctx, out: &mut String) ->
     let _ = writeln!(out, "  %m{} = call ptr @malloc(i64 16)", mn);
     oom_check(&format!("%m{}", mn), out, ctx);
     let _ = writeln!(out, "  %d{} = call ptr @malloc(i64 {})", dn, ne * 8);
-    // also OOM check for data
     oom_check(&format!("%d{}", dn), out, ctx);
     let fp = ctx.next();
     let _ = writeln!(out, "  %f{} = getelementptr ptr, ptr %m{}, i32 0", fp, mn);
@@ -965,14 +885,11 @@ fn emit_terminator(term: &Terminator, ret_ll: &str, ctx: &mut Ctx, out: &mut Str
     match term {
         Terminator::Ret(r) => {
             let rl = ctx.ll(*r);
-            // Use the function's declared return type, not the register type
             if ret_ll == "void" || ret_ll == "%Unit" {
                 let _ = writeln!(out, "  ret void");
             } else {
                 let vl = ctx.next();
                 let _ = writeln!(out, "  %v{} = load {}, ptr %R{}", vl, rl, r);
-                // If register type differs from function return type, trust the register type.
-                // This handles IR-level type annotation mismatches (common in closures).
                 let _ = writeln!(out, "  ret {} %v{}", rl, vl);
             }
         }

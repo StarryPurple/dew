@@ -1,5 +1,4 @@
 /// Runtime values for the tree-walking evaluator.
-use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -12,18 +11,12 @@ pub enum Value {
     Tuple(Vec<Value>),
     Array(Vec<Value>),
     Closure(ClosureValue),
-    ThunkRef(ThunkRef),
 }
 
 #[derive(Debug, Clone)]
 pub struct ClosureValue {
     pub fn_name: String,
     pub captures: Vec<Value>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ThunkRef {
-    pub name: String,
 }
 
 impl Value {
@@ -56,12 +49,11 @@ pub enum ThunkState {
 /// The evaluator's runtime state.
 #[derive(Debug, Clone)]
 pub struct Runtime {
-    pub thunks: HashMap<String, ThunkState>,
+    pub thunks: std::collections::HashMap<usize, ThunkState>,
 }
 
 impl Runtime {
     pub fn new() -> Self {
-        Runtime { thunks: HashMap::new() }
+        Runtime { thunks: std::collections::HashMap::new() }
     }
 }
-

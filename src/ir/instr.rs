@@ -10,8 +10,9 @@ pub enum Instr {
     Stdout(Reg),
     Stdin(Reg),
     Lambda(Reg, String, Vec<Reg>),
+    ThunkAlloc(Reg, String, IrType),
     Call(Reg, CallTarget, Vec<Reg>, IrType),
-    Force(Reg, ForceTarget),
+    Force(Reg, Reg, IrType),
     Add(Reg, Reg, Reg),
     Sub(Reg, Reg, Reg),
     Mul(Reg, Reg, Reg),
@@ -47,7 +48,7 @@ pub enum Instr {
     ArrayUpdate(Reg, IrType, Reg, Reg, Reg, bool),
     TupleUpdate(Reg, Reg, usize, Reg, bool),
     Move(Reg, Reg),
-    Update(Reg, ForceTarget),
+    Update(Reg, Reg, Reg),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,12 +60,6 @@ pub enum LitValue {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CallTarget {
-    Static(String),
-    Dynamic(Reg),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ForceTarget {
     Static(String),
     Dynamic(Reg),
 }

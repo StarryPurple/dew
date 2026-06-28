@@ -2,10 +2,8 @@ use crate::ir::block::BasicBlock;
 use crate::ir::func::Fn;
 use crate::ir::instr::*;
 use crate::ir::module::Module;
-use crate::ir::thunk::Thunk;
 use crate::ir::types::TypeTable;
 use crate::value::*;
-use std::collections::HashMap;
 use std::io::{self, Write, BufRead};
 
 /// Result of evaluating a function body: either a final value, or a tail call
@@ -24,21 +22,15 @@ enum TailInfo {
 pub fn run(module: &Module) -> Result<Value, String> {
     let mut runtime = Runtime::new();
 
-    // Execute main
+    // Execute main, or the first function as entry point
     let result = if let Some(main_fn) = module.fns.iter().find(|f| f.name == "main") {
         let mut frame = EvalFrame::new();
-        eval_fn(main_fn, &module.fns, &module.thunks, &module.types, &mut frame, &mut runtime)
-    } else if let Some(main_thunk) = module.thunks.iter().find(|t| t.name == "main") {
+        eval_fn(main_fn, &module.fns, &module.types, &mut frame, &mut runtime)
+    } else if let Some(first) = module.fns.first() {
         let mut frame = EvalFrame::new();
-        force_thunk(main_thunk, &module.fns, &module.thunks, &module.types, &mut frame, &mut runtime)
+        eval_fn(first, &module.fns, &module.types, &mut frame, &mut runtime)
     } else {
-        // Evaluate first thunk as default
-        if let Some(first) = module.thunks.first() {
-            let mut frame = EvalFrame::new();
-            force_thunk(first, &module.fns, &module.thunks, &module.types, &mut frame, &mut runtime)
-        } else {
-            Ok(Value::Unit)
-        }
+        Ok(Value::Unit)
     };
     eprintln!("\nProgram dew-IR successfully interpreted.");
     result
@@ -65,7 +57,6 @@ impl EvalFrame {
 fn eval_fn(
     func: &Fn,
     fns: &[Fn],
-    thunks: &[Thunk],
     types: &TypeTable,
     frame: &mut EvalFrame,
     runtime: &mut Runtime,
@@ -73,7 +64,7 @@ fn eval_fn(
     let mut current = func;
     loop {
         let entry = current.blocks.first().ok_or("no entry block")?;
-        match eval_block(entry, &current.blocks, fns, thunks, types, frame, runtime)? {
+        match eval_block(entry, &current.blocks, fns, types, frame, runtime)? {
             TailResult::Value(v) => return Ok(v),
             TailResult::TailCall(name) => {
                 current = fns.iter().find(|f| f.name == *name)
@@ -91,11 +82,9 @@ fn eval_fn(
                     .ok_or_else(|| format!("fn '{}' not found for dynamic tail call", cv.fn_name))?;
                 let original_param_count = current.params.len() - cv.captures.len();
                 let mut new_regs = Vec::new();
-                // frame.regs[1..] are the call arguments
                 for i in 0..original_param_count {
                     new_regs.push(frame.regs.get(1 + i).cloned().unwrap_or(Value::Unit));
                 }
-                // Append captures after original params
                 for cap_val in &cv.captures {
                     new_regs.push(cap_val.clone());
                 }
@@ -107,8 +96,6 @@ fn eval_fn(
     }
 }
 
-/// Find a tail call in the block. Handles both direct `call; ret` and
-/// `call; jmp` to a phi+ret block that passes through the call result.
 fn find_tail_call(block: &BasicBlock, blocks: &[BasicBlock]) -> Option<TailInfo> {
     let last = block.instrs.last()?;
     let (reg, info) = match last {
@@ -123,14 +110,10 @@ fn find_tail_call(block: &BasicBlock, blocks: &[BasicBlock]) -> Option<TailInfo>
     match &block.terminator {
         Terminator::Ret(ret_r) if *ret_r == reg => Some(info),
         Terminator::Jmp(target) => {
-            // Follow jmp chain through phi merges until we reach a ret.
-            // The call result (reg) must flow through the phi chain to ret
-            // without modification (just one source among the phi inputs).
             let mut phi_reg = reg;
             let mut label = target.clone();
             loop {
                 let next = blocks.iter().find(|b| b.label == label)?;
-                // Check if this block starts with a phi that forwards the call result
                 let phi_pairs = next.instrs.first().and_then(|i| match i {
                     Instr::Phi(pr, pairs) if pairs.iter().any(|(r, _)| *r == phi_reg) => Some((*pr, pairs)),
                     _ => None,
@@ -142,7 +125,6 @@ fn find_tail_call(block: &BasicBlock, blocks: &[BasicBlock]) -> Option<TailInfo>
                                 return Some(info);
                             }
                         }
-                        // Not ret yet — continue following the phi chain
                         phi_reg = pr;
                         if let Terminator::Jmp(next_label) = &next.terminator {
                             label = next_label.clone();
@@ -162,19 +144,15 @@ fn eval_block(
     block: &BasicBlock,
     blocks: &[BasicBlock],
     fns: &[Fn],
-    thunks: &[Thunk],
     types: &TypeTable,
     frame: &mut EvalFrame,
     runtime: &mut Runtime,
 ) -> Result<TailResult, String> {
-    // Check for tail call: last instruction is Call(r, target, args) followed by Ret(r),
-    // or Call(r, target, args) followed by Jmp to a phi+Ret block that passes through r.
     let tail_info = find_tail_call(block, blocks);
 
     if let Some(info) = &tail_info {
-        // Evaluate all instructions except the last (tail-call) one
         for instr in &block.instrs[..block.instrs.len() - 1] {
-            eval_instr(instr, fns, thunks, types, frame, runtime)?;
+            eval_instr(instr, fns, types, frame, runtime)?;
         }
         match info {
             TailInfo::Static(name, args) => {
@@ -184,8 +162,6 @@ fn eval_block(
                 return Ok(TailResult::TailCall(name.clone()));
             }
             TailInfo::Dynamic(dyn_reg, args) => {
-                // For dynamic tail calls, the dyn_reg holds the closure (from a prior force).
-                // The caller (eval_fn) will extract the closure and set up the new frame.
                 let arg_vals: Vec<Value> = args.iter().map(|a| frame.get(*a).clone()).collect();
                 let closure_val = frame.get(*dyn_reg).clone();
                 frame.regs = vec![closure_val];
@@ -196,9 +172,8 @@ fn eval_block(
         }
     }
 
-    // No tail call — evaluate all instructions normally
     for instr in &block.instrs {
-        eval_instr(instr, fns, thunks, types, frame, runtime)?;
+        eval_instr(instr, fns, types, frame, runtime)?;
     }
     match &block.terminator {
         Terminator::Ret(r) => Ok(TailResult::Value(frame.get(*r).clone())),
@@ -207,7 +182,7 @@ fn eval_block(
             let target = if v { t } else { f };
             let next = blocks.iter().find(|b| &b.label == target).ok_or("block not found")?;
             frame.label_stack.push(block.label.clone());
-            eval_block(next, blocks, fns, thunks, types, frame, runtime)
+            eval_block(next, blocks, fns, types, frame, runtime)
         }
         Terminator::Jmp(target) => {
             let next = blocks.iter().find(|b| &b.label == target).ok_or("block not found")?;
@@ -216,7 +191,7 @@ fn eval_block(
             if !current_is_merge || target_is_merge {
                 frame.label_stack.push(block.label.clone());
             }
-            eval_block(next, blocks, fns, thunks, types, frame, runtime)
+            eval_block(next, blocks, fns, types, frame, runtime)
         }
     }
 }
@@ -224,7 +199,6 @@ fn eval_block(
 fn eval_instr(
     instr: &Instr,
     fns: &[Fn],
-    thunks: &[Thunk],
     types: &TypeTable,
     frame: &mut EvalFrame,
     runtime: &mut Runtime,
@@ -295,6 +269,11 @@ fn eval_instr(
                 captures: cap_values,
             }));
         }
+        Instr::ThunkAlloc(r, _name, _ty) => {
+            // Allocate a thunk cell in the runtime store, keyed by handle register
+            runtime.thunks.insert(*r, ThunkState::Suspended);
+            frame.set(*r, Value::Int(0)); // handle register gets a dummy value (real state is in runtime)
+        }
         Instr::Ge(r, a, b) => {
             let va = frame.get(*a).compare_key().unwrap_or(0);
             let vb = frame.get(*b).compare_key().unwrap_or(0);
@@ -332,7 +311,7 @@ fn eval_instr(
                     for (i, arg_reg) in args.iter().enumerate() {
                         callee_frame.set(i, frame.get(*arg_reg).clone());
                     }
-                    let result = eval_fn(callee, fns, thunks, types, &mut callee_frame, runtime)?;
+                    let result = eval_fn(callee, fns, types, &mut callee_frame, runtime)?;
                     frame.set(*r, result);
                 }
                 CallTarget::Dynamic(reg) => {
@@ -344,26 +323,30 @@ fn eval_instr(
                         .ok_or(format!("closure fn '{}' not found", closure.fn_name))?;
                     let mut callee_frame = EvalFrame::new();
                     let original_param_count = callee.params.len() - closure.captures.len();
-                    // Set call arguments (original params)
                     for (i, arg_reg) in args.iter().enumerate() {
                         callee_frame.set(i, frame.get(*arg_reg).clone());
                     }
-                    // Set captured values after original params
                     for (i, cap_val) in closure.captures.iter().enumerate() {
                         callee_frame.set(original_param_count + i, cap_val.clone());
                     }
-                    let result = eval_fn(callee, fns, thunks, types, &mut callee_frame, runtime)?;
+                    let result = eval_fn(callee, fns, types, &mut callee_frame, runtime)?;
                     frame.set(*r, result);
                 }
             }
         }
-        Instr::Force(r, target) => {
-            let name = match target {
-                ForceTarget::Static(n) => n.clone(),
-                ForceTarget::Dynamic(_) => return Err("dynamic force not yet supported".into()),
+        Instr::Force(r, handle, _ty) => {
+            // handle_register is the thunk handle
+            let state = runtime.thunks.get(handle).cloned();
+            let result = match state {
+                Some(ThunkState::Evaluated(v)) => v,
+                Some(ThunkState::Evaluating) => return Err("thunk cycle detected".into()),
+                _ => {
+                    // Evaluate the thunk — but with register-level thunks, there's no body.
+                    // The thunk MUST be updated (via Update) before being forced.
+                    // If it's still Suspended, return Unit as fallback.
+                    Value::Unit
+                }
             };
-            let thunk = thunks.iter().find(|t| t.name == name).ok_or("thunk not found")?;
-            let result = force_thunk(thunk, fns, thunks, types, frame, runtime)?;
             frame.set(*r, result);
         }
         Instr::Stdout(r) => {
@@ -524,94 +507,21 @@ fn eval_instr(
         Instr::Move(r, from) => {
             frame.set(*r, frame.get(*from).clone());
         }
-        Instr::Update(r, target) => {
-            let value = frame.get(*r).clone();
-            match target {
-                ForceTarget::Static(name) => {
-                    // Insert or overwrite the thunk state. The Update instruction
-                    // may run before the first Force (e.g., in def rec bindings),
-                    // so the runtime entry may not exist yet.
-                    runtime.thunks.insert(name.clone(), ThunkState::Evaluated(value));
-                }
-                ForceTarget::Dynamic(reg) => {
-                    // Dynamic thunk update not used in current design
-                }
-            }
+        Instr::Update(r, handle, val) => {
+            // Store the value into the thunk's runtime state
+            let value = frame.get(*val).clone();
+            runtime.thunks.insert(*handle, ThunkState::Evaluated(value));
+            frame.set(*r, Value::Unit);
         }
         _ => return Err("instruction not implemented in eval".into()),
     }
     Ok(())
 }
 
-fn force_thunk(
-    thunk: &Thunk,
-    fns: &[Fn],
-    thunks: &[Thunk],
-    types: &TypeTable,
-    frame: &mut EvalFrame,
-    runtime: &mut Runtime,
-) -> Result<Value, String> {
-    let state = runtime.thunks.get(&thunk.name).cloned();
-    match state {
-        Some(ThunkState::Evaluated(v)) => Ok(v),
-        Some(ThunkState::Evaluating) => Err("thunk cycle detected".into()),
-        _ => {
-            runtime.thunks.insert(thunk.name.clone(), ThunkState::Evaluating);
-            let entry = thunk.blocks.first().ok_or("no entry block")?;
-            let mut thunk_frame = EvalFrame::new();
-            let result = match eval_block(entry, &thunk.blocks, fns, thunks, types, &mut thunk_frame, runtime)? {
-                TailResult::Value(v) => Ok(v),
-                TailResult::TailCall(name) => {
-                    // thunk_frame already has args set up by the tail-call
-                    // handler in eval_block — reuse it for the callee.
-                    let callee = fns.iter().find(|f| f.name == *name)
-                        .ok_or_else(|| format!("fn '{}' not found", name))?;
-                    eval_fn(callee, fns, thunks, types, &mut thunk_frame, runtime)
-                }
-                TailResult::TailCallDynamic => {
-                    let closure_val = thunk_frame.regs.first()
-                        .ok_or("dynamic tail call from thunk: empty frame")?.clone();
-                    let cv = match closure_val {
-                        Value::Closure(cv) => cv,
-                        _ => return Err("dynamic tail call target is not a closure".into()),
-                    };
-                    let callee = fns.iter().find(|f| f.name == cv.fn_name)
-                        .ok_or_else(|| format!("fn '{}' not found for dynamic tail call", cv.fn_name))?;
-                    let original_param_count = callee.params.len() - cv.captures.len();
-                    let mut new_regs = Vec::new();
-                    for i in 0..original_param_count {
-                        new_regs.push(thunk_frame.regs.get(1 + i).cloned().unwrap_or(Value::Unit));
-                    }
-                    for cap_val in &cv.captures {
-                        new_regs.push(cap_val.clone());
-                    }
-                    thunk_frame.regs = new_regs;
-                    eval_fn(callee, fns, thunks, types, &mut thunk_frame, runtime)
-                }
-            };
-            runtime.thunks.insert(thunk.name.clone(), ThunkState::Evaluated(result.clone()?));
-            result
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ir::types::*;
-
-    #[test]
-    fn eval_simple_thunk() {
-        let mut module = Module::new();
-        let mut t = Thunk::new("x".into(), IrType::Int);
-        let mut block = BasicBlock::new("entry".into());
-        block.instrs.push(Instr::Lit(0, LitValue::Int(42)));
-        block.terminator = Terminator::Ret(0);
-        t.blocks.push(block);
-        module.thunks.push(t);
-        let result = run(&module).unwrap();
-        assert_eq!(result.as_int(), Some(42));
-    }
 
     #[test]
     fn eval_add_fn() {

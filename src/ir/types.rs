@@ -13,7 +13,6 @@ pub enum IrType {
     Fun(Vec<IrType>, Box<IrType>),
     Tuple(Vec<IrType>),
     Array(Box<IrType>, usize),
-    ThunkRef(Box<IrType>),
 }
 
 impl IrType {
@@ -29,7 +28,6 @@ impl IrType {
             IrType::Fun(p, r) => format!("({}) -> {}", p.iter().map(|t| t.display()).collect::<Vec<_>>().join(", "), r.display()),
             IrType::Tuple(ts) => format!("({})", ts.iter().map(|t| t.display()).collect::<Vec<_>>().join(", ")),
             IrType::Array(t, n) => format!("[{}; {}]", t.display(), n),
-            IrType::ThunkRef(t) => format!("ThunkRef({})", t.display()),
         }
     }
 }

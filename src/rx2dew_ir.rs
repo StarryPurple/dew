@@ -677,7 +677,7 @@ impl Ctx {
                 // Handle `getInt()` builtin
                 if let Expr::Ident(s) = func.as_ref() {
                     if s == "getInt" { return "(stdin(0) as Int)".into(); }
-                    if s == "printlnInt" { if let Some(a) = args.first() { return format!("{} -> stdout", self.emit_expr(a)); } }
+                    if s == "printlnInt" { if let Some(a) = args.first() { return format!("{} -> stdout; '\\n' -> stdout;", self.emit_expr(a)); } }
                     if s == "exit" { return String::new(); }
                     // Direct function call — add & for borrow params
                     let borrow_info = self.fn_borrow_params.get(s);

@@ -1,5 +1,4 @@
 use super::func::Fn;
-use super::thunk::Thunk;
 use super::types::TypeTable;
 use serde::{Deserialize, Serialize};
 
@@ -7,11 +6,10 @@ use serde::{Deserialize, Serialize};
 pub struct Module {
     pub types: TypeTable,
     pub fns: Vec<Fn>,
-    pub thunks: Vec<Thunk>,
 }
 
 impl Module {
     pub fn new() -> Self {
-        Module { types: TypeTable::new(), fns: vec![], thunks: vec![] }
+        Module { types: TypeTable::new(), fns: vec![] }
     }
 }

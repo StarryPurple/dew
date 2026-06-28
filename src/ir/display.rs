@@ -1,8 +1,6 @@
-use super::block::BasicBlock;
 use super::func::Fn;
 use super::instr::*;
 use super::module::Module;
-use super::thunk::Thunk;
 use super::types::*;
 
 pub fn display(module: &Module) -> String {
@@ -38,10 +36,6 @@ pub fn display(module: &Module) -> String {
         out.push_str(&display_fn(f));
         out.push('\n');
     }
-    for t in &module.thunks {
-        out.push_str(&display_thunk(t));
-        out.push('\n');
-    }
     out
 }
 
@@ -53,7 +47,7 @@ fn display_fn(f: &Fn) -> String {
     for block in &f.blocks {
         out.push_str(&format!("  {}:\n", block.label));
         for instr in &block.instrs {
-            out.push_str(&format!("    {}\n", display_instr(instr, &f.return_type)));
+            out.push_str(&format!("    {}\n", display_instr(instr)));
         }
         out.push_str(&format!("    {}\n", display_terminator(&block.terminator)));
     }
@@ -61,20 +55,7 @@ fn display_fn(f: &Fn) -> String {
     out
 }
 
-fn display_thunk(t: &Thunk) -> String {
-    let mut out = format!("thunk @{}() {{\n", t.name);
-    for block in &t.blocks {
-        out.push_str(&format!("  {}:\n", block.label));
-        for instr in &block.instrs {
-            out.push_str(&format!("    {}\n", display_instr(instr, &t.result_type)));
-        }
-        out.push_str(&format!("    {}\n", display_terminator(&block.terminator)));
-    }
-    out.push_str("}\n");
-    out
-}
-
-fn instr_type(instr: &Instr, return_ty: &IrType) -> IrType {
+fn instr_type(instr: &Instr) -> IrType {
     match instr {
         Instr::Lit(_, v) => match v {
             LitValue::Int(_) => IrType::Int,
@@ -87,7 +68,7 @@ fn instr_type(instr: &Instr, return_ty: &IrType) -> IrType {
         Instr::And(..) | Instr::Or(..) | Instr::Not(..) => IrType::Bool,
         Instr::Field(_, _, _, field_ty) => field_ty.clone(),
         Instr::Call(_, _, _, ret_ty) => ret_ty.clone(),
-        Instr::Force(_, _) => return_ty.clone(),
+        Instr::Force(_, _, ty) => ty.clone(),
         Instr::ArrayLit(_, ty, _) => ty.clone(),
         Instr::ArrayFill(_, ty, _, _) => ty.clone(),
         Instr::TupleLit(_, ty, _) => ty.clone(),
@@ -98,16 +79,16 @@ fn instr_type(instr: &Instr, return_ty: &IrType) -> IrType {
         Instr::StructUpdate(_, _, _, _, struct_ty, _) => struct_ty.clone(),
         Instr::ArrayAccess(_, ty, _, _) | Instr::ArrayUpdate(_, ty, _, _, _, _) => ty.clone(),
         Instr::TupleUpdate(..) => IrType::Int,
-        Instr::Move(..) | Instr::Update(..) | Instr::Fetch(..) | Instr::Place(..) => IrType::Undefined,
+        Instr::Move(..) | Instr::Fetch(..) | Instr::Place(..) | Instr::ThunkAlloc(..) | Instr::Update(..) => IrType::Undefined,
         Instr::Lambda(..) => IrType::Undefined,
-        Instr::Phi(..) => return_ty.clone(),
+        Instr::Phi(..) => IrType::Undefined,
         Instr::Stdout(_) => IrType::Int,
         Instr::Stdin(_) => IrType::Int,
     }
 }
 
-fn display_instr(instr: &Instr, return_ty: &IrType) -> String {
-    let result_ty = instr_type(instr, return_ty);
+fn display_instr(instr: &Instr) -> String {
+    let result_ty = instr_type(instr);
     match instr {
         Instr::Lit(r, v) => format!("%{}: {} = lit {}", r, result_ty, display_lit(v)),
         Instr::Stdout(r) => format!("stdout{} %{}", result_ty, r),
@@ -115,6 +96,9 @@ fn display_instr(instr: &Instr, return_ty: &IrType) -> String {
         Instr::Lambda(r, name, caps) => {
             format!("%{}: {} = lambda @{}({})", r, result_ty, name,
                 caps.iter().map(|c| format!("%{}", c)).collect::<Vec<_>>().join(", "))
+        }
+        Instr::ThunkAlloc(r, name, ty) => {
+            format!("%{}: {} = thunk_alloc @{} : {}", r, result_ty, name, ty.display())
         }
         Instr::Call(r, target, args, _ret_ty) => {
             let t = match target {
@@ -124,12 +108,8 @@ fn display_instr(instr: &Instr, return_ty: &IrType) -> String {
             format!("%{}: {} = call {} {}", r, result_ty, t,
                 args.iter().map(|a| format!("%{}", a)).collect::<Vec<_>>().join(" "))
         }
-        Instr::Force(r, target) => {
-            let t = match target {
-                ForceTarget::Static(n) => format!("@{}", n),
-                ForceTarget::Dynamic(reg) => format!("%{}", reg),
-            };
-            format!("%{}: {} = force {}", r, result_ty, t)
+        Instr::Force(r, handle, _ty) => {
+            format!("%{}: {} = force %{}", r, result_ty, handle)
         }
         Instr::Add(r, a, b) => format!("%{}: {} = add %{} %{}", r, result_ty, a, b),
         Instr::Sub(r, a, b) => format!("%{}: {} = sub %{} %{}", r, result_ty, a, b),
@@ -201,12 +181,8 @@ fn display_instr(instr: &Instr, return_ty: &IrType) -> String {
             format!("%{}: {} = tuple_update %{} .{} = %{}", r, result_ty, tup, idx, val)
         }
         Instr::Move(r, from) => format!("%{}: {} = move %{}", r, result_ty, from),
-        Instr::Update(r, target) => {
-            let t = match target {
-                ForceTarget::Static(n) => format!("@{}", n),
-                ForceTarget::Dynamic(reg) => format!("%{}", reg),
-            };
-            format!("%{}: {} = update {}", r, result_ty, t)
+        Instr::Update(r, handle, val) => {
+            format!("%{}: {} = update %{} %{}", r, result_ty, handle, val)
         }
     }
 }
@@ -215,7 +191,19 @@ fn display_lit(v: &LitValue) -> String {
     match v {
         LitValue::Int(n) => n.to_string(),
         LitValue::Bool(b) => if *b { "true".into() } else { "false".into() },
-        LitValue::Char(c) => format!("'{}'", c),
+        LitValue::Char(c) => {
+            let s = match c {
+                '\n' => "\\n".to_string(),
+                '\r' => "\\r".to_string(),
+                '\t' => "\\t".to_string(),
+                '\\' => "\\\\".to_string(),
+                '\'' => "\\'".to_string(),
+                '\0' => "\\0".to_string(),
+                c if c.is_ascii_control() => format!("\\x{:02x}", *c as u8),
+                c => c.to_string(),
+            };
+            format!("'{}'", s)
+        }
     }
 }
 
@@ -238,6 +226,7 @@ fn display_terminator(t: &Terminator) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::block::BasicBlock;
 
     #[test]
     fn display_simple_fn() {
@@ -249,19 +238,6 @@ mod tests {
         let output = display_fn(&f);
         assert!(output.contains("fn @add"));
         assert!(output.contains("add %0 %1"));
-        assert!(output.contains("ret %0"));
-    }
-
-    #[test]
-    fn display_thunk_val() {
-        let mut t = Thunk::new("x".into(), IrType::Int);
-        let mut block = BasicBlock::new("entry".into());
-        block.instrs.push(Instr::Lit(0, LitValue::Int(42)));
-        block.terminator = Terminator::Ret(0);
-        t.blocks.push(block);
-        let output = display_thunk(&t);
-        assert!(output.contains("thunk @x"));
-        assert!(output.contains("lit 42"));
         assert!(output.contains("ret %0"));
     }
 }

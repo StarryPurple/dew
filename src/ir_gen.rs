@@ -8,9 +8,8 @@ use crate::ast::*;
 use crate::diagnostics::DiagnosticCollector;
 use crate::ir::block::BasicBlock;
 use crate::ir::func::Fn;
-use crate::ir::instr::{self, Instr, Terminator, CallTarget, ForceTarget, Accessor, LitValue as IrLitValue};
+use crate::ir::instr::{Instr, Terminator, CallTarget, LitValue as IrLitValue};
 use crate::ir::module::Module;
-use crate::ir::thunk::Thunk;
 use crate::ir::types::*;
 
 pub struct IrGenerator<'a> {
@@ -19,10 +18,8 @@ pub struct IrGenerator<'a> {
     next_reg: usize,
     next_label: usize,
     next_closure: usize,
-    next_thunk: usize,
     var_map: std::collections::HashMap<String, usize>,
-    thunk_names: std::collections::HashSet<String>,
-    thunk_name_map: std::collections::HashMap<String, String>,
+    thunk_handles: std::collections::HashMap<String, (usize, IrType)>,
     rec_fn_names: std::collections::HashSet<String>,
     current_fn_return_ty: IrType,
     fn_param_names: std::collections::HashSet<String>,
@@ -44,10 +41,8 @@ impl<'a> IrGenerator<'a> {
             next_reg: 0,
             next_label: 0,
             next_closure: 0,
-            next_thunk: 0,
             var_map: std::collections::HashMap::new(),
-            thunk_names: std::collections::HashSet::new(),
-            thunk_name_map: std::collections::HashMap::new(),
+            thunk_handles: std::collections::HashMap::new(),
             rec_fn_names: std::collections::HashSet::new(),
             current_fn_return_ty: IrType::Int,
             fn_param_names: std::collections::HashSet::new(),
@@ -64,8 +59,6 @@ impl<'a> IrGenerator<'a> {
 
     pub fn generate(mut self, prog: &Program) -> Module {
         // Register __ControlFlow enum used by while-borrow desugaring.
-        // Must be registered before processing declarations so it's available
-        // when EnumLit expressions are compiled.
         let cf_variants = vec![
             VariantDef { name: "__Done".into(), tag: 0, fields: vec![("0".into(), IrType::Int)] },
             VariantDef { name: "__Continue".into(), tag: 1, fields: vec![("0".into(), IrType::Int)] },
@@ -134,8 +127,23 @@ impl<'a> IrGenerator<'a> {
     fn compile_def(&mut self, d: &DefDecl) {
         match &d.value {
             Expr::Fn(_) => self.compile_fn(d),
-            _ => self.compile_thunk(d),
+            _ => self.compile_top_level_def(d),
         }
+    }
+
+    fn compile_top_level_def(&mut self, d: &DefDecl) {
+        let val_ty = d.ty.as_ref().map(|t| self.ast_ty_to_ir(t)).unwrap_or(IrType::Int);
+        let name = d.name.name.clone();
+
+        let mut ir_fn = Fn::new(name, vec![], val_ty.clone());
+        let mut block = BasicBlock::new("entry".into());
+        self.next_reg = 0;
+        self.current_fn_return_ty = val_ty.clone();
+
+        let result_reg = self.compile_expr(&d.value, &mut block);
+        self.compile_finish(&mut block, &mut ir_fn.blocks, result_reg);
+
+        self.module.fns.push(ir_fn);
     }
 
     fn compile_fn(&mut self, d: &DefDecl) {
@@ -190,26 +198,6 @@ impl<'a> IrGenerator<'a> {
         self.module.fns.push(ir_fn);
     }
 
-    fn compile_thunk(&mut self, d: &DefDecl) {
-        let val_ty = match &d.ty {
-            Some(t) => self.ast_ty_to_ir(t),
-            None => IrType::Int,
-        };
-
-        let name = d.name.name.clone();
-        self.thunk_names.insert(name.clone());
-
-        let mut t = Thunk::new(name, val_ty.clone());
-        let mut block = BasicBlock::new("entry".into());
-        self.next_reg = 0;
-
-        let result_reg = self.compile_expr(&d.value, &mut block);
-        self.compile_finish(&mut block, &mut t.blocks, result_reg);
-        self.extra_blocks.clear();
-
-        self.module.thunks.push(t);
-    }
-
     fn compile_expr(&mut self, expr: &Expr, block: &mut BasicBlock) -> usize {
         match expr {
             Expr::IntLit(l) => {
@@ -229,14 +217,19 @@ impl<'a> IrGenerator<'a> {
             }
             Expr::UnitLit(_) => 0,
             Expr::Var(ident) => {
-                if self.thunk_names.contains(&ident.name) {
-                    // Use unique thunk name to avoid collisions across
-                    // multiple fix expressions with the same loop variable.
-                    let thunk_target = self.thunk_name_map.get(&ident.name)
-                        .cloned()
-                        .unwrap_or_else(|| ident.name.clone());
+                if let Some(thunk_info) = self.thunk_handles.get(&ident.name).cloned() {
+                    let (handle_reg, val_ty) = thunk_info;
                     let r = self.fresh_reg();
-                    block.instrs.push(Instr::Force(r, ForceTarget::Static(thunk_target)));
+                    block.instrs.push(Instr::Force(r, handle_reg, val_ty));
+                    r
+                } else if self.module.fns.iter().any(|f| f.name == ident.name) {
+                    // Top-level function reference — call it with zero args
+                    let r = self.fresh_reg();
+                    let ret_ty = self.module.fns.iter()
+                        .find(|f| f.name == ident.name)
+                        .map(|f| f.return_type.clone())
+                        .unwrap_or(IrType::Int);
+                    block.instrs.push(Instr::Call(r, CallTarget::Static(ident.name.clone()), vec![], ret_ty));
                     r
                 } else if let Some(&reg) = self.var_map.get(&ident.name) {
                     reg
@@ -362,12 +355,6 @@ impl<'a> IrGenerator<'a> {
                             arg_reg
                         }
                         "stdin" => {
-                            // Use the borrow variable's register if available
-                            // (so the evaluator writes directly to the right slot).
-                            // For LLVM SSA, the Lit(def) and Stdin share the same
-                            // register number — the evaluator handles this fine
-                            // as sequential writes; LLVM backend handles it via
-                            // %r{r}_stdin naming to avoid SSA conflicts.
                             let arg_reg = if let Some(arg) = c.args.first() {
                                 match arg {
                                     ExprArg::Value(e) => self.compile_expr(e, block),
@@ -407,8 +394,13 @@ impl<'a> IrGenerator<'a> {
                     let result_r = self.fresh_reg();
                     let (target, ret_ty) = match &*c.func {
                         Expr::Var(ident) => {
-                            // If var is in var_map (closure), use Dynamic call
-                            if let Some(&reg) = self.var_map.get(&ident.name) {
+                            // If var is a recursive thunk, force it then Dynamic call
+                            if let Some(thunk_info) = self.thunk_handles.get(&ident.name).cloned() {
+                                let (handle_reg, _val_ty) = thunk_info;
+                                let fr = self.fresh_reg();
+                                block.instrs.push(Instr::Force(fr, handle_reg, IrType::Int));
+                                (CallTarget::Dynamic(fr), IrType::Int)
+                            } else if let Some(&reg) = self.var_map.get(&ident.name) {
                                 if !self.module.fns.iter().any(|f| f.name == ident.name) {
                                     (CallTarget::Dynamic(reg), IrType::Int)
                                 } else {
@@ -420,15 +412,6 @@ impl<'a> IrGenerator<'a> {
                                 }
                             } else if self.rec_fn_names.contains(&ident.name) {
                                 (CallTarget::Static(ident.name.clone()), self.current_fn_return_ty.clone())
-                            } else if self.thunk_names.contains(&ident.name) {
-                                // Self-referencing closure: force thunk then Dynamic call.
-                                // Use the unique thunk name to avoid collisions.
-                                let thunk_target = self.thunk_name_map.get(&ident.name)
-                                    .cloned()
-                                    .unwrap_or_else(|| ident.name.clone());
-                                let fr = self.fresh_reg();
-                                block.instrs.push(Instr::Force(fr, ForceTarget::Static(thunk_target)));
-                                (CallTarget::Dynamic(fr), IrType::Int)
                             } else {
                                 let ret = self.module.fns.iter()
                                     .find(|f| f.name == ident.name)
@@ -459,43 +442,26 @@ impl<'a> IrGenerator<'a> {
 
             Expr::Block(b) => {
                 let mut saved_var_map = self.var_map.clone();
+                let saved_thunk_handles = self.thunk_handles.clone();
                 let saved_reg_struct = self.reg_struct.clone();
                 let mut last_reg = 0;
                 for stmt in &b.stmts {
                     if let Some(def) = &stmt.def {
                         if def.rec {
-                            self.thunk_names.insert(def.name.name.clone());
-                            // Create a placeholder thunk with unique name for
-                            // self-referencing closures. Multiple fix expressions
-                            // may share the same loop_var name (e.g. "__while_loop"),
-                            // so we need unique thunk names to avoid collisions.
                             let val_ty = def.ty.as_ref()
                                 .map(|t| self.ast_ty_to_ir(t))
                                 .unwrap_or(IrType::Int);
-                            let thunk_name = format!("{}@{}", def.name.name, self.next_thunk);
-                            self.next_thunk += 1;
-                            self.thunk_name_map.insert(def.name.name.clone(), thunk_name.clone());
-                            self.module.thunks.push(Thunk::new(thunk_name.clone(), val_ty));
-                            // Add a dummy block to prevent "thunk has no blocks" in LLVM backend.
-                            // The evaluator Never runs this block (Update stores the closure before
-                            // any Force), but the LLVM backend needs valid blocks to compile.
-                            if let Some(t) = self.module.thunks.iter_mut().find(|t| t.name == thunk_name) {
-                                let mut db = BasicBlock::new("entry".into());
-                                db.instrs.push(Instr::Lit(0, IrLitValue::Int(0)));
-                                db.terminator = Terminator::Ret(0);
-                                t.blocks.push(db);
-                            }
+                            let thunk_handle = self.fresh_reg();
+                            self.thunk_handles.insert(def.name.name.clone(), (thunk_handle, val_ty.clone()));
+                            block.instrs.push(Instr::ThunkAlloc(thunk_handle, def.name.name.clone(), val_ty));
                         }
                     }
                 }
                 for stmt in &b.stmts {
-                    // For recursive defs, pre-register the name so that the body
-                    // can reference itself (e.g., def rec f = fn(x) { ... f(x) ... }).
                     if let Some(def) = &stmt.def {
                         if def.rec {
                             // Do NOT pre-register in var_map. The closure body's self-referencing
-                            // calls go through the thunk_names path (Force thunk + Dynamic call).
-                            // The thunk is already Evaluated by the time the closure runs.
+                            // calls go through the thunk_handles path (Force thunk + Dynamic call).
                         }
                         // Track def name for in-place mutation optimization in Expr::Update
                         self.current_shadow_var = Some(def.name.name.clone());
@@ -504,8 +470,9 @@ impl<'a> IrGenerator<'a> {
                     self.current_shadow_var = None;
                     if let Some(def) = &stmt.def {
                         if def.rec {
-                            if let Some(thunk_name) = self.thunk_name_map.get(&def.name.name) {
-                                block.instrs.push(Instr::Update(last_reg, ForceTarget::Static(thunk_name.clone())));
+                            if let Some(&(handle_reg, _)) = self.thunk_handles.get(&def.name.name) {
+                                let update_reg = self.fresh_reg();
+                                block.instrs.push(Instr::Update(update_reg, handle_reg, last_reg));
                             }
                             self.var_map.insert(def.name.name.clone(), last_reg);
                         } else {
@@ -527,19 +494,13 @@ impl<'a> IrGenerator<'a> {
                     last_reg = self.compile_expr(final_expr, block);
                 }
                 // Before restoring, propagate var_map updates for function
-                // parameter names that were rebound inside this block. This
-                // allows borrow-param rebindings (e.g. `def pool = %_btmp.0`
-                // inside if-else branches) to escape their enclosing block
-                // and be visible in the function's return tuple. Regular
-                // local variables (non-params) are NOT propagated, preserving
-                // lexical shadowing semantics.
+                // parameter names that were rebound inside this block.
                 if !self.fn_param_names.is_empty() {
                     for (name, reg) in std::mem::take(&mut self.var_map) {
                         if self.fn_param_names.contains(&name) {
                             if let Some(&outer_reg) = saved_var_map.get(&name) {
                                 if outer_reg != reg {
                                     saved_var_map.insert(name.clone(), reg);
-                                    // Propagate array element type for named field access
                                     if let Some(elem_ty) = self.param_array_elem_types.get(&outer_reg) {
                                         self.param_array_elem_types.insert(reg, elem_ty.clone());
                                     }
@@ -549,6 +510,7 @@ impl<'a> IrGenerator<'a> {
                     }
                 }
                 self.var_map = saved_var_map;
+                self.thunk_handles = saved_thunk_handles;
                 self.reg_struct = saved_reg_struct;
                 last_reg
             }
@@ -642,9 +604,6 @@ impl<'a> IrGenerator<'a> {
                     Expr::Var(v) => self.current_shadow_var.as_deref() == Some(&v.name),
                     _ => false,
                 };
-                // in_place optimization is only safe when there's a single update,
-                // because the value expressions of subsequent updates may read the
-                // same variable — which would get Unit after the first take.
                 let mut current_r = base_r;
                 for (i, uf) in u.updates.iter().enumerate() {
                     let in_place = i == 0 && is_same_var && u.updates.len() == 1;
@@ -824,6 +783,7 @@ impl<'a> IrGenerator<'a> {
 
         // Save IR gen state
         let saved_var_map = self.var_map.clone();
+        let saved_thunk_handles = self.thunk_handles.clone();
         let saved_reg_struct = self.reg_struct.clone();
         let saved_tuple_types = self.tuple_elem_types.clone();
         let saved_reg = self.next_reg;
@@ -853,6 +813,7 @@ impl<'a> IrGenerator<'a> {
 
         // Restore IR gen state
         self.var_map = saved_var_map;
+        self.thunk_handles = saved_thunk_handles;
         self.reg_struct = saved_reg_struct;
         self.tuple_elem_types = saved_tuple_types;
         self.next_reg = saved_reg;
@@ -960,15 +921,14 @@ impl<'a> IrGenerator<'a> {
         let l_merge = self.fresh_label("merge");
         let mut arm_results: Vec<(usize, String)> = Vec::new();
 
-        // Emit EnumDisc for the scrutinee — applies to both 2-arm and N-arm matches
+        // Emit EnumDisc for the scrutinee
         let disc_reg = self.fresh_reg();
         block.instrs.push(Instr::EnumDisc(disc_reg, scrut_reg));
 
         let mut chain_block = block.clone();
         let arms_len = m.arms.len();
 
-        // Build chain of comparisons: for each arm i, check tag == i,
-        // branch to arm block or fall through to check next tag
+        // Build chain of comparisons
         let chain_labels: Vec<String> = (0..arms_len).map(|_| self.fresh_label("L")).collect();
         let test_labels: Vec<String> = (0..arms_len-1).map(|_| self.fresh_label("L")).collect();
 
@@ -982,7 +942,6 @@ impl<'a> IrGenerator<'a> {
                 self.extra_blocks.push(chain_block.clone());
                 chain_block = BasicBlock::new(test_labels[i].clone());
             } else {
-                // Last arm: unconditional jump
                 chain_block.terminator = Terminator::Jmp(chain_labels[i].clone());
                 self.extra_blocks.push(chain_block.clone());
             }
@@ -991,10 +950,7 @@ impl<'a> IrGenerator<'a> {
         // Compile each arm body
         for i in 0..arms_len {
             let mut arm_block = BasicBlock::new(chain_labels[i].clone());
-
-            // Handle pattern: if pattern is a variant pattern, bind payload variable
             self.resolve_match_pattern(&m.arms[i].pattern, scrut_reg, &mut arm_block);
-
             let arm_reg = self.compile_expr(&m.arms[i].body, &mut arm_block);
             arm_block.terminator = Terminator::Jmp(l_merge.clone());
             arm_results.push((arm_reg, arm_block.label.clone()));
@@ -1137,9 +1093,6 @@ fn collect_free_vars_impl(expr: &Expr, bound: &std::collections::HashSet<&str>, 
             }
         }
         Expr::Block(b) => {
-            // Process each statement sequentially: resolve expression FIRST,
-            // then add the def name to inner_bound. This ensures that
-            // `def x = x + 1` captures the OUTER x (not the new binding).
             let mut inner_bound = bound.clone();
             for stmt in &b.stmts {
                 if let Some(def) = &stmt.def {
@@ -1185,7 +1138,7 @@ fn collect_free_vars_impl(expr: &Expr, bound: &std::collections::HashSet<&str>, 
             }
         }
         Expr::Cast(c) => { collect_free_vars_impl(&c.expr, bound, fvs); }
-        _ => {} // literals, unit — no free vars
+        _ => {}
     }
 }
 
@@ -1212,7 +1165,7 @@ mod tests {
     #[test]
     fn generate_simple_arithmetic() {
         let ir = generate("def x = 40 + 2;");
-        assert!(ir.contains("thunk @x"), "Expected thunk, got:\n{}", ir);
+        assert!(ir.contains("fn @x"), "Expected fn, got:\n{}", ir);
         assert!(ir.contains("add"));
     }
 
