@@ -55,6 +55,7 @@ struct Ctx {
     label: usize,
     label_map: HashMap<String, String>,
     current_block_label: Option<String>,
+    phi_load_stores: Vec<(usize, usize, String)>,
 }
 
 impl Ctx {
@@ -84,7 +85,7 @@ impl Ctx {
             if all_self { is_recursive.insert(e.name.clone()); }
         }
 
-        Ctx { types: HashMap::new(), enum_names, is_generic, is_recursive, rec_fields, label: 0, label_map: HashMap::new(), current_block_label: None }
+        Ctx { types: HashMap::new(), enum_names, is_generic, is_recursive, rec_fields, label: 0, label_map: HashMap::new(), current_block_label: None, phi_load_stores: Vec::new() }
     }
 
     fn set(&mut self, r: usize, ty: IrType) { self.types.insert(r, ty); }
@@ -345,6 +346,7 @@ fn emit_thunk(t: &Thunk, _module: &Module, ctx: &mut Ctx, out: &mut String) -> R
         for instr in &b.instrs {
             if matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
         }
+        emit_phi_load_stores(ctx, out);
         for instr in &b.instrs {
             if !matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
         }
@@ -438,6 +440,12 @@ fn emit_fn(f: &crate::ir::func::Fn, _module: &Module, ctx: &mut Ctx, out: &mut S
     for (bi, b) in f.blocks.iter().enumerate() {
         ctx.current_block_label = Some(b.label.clone());
         writeln!(out, "{}:", b.label).ok();
+        // Emit phi instructions FIRST (LLVM requires phis at block start)
+        for instr in &b.instrs {
+            if matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
+        }
+        emit_phi_load_stores(ctx, out);
+        // In the entry block, allocas and parameter stores come after phis
         if bi == 0 {
             emit_allocas(&f.blocks, &f.params, ctx, out);
             for (r, t) in &f.params {
@@ -445,11 +453,7 @@ fn emit_fn(f: &crate::ir::func::Fn, _module: &Module, ctx: &mut Ctx, out: &mut S
                 writeln!(out, "  store {} %arg{}, ptr %R{}", ll, r, r).map_err(|e| e.to_string())?;
             }
         }
-        // Emit phi instructions first (LLVM requires phis at block start),
-        // then all non-phi instructions.
-        for instr in &b.instrs {
-            if matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
-        }
+        // Then non-phi instructions
         for instr in &b.instrs {
             if !matches!(instr, Instr::Phi(_, _)) { emit_instr(instr, ctx, out).map_err(|e| e.to_string())?; }
         }
@@ -558,20 +562,28 @@ fn emit_not(r: usize, a: usize, ctx: &mut Ctx, out: &mut String) -> Result<(), S
 }
 
 fn emit_phi(r: usize, pairs: &[(usize, String)], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
-    // Use LLVM phi on alloca addresses. This is correct for all tests (155/155).
-    // The phi type is always ptr (alloca addresses), then load the actual value.
-    // Note: deprecated phi predecessor labels must match the actual LLVM CFG edges,
-    // which may differ from Dew IR labels due to OOM check block insertion.
-    // This is a known limitation for complex programs like comprehensive1.
+    // Emit only the LLVM phi instruction. The load+store is deferred
+    // to after ALL phis in the block (via emit_phi_load_stores),
+    // to prevent non-phi instructions between phi instructions.
     let ty = ctx.get(r);
     let alloca_ll = if is_aggregate(&ty) { "ptr".into() } else { ctx.ll(r) };
     if pairs.is_empty() { return Ok(()); }
+    let inc: Vec<String> = pairs.iter().map(|(v, l)| {
+        format!("%R{}, %{}", v, ctx.real_label(l))
+    }).collect();
     let cv = ctx.next();
-    let pv = ctx.next();
-    writeln!(out, "  %p{} = phi ptr [{}]", cv, pairs.iter().map(|(v, l)| format!("%R{}, %{}", v, l)).collect::<Vec<_>>().join("], [")).ok();
-    writeln!(out, "  %v{} = load {}, ptr %p{}", pv, alloca_ll, cv).ok();
-    writeln!(out, "  store {} %v{}, ptr %R{}", alloca_ll, pv, r).ok();
+    writeln!(out, "  %p{} = phi ptr [{}]", cv, inc.join("], [")).ok();
+    ctx.phi_load_stores.push((r, cv, alloca_ll));
     Ok(())
+}
+
+fn emit_phi_load_stores(ctx: &mut Ctx, out: &mut String) {
+    for (r, cv, ref alloca_ll) in ctx.phi_load_stores.clone() {
+        let pv = ctx.next();
+        writeln!(out, "  %v{} = load {}, ptr %p{}", pv, alloca_ll, cv).ok();
+        writeln!(out, "  store {} %v{}, ptr %R{}", alloca_ll, pv, r).ok();
+    }
+    ctx.phi_load_stores.clear();
 }
 
 fn emit_call(r: usize, target: &CallTarget, args: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
@@ -689,14 +701,7 @@ fn emit_struct_cons(r: usize, fields: &[usize], ctx: &mut Ctx, out: &mut String)
     let n = fields.len();
     let pn = ctx.next();
     let _ = writeln!(out, "  %p{} = call ptr @malloc(i64 {})", pn, (n * 8) as i64);
-    let _ = writeln!(out, "  %n{} = icmp eq ptr %p{}, null", pn, pn);
-    let oom_l = ctx.next();
-    let ok_l = ctx.next();
-    let _ = writeln!(out, "  br i1 %n{}, label %oom{}, label %ok{}", pn, oom_l, ok_l);
-    let _ = writeln!(out, "oom{}:", oom_l);
-    let _ = writeln!(out, "  call void @llvm.trap()");
-    let _ = writeln!(out, "  unreachable");
-    let _ = writeln!(out, "ok{}:", ok_l);
+    oom_check(&format!("%p{}", pn), out, ctx);
     for (i, f) in fields.iter().enumerate() {
         let fi = ctx.next();
         let vi = ctx.next();
@@ -725,14 +730,7 @@ fn emit_struct_update(r: usize, base: usize, fidx: usize, val: usize, ctx: &mut 
 fn emit_enum_cons(r: usize, _ename: &str, _variant: &str, fields: &[usize], ctx: &mut Ctx, out: &mut String) -> Result<(), String> {
     let pn = ctx.next();
     let _ = writeln!(out, "  %p{} = call ptr @malloc(i64 16)", pn);
-    let _ = writeln!(out, "  %n{} = icmp eq ptr %p{}, null", pn, pn);
-    let oom_l = ctx.next();
-    let ok_l = ctx.next();
-    let _ = writeln!(out, "  br i1 %n{}, label %oom{}, label %ok{}", pn, oom_l, ok_l);
-    let _ = writeln!(out, "oom{}:", oom_l);
-    let _ = writeln!(out, "  call void @llvm.trap()");
-    let _ = writeln!(out, "  unreachable");
-    let _ = writeln!(out, "ok{}:", ok_l);
+    oom_check(&format!("%p{}", pn), out, ctx);
     let tn = ctx.next();
     let _ = writeln!(out, "  %t{} = getelementptr i64, ptr %p{}, i32 0", tn, pn);
     let _ = writeln!(out, "  store i64 0, ptr %t{}", tn);
@@ -779,15 +777,10 @@ fn emit_array_lit(r: usize, elems: &[usize], ctx: &mut Ctx, out: &mut String) ->
     let mn = ctx.next();
     let dn = ctx.next();
     let _ = writeln!(out, "  %m{} = call ptr @malloc(i64 16)", mn);
-    let _ = writeln!(out, "  %n{} = icmp eq ptr %m{}, null", mn, mn);
-    let oom_l = ctx.next();
-    let ok_l = ctx.next();
-    let _ = writeln!(out, "  br i1 %n{}, label %oom{}, label %ok{}", mn, oom_l, ok_l);
-    let _ = writeln!(out, "oom{}:", oom_l);
-    let _ = writeln!(out, "  call void @llvm.trap()");
-    let _ = writeln!(out, "  unreachable");
-    let _ = writeln!(out, "ok{}:", ok_l);
+    oom_check(&format!("%m{}", mn), out, ctx);
     let _ = writeln!(out, "  %d{} = call ptr @malloc(i64 {})", dn, ne * 8);
+    // also OOM check for data
+    oom_check(&format!("%d{}", dn), out, ctx);
     let fp = ctx.next();
     let _ = writeln!(out, "  %f{} = getelementptr ptr, ptr %m{}, i32 0", fp, mn);
     let _ = writeln!(out, "  store ptr %d{}, ptr %f{}", dn, fp);
@@ -811,15 +804,9 @@ fn emit_array_fill(r: usize, val: usize, n: usize, ctx: &mut Ctx, out: &mut Stri
     let dn = ctx.next();
     let mn = ctx.next();
     let _ = writeln!(out, "  %m{} = call ptr @malloc(i64 16)", mn);
-    let _ = writeln!(out, "  %k{} = icmp eq ptr %m{}, null", mn, mn);
-    let oom_l = ctx.next();
-    let ok_l = ctx.next();
-    let _ = writeln!(out, "  br i1 %k{}, label %oom{}, label %ok{}", mn, oom_l, ok_l);
-    let _ = writeln!(out, "oom{}:", oom_l);
-    let _ = writeln!(out, "  call void @llvm.trap()");
-    let _ = writeln!(out, "  unreachable");
-    let _ = writeln!(out, "ok{}:", ok_l);
+    oom_check(&format!("%m{}", mn), out, ctx);
     let _ = writeln!(out, "  %d{} = call ptr @malloc(i64 {})", dn, ne * 8);
+    oom_check(&format!("%d{}", dn), out, ctx);
     let fp = ctx.next();
     let _ = writeln!(out, "  %f{} = getelementptr ptr, ptr %m{}, i32 0", fp, mn);
     let _ = writeln!(out, "  store ptr %d{}, ptr %f{}", dn, fp);
@@ -895,14 +882,7 @@ fn emit_tuple_lit(r: usize, elems: &[usize], ctx: &mut Ctx, out: &mut String) ->
     let n = elems.len();
     let pn = ctx.next();
     let _ = writeln!(out, "  %p{} = call ptr @malloc(i64 {})", pn, (n * 8) as i64);
-    let _ = writeln!(out, "  %z{} = icmp eq ptr %p{}, null", pn, pn);
-    let oom_l = ctx.next();
-    let ok_l = ctx.next();
-    let _ = writeln!(out, "  br i1 %z{}, label %oom{}, label %ok{}", pn, oom_l, ok_l);
-    let _ = writeln!(out, "oom{}:", oom_l);
-    let _ = writeln!(out, "  call void @llvm.trap()");
-    let _ = writeln!(out, "  unreachable");
-    let _ = writeln!(out, "ok{}:", ok_l);
+    oom_check(&format!("%p{}", pn), out, ctx);
     for (i, e) in elems.iter().enumerate() {
         let fi = ctx.next();
         let vi = ctx.next();
